@@ -185,6 +185,19 @@ El `docker-compose.yml` configura:
 - `VITE_API_URL=http://localhost:4000` para el frontend.
 - El backend ejecuta automáticamente `npx prisma migrate dev --name init` antes de arrancar en modo dev.
 
+### Despliegue en producción (Arch Linux / servidor)
+
+Ver `docs/DEPLOY.md` para la guía completa. Resumen rápido:
+
+```bash
+cp .env.prod.example .env
+# editar .env con contraseñas seguras
+docker compose -f docker-compose.prod.yml up --build -d
+docker compose -f docker-compose.prod.yml exec backend npx prisma migrate deploy
+```
+
+Esto levanta PostgreSQL + backend (build de producción) + nginx (sirviendo frontend estático).
+
 ---
 
 ## 5. Modelo de datos principal

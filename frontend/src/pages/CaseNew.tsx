@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api } from '../api/client'
+import { api, API_BASE } from '../api/client'
 import { useCrypto } from '../hooks/useCrypto'
 import type { CaseItem } from '../types'
 
@@ -64,7 +64,7 @@ export default function CaseNew() {
         formData.append('blob', encryptedBlob, `${created.id}.enc`)
         formData.append('retentionPolicy', 'Temporal72h')
 
-        await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:4000'}/packages/upload`, {
+        await fetch(`${API_BASE}/packages/upload`, {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${localStorage.getItem('ocean_token') || ''}`,

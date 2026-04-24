@@ -92,7 +92,13 @@ npm run build
 echo "[8/9] Compilando frontend..."
 cd "$FRONTEND_DIR"
 npm install   # npm install en vez de npm ci porque el lockfile puede estar desincronizado
-VITE_API_URL="http://$(hostname -f || hostname):4000" npm run build
+
+# Crear .env para que Vite inyecte la URL correcta en el build
+API_HOST="$(hostname -f 2>/dev/null || hostname)"
+echo "VITE_API_URL=http://$API_HOST:4000" > .env
+
+cat .env
+npm run build
 
 # 9. Servicio systemd para backend
 echo "[9/9] Creando servicio systemd..."

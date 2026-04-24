@@ -49,7 +49,8 @@ export default function Dashboard() {
 
   const respondRequest = async (id: string, action: 'Accepted' | 'Rejected') => {
     try {
-      await api.post(`/requests/${id}/${action.toLowerCase()}`)
+      const endpoint = action === 'Accepted' ? 'accept' : 'reject'
+      await api.post(`/requests/${id}/${endpoint}`)
       setPending((prev) => prev.filter((r) => r.id !== id))
       if (action === 'Accepted') {
         const updated = await api.get<ReviewRequest[]>('/requests/active')

@@ -51,6 +51,11 @@ app.use('/comments', commentRoutes)
 app.use('/teaching', teachingRoutes)
 app.use('/packages', packageRoutes)
 
+// 404 handler (ruta no encontrada)
+app.use((_req: express.Request, res: express.Response) => {
+  res.status(404).json({ error: 'Endpoint no encontrado' })
+})
+
 // Error handler
 app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(`[OCEAN ERROR] ${req.method} ${req.url} —`, err.message || err)

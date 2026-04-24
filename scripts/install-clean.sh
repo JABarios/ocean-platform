@@ -30,6 +30,7 @@ git checkout v0.2.0-stable
 # 5. Instalar dependencias y build
 echo "[5/6] Instalando dependencias..."
 cd backend
+cp .env.example .env
 npm install
 npx prisma generate
 npx prisma db push --accept-data-loss

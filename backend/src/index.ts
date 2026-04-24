@@ -22,6 +22,15 @@ const corsOrigin = process.env.CORS_ORIGIN
     : process.env.CORS_ORIGIN.split(',').map(o => o.trim())
   : ['http://localhost:5173', 'http://127.0.0.1:5173']
 
+// Log de configuración al arrancar
+console.log(`[OCEAN] CORS_ORIGIN configurado: ${JSON.stringify(corsOrigin)}`)
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin || '(sin origin)'
+  console.log(`[OCEAN] ${req.method} ${req.url} | Origin: ${origin} | IP: ${req.ip || req.socket.remoteAddress}`)
+  next()
+})
+
 app.use(cors({
   origin: corsOrigin,
   credentials: true,
@@ -43,9 +52,9 @@ app.use('/teaching', teachingRoutes)
 app.use('/packages', packageRoutes)
 
 // Error handler
-app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error(err)
-  res.status(500).json({ error: 'Error interno del servidor' })
+app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error(`[OCEAN ERROR] ${req.method} ${req.url} —`, err.message || err)
+  res.status(500).json({ error: 'Error interno del servidor', detail: err.message || undefined })
 })
 
 startCleanupJob()

@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
+import { API_BASE } from '../api/client'
 
 export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [debugInfo, setDebugInfo] = useState('')
   const login = useAuthStore((s) => s.login)
   const token = useAuthStore((s) => s.token)
   const isLoading = useAuthStore((s) => s.isLoading)
@@ -20,10 +22,13 @@ export default function Login() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+    setDebugInfo(`Intentando conectar a: ${API_BASE}/auth/login`)
     try {
       await login(email, password)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al iniciar sesión')
+    } catch (err: any) {
+      const msg = err instanceof Error ? err.message : 'Error desconocido'
+      setError(msg)
+      console.error('[OCEAN Login] Error completo:', err)
     }
   }
 
@@ -52,7 +57,12 @@ export default function Login() {
               required
             />
           </label>
-          {error && <div className="error">{error}</div>}
+          {error && (
+            <div className="error">
+              <div>{error}</div>
+              {debugInfo && <div className="debug">{debugInfo}</div>}
+            </div>
+          )}
           <button type="submit" className="btn-primary" disabled={isLoading}>
             {isLoading ? 'Entrando…' : 'Entrar'}
           </button>
@@ -99,6 +109,12 @@ export default function Login() {
         .error {
           color: var(--danger);
           font-size: 0.85rem;
+        }
+        .error .debug {
+          color: var(--text-secondary);
+          font-size: 0.75rem;
+          margin-top: 0.25rem;
+          font-family: ui-monospace, monospace;
         }
         .auth-footer {
           margin-top: 1rem;

@@ -47,6 +47,9 @@ export const useAuthStore = create<AuthState>()(
           })
           localStorage.setItem('ocean_token', res.token)
           set({ token: res.token, user: res.user })
+        } catch (err) {
+          set({ isLoading: false })
+          throw err
         } finally {
           set({ isLoading: false })
         }
@@ -58,6 +61,9 @@ export const useAuthStore = create<AuthState>()(
           const res = await api.post<{ token: string; user: User }>('/auth/register', data)
           localStorage.setItem('ocean_token', res.token)
           set({ token: res.token, user: res.user })
+        } catch (err) {
+          set({ isLoading: false })
+          throw err
         } finally {
           set({ isLoading: false })
         }

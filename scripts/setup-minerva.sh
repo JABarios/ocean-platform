@@ -76,8 +76,13 @@ echo "  → .env creado en backend/.env"
 
 # 6. Prisma migrate + seed
 echo "[6/9] Creando schema de base de datos..."
+# Cambiar provider a postgresql temporalmente (el schema es compatible)
+cp prisma/schema.prisma prisma/schema.prisma.bak
+sed -i 's/provider = "sqlite"/provider = "postgresql"/' prisma/schema.prisma
 npx prisma generate
-npx prisma migrate deploy
+npx prisma db push --accept-data-loss
+# Restaurar schema original para no ensuciar el repo
+cp prisma/schema.prisma.bak prisma/schema.prisma
 
 # 7. Compilar backend
 echo "[7/9] Compilando backend..."

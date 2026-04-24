@@ -1,0 +1,202 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  displayName  String   @map("display_name")
+  institution  String?
+  specialty    String?
+  role         String   @default("Clinician")
+  status       String   @default("Pending")
+  passwordHash String?  @map("password_hash")
+  publicKey    String?  @map("public_key")
+  preferences  String?  @default("{}")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  ownedCases         Case[]
+  reviewRequests     ReviewRequest[] @relation("RequestedBy")
+  targetRequests     ReviewRequest[] @relation("TargetUser")
+  comments           Comment[]
+  teachingProposals  TeachingProposal[]
+  auditEvents        AuditEvent[]
+  groupMemberships   GroupMember[]
+  recommendations    TeachingRecommendation[]
+
+  @@map("users")
+}
+
+model Group {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  type        String   @default("Closed")
+  rules       String?  @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  members        GroupMember[]
+  targetRequests ReviewRequest[] @relation("TargetGroup")
+
+  @@map("groups")
+}
+
+model GroupMember {
+  id       String   @id @default(uuid())
+  userId   String   @map("user_id")
+  groupId  String   @map("group_id")
+  role     String   @default("member")
+  joinedAt DateTime @default(now()) @map("joined_at")
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, groupId])
+  @@map("group_members")
+}
+
+model Case {
+  id                String    @id @default(uuid())
+  ownerId           String    @map("owner_id")
+  title             String?
+  clinicalContext   String?   @map("clinical_context")
+  ageRange          String?   @map("age_range")
+  studyReason       String?   @map("study_reason")
+  modality          String    @default("EEG")
+  tags              String?   @default("[]")
+  statusClinical    String    @default("Draft") @map("status_clinical")
+  statusTeaching    String    @default("None") @map("status_teaching")
+  visibility        String    @default("Private")
+  summaryMetrics    String?   @map("summary_metrics")
+  resolutionSummary String?   @map("resolution_summary")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  resolvedAt        DateTime? @map("resolved_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  owner             User             @relation(fields: [ownerId], references: [id])
+  package           CasePackage?
+  reviewRequests    ReviewRequest[]
+  comments          Comment[]
+  teachingProposals TeachingProposal[]
+  auditEvents       AuditEvent[]
+
+  @@map("cases")
+}
+
+model CasePackage {
+  id                   String    @id @default(uuid())
+  caseId               String    @unique @map("case_id")
+  packageFormatVersion String    @default("1.0") @map("package_format_version")
+  encryptionMode       String    @default("AES256-GCM") @map("encryption_mode")
+  blobLocation         String    @map("blob_location")
+  blobHash             String?   @map("blob_hash")
+  sizeBytes            Int?      @map("size_bytes")
+  uploadStatus         String    @default("Uploading") @map("upload_status")
+  retentionPolicy      String    @default("UntilReviewClose") @map("retention_policy")
+  expiresAt            DateTime? @map("expires_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  case Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@map("case_packages")
+}
+
+model ReviewRequest {
+  id            String    @id @default(uuid())
+  caseId        String    @map("case_id")
+  requestedBy   String    @map("requested_by")
+  targetUserId  String?   @map("target_user_id")
+  targetGroupId String?   @map("target_group_id")
+  status        String    @default("Pending")
+  message       String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+  acceptedAt    DateTime? @map("accepted_at")
+  completedAt   DateTime? @map("completed_at")
+  expiresAt     DateTime? @map("expires_at")
+
+  case        Case    @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  requester   User    @relation("RequestedBy", fields: [requestedBy], references: [id])
+  targetUser  User?   @relation("TargetUser", fields: [targetUserId], references: [id])
+  targetGroup Group?  @relation("TargetGroup", fields: [targetGroupId], references: [id])
+  comments    Comment[]
+
+  @@map("review_requests")
+}
+
+model Comment {
+  id             String    @id @default(uuid())
+  caseId         String    @map("case_id")
+  authorId       String    @map("author_id")
+  requestId      String?   @map("request_id")
+  body           String
+  type           String    @default("Comment")
+  optionalAnchor String?   @map("optional_anchor")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  case    Case           @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  author  User           @relation(fields: [authorId], references: [id])
+  request ReviewRequest? @relation(fields: [requestId], references: [id])
+
+  @@map("comments")
+}
+
+model TeachingProposal {
+  id              String    @id @default(uuid())
+  caseId          String    @map("case_id")
+  proposerId      String    @map("proposer_id")
+  status          String    @default("Proposed")
+  summary         String?
+  keyFindings     String?   @map("key_findings")
+  learningPoints  String?   @map("learning_points")
+  difficulty      String?   @default("Intermediate")
+  tags            String?   @default("[]")
+  validatedBy     String?   @map("validated_by")
+  validatedAt     DateTime? @map("validated_at")
+  rejectionReason String?   @map("rejection_reason")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  case            Case                     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  proposer        User                     @relation(fields: [proposerId], references: [id])
+  recommendations TeachingRecommendation[]
+
+  @@map("teaching_proposals")
+}
+
+model TeachingRecommendation {
+  id         String   @id @default(uuid())
+  proposalId String   @map("proposal_id")
+  authorId   String   @map("author_id")
+  rationale  String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  proposal TeachingProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  author   User           @relation(fields: [authorId], references: [id])
+
+  @@unique([proposalId, authorId])
+  @@map("teaching_recommendations")
+}
+
+model AuditEvent {
+  id        String   @id @default(uuid())
+  actorId   String   @map("actor_id")
+  caseId    String?  @map("case_id")
+  action    String
+  timestamp DateTime @default(now())
+  target    String?
+  metadata  String?  @default("{}")
+
+  actor User  @relation(fields: [actorId], references: [id])
+  case  Case? @relation(fields: [caseId], references: [id])
+
+  @@map("audit_events")
+}

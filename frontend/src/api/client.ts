@@ -69,12 +69,14 @@ async function request<T>(
   }
 
   if (!response.ok) {
-    let errorText = ''
+    // Leer el body UNA sola vez como texto, luego intentar parsear JSON
+    const rawText = await response.text()
+    let errorText = rawText
     try {
-      const json = await response.json()
+      const json = JSON.parse(rawText)
       errorText = json.error || JSON.stringify(json)
     } catch {
-      errorText = await response.text()
+      // No es JSON válido, usar el texto crudo
     }
     console.error(`[OCEAN API] HTTP ${response.status} en ${url}: ${errorText}`)
     throw new ApiError(

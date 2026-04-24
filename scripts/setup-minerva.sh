@@ -91,7 +91,7 @@ npm run build
 # 8. Frontend — build estático
 echo "[8/9] Compilando frontend..."
 cd "$FRONTEND_DIR"
-npm ci
+npm install   # npm install en vez de npm ci porque el lockfile puede estar desincronizado
 VITE_API_URL="http://$(hostname -f || hostname):4000" npm run build
 
 # 9. Servicio systemd para backend

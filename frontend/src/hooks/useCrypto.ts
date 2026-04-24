@@ -24,8 +24,20 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
   return bytes.buffer
 }
 
+export function isCryptoAvailable(): boolean {
+  return typeof window !== 'undefined' && !!window.crypto?.subtle
+}
+
 export function useCrypto() {
   const encryptFile = useCallback(async (file: File): Promise<EncryptionResult> => {
+    if (!isCryptoAvailable()) {
+      throw new Error(
+        'El cifrado del navegador no está disponible. ' +
+        'Accede a OCEAN mediante https:// o desde localhost (127.0.0.1). ' +
+        'Las conexiones por IP de red local (http://192.168.x.x) no permiten cifrado.'
+      )
+    }
+
     const fileBuffer = await file.arrayBuffer()
 
     const key = await crypto.subtle.generateKey(

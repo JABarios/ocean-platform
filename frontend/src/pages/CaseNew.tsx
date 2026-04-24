@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, API_BASE } from '../api/client'
-import { useCrypto } from '../hooks/useCrypto'
+import { useCrypto, isCryptoAvailable } from '../hooks/useCrypto'
 import type { CaseItem } from '../types'
 
 export default function CaseNew() {
@@ -148,11 +148,18 @@ export default function CaseNew() {
 
         <label>
           Archivo EEG (.edf)
+          {!isCryptoAvailable() && (
+            <div className="crypto-warning">
+              ⚠️ El cifrado no está disponible desde esta URL.
+              Accede a OCEAN mediante <strong>https://</strong> o desde <strong>localhost</strong>.
+            </div>
+          )}
           <input
             ref={fileInputRef}
             type="file"
             accept=".edf"
             onChange={handleFileChange}
+            disabled={!isCryptoAvailable()}
           />
           <span className="file-hint">
             {selectedFile
@@ -246,6 +253,15 @@ export default function CaseNew() {
           font-size: 0.8rem;
           color: #166534;
           margin-top: 0.35rem;
+        }
+        .crypto-warning {
+          background: #fef3c7;
+          border: 1px solid #f59e0b;
+          color: #92400e;
+          padding: 0.5rem 0.75rem;
+          border-radius: 0.35rem;
+          font-size: 0.8rem;
+          margin-bottom: 0.5rem;
         }
         .form-actions {
           display: flex;

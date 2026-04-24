@@ -1,4 +1,8 @@
-export const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000'
+// Si VITE_API_URL está definida en build-time, la usamos.
+// Si no, inferimos desde window.location (misma IP que el frontend, puerto 4000).
+// Esto evita recompilar cuando cambia la IP de la máquina.
+export const API_BASE = import.meta.env.VITE_API_URL
+  || `${window.location.protocol}//${window.location.hostname}:4000`
 
 class ApiError extends Error {
   public status: number

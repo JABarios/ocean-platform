@@ -1,8 +1,8 @@
 #!/bin/bash
 # OCEAN — Modo desarrollo
 # Uso:
-#   ./scripts/run-dev.sh              → Solo localhost (Minerva misma)
-#   ./scripts/run-dev.sh --network    → Accesible desde la red local
+#   ./scripts/run-dev.sh              → Solo localhost
+#   ./scripts/run-dev.sh --network    → Accesible desde red local
 
 set -e
 
@@ -23,15 +23,14 @@ fi
 echo ""
 
 # Backend
-echo "[1/4] Preparando backend..."
+echo "[1/3] Preparando backend..."
 cd backend
 
 cp .env.example .env
 
-# Si modo red, añadir la IP al CORS
+# Si modo red, abrir CORS a cualquier origen (práctico para LAN)
 if [ "$NETWORK_MODE" = true ]; then
-  echo "CORS_ORIGIN=http://localhost:5173,http://127.0.0.1:5173,http://$IP_LOCAL:5173" >> .env
-  echo "  → CORS permite acceso desde http://$IP_LOCAL:5173"
+  echo "CORS_ORIGIN=*" >> .env
 fi
 
 if [ ! -d "node_modules" ]; then
@@ -50,7 +49,7 @@ cd ..
 
 # Frontend
 echo ""
-echo "[2/4] Preparando frontend..."
+echo "[2/3] Preparando frontend..."
 cd frontend
 
 if [ ! -d "node_modules" ]; then
@@ -58,16 +57,11 @@ if [ ! -d "node_modules" ]; then
   npm install
 fi
 
-# Configurar API URL
-if [ "$NETWORK_MODE" = true ]; then
-  echo "VITE_API_URL=http://$IP_LOCAL:4000" > .env
-  echo "  → Frontend apunta a http://$IP_LOCAL:4000"
-else
-  echo "VITE_API_URL=http://localhost:4000" > .env
-fi
+# Compilar una sola vez (el JS detectará la IP en runtime)
+npm run build
 
-echo "  → Frontend listo. Arrancando..."
-npm run dev -- --host &
+echo "  → Frontend listo. Sirviendo build estático..."
+python -m http.server 5173 --directory dist --bind 0.0.0.0 &
 FRONTEND_PID=$!
 cd ..
 
@@ -78,18 +72,15 @@ echo "========================================"
 if [ "$NETWORK_MODE" = true ]; then
   echo "  Frontend: http://$IP_LOCAL:5173"
   echo "  Backend:  http://$IP_LOCAL:4000"
-  echo "  Accesible desde cualquier PC de la red local"
+  echo "  Accesible desde cualquier PC de la red"
 else
   echo "  Frontend: http://localhost:5173"
   echo "  Backend:  http://localhost:4000"
-  echo "  Solo desde esta máquina"
 fi
 echo ""
-echo "Credenciales de prueba (password: ocean123):"
-echo "  clinician@ocean.local"
-echo "  reviewer@ocean.local"
-echo "  curator@ocean.local"
-echo "  admin@ocean.local"
+echo "Credenciales (password: ocean123):"
+echo "  clinician@ocean.local, reviewer@ocean.local"
+echo "  curator@ocean.local, admin@ocean.local"
 echo ""
 echo "Para parar: Ctrl+C"
 echo ""

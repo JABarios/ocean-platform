@@ -1,0 +1,14 @@
+[Unit]
+Description=OCEAN Development Server (backend + frontend)
+After=network.target
+
+[Service]
+Type=simple
+User=%I
+WorkingDirectory=/home/%I/ocean-platform
+ExecStart=/home/%I/ocean-platform/scripts/run-dev.sh --network
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

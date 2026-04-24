@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom'
+import { vi } from 'vitest'
 
 // Mock de matchMedia para jsdom
 Object.defineProperty(window, 'matchMedia', {

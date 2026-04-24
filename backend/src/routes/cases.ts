@@ -97,6 +97,7 @@ router.get('/:id', async (req: AuthenticatedRequest, res) => {
     },
     include: {
       owner: { select: { id: true, displayName: true, email: true } },
+      package: true,
       reviewRequests: {
         include: {
           requester: { select: { id: true, displayName: true } },

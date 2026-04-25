@@ -5,7 +5,7 @@
 set -e
 
 REPO="git@github.com:JABarios/ocean-platform.git"
-TAG="v0.2.2-stable"
+TAG="v0.3.0-stable"
 DIR="ocean-platform"
 
 echo "=== OCEAN — Instalación en máquina nueva ==="

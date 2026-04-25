@@ -25,6 +25,13 @@ ocean_down() {
 
 ocean_up() {
   ocean_down >/dev/null 2>&1
+
+  # Compilar frontend si no existe dist/
+  if [ ! -d ~/ocean-platform/frontend/dist ]; then
+    echo "Compilando frontend..."
+    (cd ~/ocean-platform/frontend && npm run build >/dev/null 2>&1)
+  fi
+
   (cd ~/ocean-platform/backend && nohup npm run dev >/dev/null 2>&1 &)
   sleep 3
   (cd ~/ocean-platform/frontend/dist && nohup python -m http.server 5173 --bind 0.0.0.0 >/dev/null 2>&1 &)

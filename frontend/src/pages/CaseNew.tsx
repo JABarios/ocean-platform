@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api, friendlyError } from '../api/client'
+import { api, API_BASE, friendlyError } from '../api/client'
 import { useAuthStore } from '../store/authStore'
 import { useCrypto, isCryptoAvailable } from '../hooks/useCrypto'
 import type { CaseItem } from '../types'
@@ -66,13 +66,17 @@ export default function CaseNew() {
         formData.append('blob', encryptedBlob, `${created.id}.enc`)
         formData.append('retentionPolicy', 'Temporal72h')
 
-        await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:4000'}/packages/upload`, {
+        const uploadRes = await fetch(`${API_BASE}/packages/upload`, {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${token || ''}`,
           },
           body: formData,
         })
+        if (!uploadRes.ok) {
+          const errText = await uploadRes.text()
+          throw new Error(`Error al subir el paquete: ${errText || uploadRes.status}`)
+        }
       }
 
       navigate(`/cases/${created.id}`)

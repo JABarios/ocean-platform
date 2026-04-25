@@ -22,7 +22,10 @@ if (process.env.NODE_ENV !== 'test') {
   }
   const KNOWN_DEV_SECRETS = ['dev-secret-change-me', 'dev-secret-ocean-platform-2026']
   if (KNOWN_DEV_SECRETS.includes(process.env.JWT_SECRET!)) {
-    throw new Error('[OCEAN] JWT_SECRET tiene un valor de desarrollo conocido. Genera uno propio con: openssl rand -hex 64')
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('[OCEAN] JWT_SECRET tiene un valor de desarrollo conocido. Genera uno propio con: openssl rand -hex 64')
+    }
+    console.warn('[OCEAN] ⚠️  JWT_SECRET usa valor de desarrollo. En producción genera uno propio con: openssl rand -hex 64')
   }
 }
 

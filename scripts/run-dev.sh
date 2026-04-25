@@ -26,11 +26,19 @@ echo ""
 echo "[1/3] Preparando backend..."
 cd backend
 
-cp .env.example .env
+# Solo crear .env si no existe (preserva JWT_SECRET y configuración local)
+if [ ! -f ".env" ]; then
+  cp .env.example .env
+  # Generar JWT_SECRET aleatorio si está vacío
+  if ! grep -q "JWT_SECRET=.\+" .env; then
+    JWT_RAND=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 64)
+    sed -i "s/JWT_SECRET=/JWT_SECRET=$JWT_RAND/" .env
+  fi
+fi
 
 # Si modo red, abrir CORS a cualquier origen (práctico para LAN)
 if [ "$NETWORK_MODE" = true ]; then
-  echo "CORS_ORIGIN=*" >> .env
+  grep -q "CORS_ORIGIN" .env && sed -i "s/CORS_ORIGIN=.*/CORS_ORIGIN=*/" .env || echo "CORS_ORIGIN=*" >> .env
 fi
 
 if [ ! -d "node_modules" ]; then
@@ -57,8 +65,13 @@ if [ ! -d "node_modules" ]; then
   npm install
 fi
 
-# Compilar una sola vez (el JS detectará la IP en runtime)
-npm run build
+# VITE_API_URL debe pasarse en build time (Vite lo incrusta estáticamente)
+if [ "$NETWORK_MODE" = true ]; then
+  echo "  Compilando con VITE_API_URL=http://$IP_LOCAL:4000"
+  VITE_API_URL="http://$IP_LOCAL:4000" npm run build
+else
+  npm run build
+fi
 
 echo "  → Frontend listo. Sirviendo build estático..."
 python -m http.server 5173 --directory dist --bind 0.0.0.0 &

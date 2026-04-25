@@ -1,5 +1,13 @@
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000'
 
+class ApiError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
+
 async function request<T>(
   method: string,
   endpoint: string,
@@ -18,26 +26,34 @@ async function request<T>(
     headers['Authorization'] = `Bearer ${token}`
   }
 
-  const options: RequestInit = {
-    method,
-    headers,
-  }
-
+  const options: RequestInit = { method, headers }
   if (body !== undefined) {
     options.body = JSON.stringify(body)
   }
 
-  const response = await fetch(url, options)
+  let response: Response
+  try {
+    response = await fetch(url, options)
+  } catch {
+    throw new ApiError('No se pudo conectar con el servidor', 0)
+  }
 
   if (response.status === 401) {
     localStorage.removeItem('ocean-auth')
     window.location.reload()
-    return Promise.reject(new Error('Unauthorized'))
+    throw new ApiError('Unauthorized', 401)
   }
 
   if (!response.ok) {
-    const errorText = await response.text()
-    throw new Error(errorText || `HTTP ${response.status}`)
+    // Intentar parsear JSON primero; si falla, usar texto plano
+    let message: string
+    try {
+      const json = await response.json()
+      message = json?.error ?? JSON.stringify(json)
+    } catch {
+      message = (await response.text()) || `HTTP ${response.status}`
+    }
+    throw new ApiError(message, response.status)
   }
 
   if (response.status === 204) {

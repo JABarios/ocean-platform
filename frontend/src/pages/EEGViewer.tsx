@@ -132,6 +132,8 @@ function drawEpoch(
     const margin = CHANNEL_HEIGHT * 0.1
     const drawH = CHANNEL_HEIGHT - margin * 2
 
+    if (data.length < 2) continue
+
     ctx.beginPath()
     ctx.strokeStyle = color
     ctx.lineWidth = 1
@@ -209,7 +211,7 @@ export default function EEGViewer() {
 
   const [epoch, setEpoch] = useState<EpochData | null>(null)
   const [page, setPage] = useState(0)
-  const [totalRecords, setTotalRecords] = useState(0)
+  const [totalSeconds, setTotalSeconds] = useState(0)
   const [meta, setMeta] = useState<{ subjectId: string; recordingDate: string } | null>(null)
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -281,25 +283,24 @@ export default function EEGViewer() {
       const opened = kappa.openEDF('/tmp/file.edf')
       if (!opened) throw new Error('openEDF devolvió false — archivo inválido o incompatible')
 
-      kappa.setFilters(0.5, 45, 50)
-
       const info = kappa.getMeta()
+      kappa.setFilters(0.5, 45, 50)
       kappaRef.current = kappa
       setMeta({ subjectId: info.subjectId, recordingDate: info.recordingDate })
-      setTotalRecords(Math.floor(info.numSamples / info.sampleRate))
+      setTotalSeconds(Math.floor(info.numSamples / info.sampleRate))
 
       const firstEpoch = kappa.readEpoch(0, RECORDS_PER_PAGE)
       if (!firstEpoch) throw new Error('readEpoch devolvió null')
       setEpoch(firstEpoch)
       setPage(0)
+      sessionStorage.setItem(`ocean_eeg_key_${id}`, key)
       setPhase('viewing')
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Error desconocido'
-      if (msg.includes('autenticación') || msg.toLowerCase().includes('operationerror')) {
-        setErrorMsg('Clave incorrecta — el archivo no se pudo descifrar.')
-      } else {
-        setErrorMsg(msg)
-      }
+      const isBadKey =
+        (err instanceof DOMException && err.name === 'OperationError') ||
+        msg.includes('autenticación')
+      setErrorMsg(isBadKey ? 'Clave incorrecta — el archivo no se pudo descifrar.' : msg)
       setPhase('error')
     }
   }, [id, token, decryptFile, loadModule])
@@ -324,7 +325,7 @@ export default function EEGViewer() {
     setPage(newPage)
   }, [])
 
-  const maxPage = Math.max(0, Math.ceil(totalRecords / RECORDS_PER_PAGE) - 1)
+  const maxPage = Math.max(0, Math.ceil(totalSeconds / RECORDS_PER_PAGE) - 1)
 
   // ── Keyboard navigation ───────────────────────────────────────────────────────
   useEffect(() => {

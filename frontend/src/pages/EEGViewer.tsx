@@ -73,11 +73,12 @@ const WINDOW_OPTIONS = [10, 20, 30]
 
 const GAIN_OPTIONS: { label: string; value: number }[] = [
   { label: '0.1×', value: 0.1 },
+  { label: '0.3×', value: 0.3 },
   { label: '0.5×', value: 0.5 },
+  { label: '0.7×', value: 0.7 },
   { label: '1×',   value: 1   },
   { label: '2×',   value: 2   },
   { label: '4×',   value: 4   },
-  { label: '8×',   value: 8   },
 ]
 
 type Phase =
@@ -421,6 +422,20 @@ export default function EEGViewer() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'ArrowLeft'  && page > 0)       goToPage(page - 1)
       if (e.key === 'ArrowRight' && page < maxPage)  goToPage(page + 1)
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setGainMult((prev) => {
+          const idx = GAIN_OPTIONS.findIndex(o => o.value === prev)
+          return GAIN_OPTIONS[Math.min(idx + 1, GAIN_OPTIONS.length - 1)].value
+        })
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setGainMult((prev) => {
+          const idx = GAIN_OPTIONS.findIndex(o => o.value === prev)
+          return GAIN_OPTIONS[Math.max(idx - 1, 0)].value
+        })
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)

@@ -304,6 +304,16 @@ export default function EEGViewer() {
     }
   }, [id, token, decryptFile, loadModule])
 
+  // ── Auto-start with key from sessionStorage ───────────────────────────────────
+  useEffect(() => {
+    if (!id || phase !== 'key-input') return
+    const savedKey = sessionStorage.getItem(`ocean_eeg_key_${id}`)
+    if (savedKey) {
+      setKeyInput(savedKey)
+      startViewer(savedKey)
+    }
+  }, [id, phase, startViewer])
+
   // ── Pagination ───────────────────────────────────────────────────────────────
   const goToPage = useCallback((newPage: number) => {
     const kappa = kappaRef.current
@@ -402,6 +412,23 @@ export default function EEGViewer() {
               {errorMsg}
             </div>
           )}
+
+          <div style={{
+            background: 'rgba(251,191,36,0.08)',
+            border: '1px solid rgba(251,191,36,0.25)',
+            borderRadius: 6,
+            padding: '0.75rem',
+            color: '#fbbf24',
+            fontSize: '0.8rem',
+            lineHeight: 1.5,
+          }}>
+            <strong>🔐 Clave requerida</strong>
+            <p style={{ margin: '0.4rem 0 0 0' }}>
+              OCEAN no almacena la clave de descifrado. Se mostró una sola vez al crear este caso.
+              Si eres el creador, recarga esta página — se intentará automáticamente durante esta sesión.
+              Si no, pídele la clave al clínico que subió el EEG.
+            </p>
+          </div>
 
           <form onSubmit={handleSubmitKey} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             <label style={{ color: '#94a3b8', fontSize: '0.85rem' }}>

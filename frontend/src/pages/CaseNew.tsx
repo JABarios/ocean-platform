@@ -77,6 +77,11 @@ export default function CaseNew() {
           const errText = await uploadRes.text()
           throw new Error(`Error al subir el paquete: ${errText || uploadRes.status}`)
         }
+
+        // Guardar clave en sessionStorage para que el creador pueda ver el EEG sin pegarla
+        if (decryptionKey) {
+          sessionStorage.setItem(`ocean_eeg_key_${created.id}`, decryptionKey)
+        }
       }
 
       navigate(`/cases/${created.id}`)

@@ -35,6 +35,7 @@ export const useAuthStore = create<AuthState>()(
             email,
             password,
           })
+          localStorage.setItem('ocean_token', res.token)
           set({ token: res.token, user: res.user })
         } finally {
           set({ isLoading: false })
@@ -45,6 +46,7 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true })
         try {
           const res = await api.post<{ token: string; user: User }>('/auth/register', data)
+          localStorage.setItem('ocean_token', res.token)
           set({ token: res.token, user: res.user })
         } finally {
           set({ isLoading: false })
@@ -52,6 +54,7 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: () => {
+        localStorage.removeItem('ocean_token')
         set({ token: null, user: null })
       },
 

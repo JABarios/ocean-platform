@@ -32,18 +32,7 @@ async function request<T>(
     'Content-Type': 'application/json',
   }
 
-  // Lee token de la persistencia de Zustand ('ocean-auth') con safe fallback
-  function getToken(): string | null {
-    try {
-      const raw = localStorage.getItem('ocean-auth')
-      if (!raw) return null
-      const parsed = JSON.parse(raw) as { state?: { token?: string } }
-      return parsed.state?.token ?? null
-    } catch {
-      return null
-    }
-  }
-  const token = getToken()
+  const token = localStorage.getItem('ocean_token')
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
   }
@@ -61,7 +50,7 @@ async function request<T>(
   }
 
   if (response.status === 401) {
-    localStorage.removeItem('ocean-auth')
+    localStorage.removeItem('ocean_token')
     window.location.reload()
     throw new ApiError('Unauthorized', 401)
   }

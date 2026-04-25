@@ -5,6 +5,10 @@ import { authMiddleware, AuthenticatedRequest, requireRole } from '../middleware
 
 const router = Router()
 
+class DuplicateProposalError extends Error {
+  constructor() { super('Este caso ya tiene una propuesta docente activa') }
+}
+
 const proposeSchema = z.object({
   caseId: z.string().uuid(),
   summary: z.string().min(1),
@@ -67,8 +71,25 @@ router.get('/proposals', async (req: AuthenticatedRequest, res) => {
 
 // Listar biblioteca docente (casos validados) — acceso público a usuarios autenticados
 router.get('/library', async (req: AuthenticatedRequest, res) => {
+  const { q, difficulty, tags } = req.query
+
+  const where: Record<string, unknown> = { status: 'Validated' }
+
+  if (q) {
+    const search = q as string
+    where.OR = [
+      { summary: { contains: search } },
+      { case: { title: { contains: search } } },
+      { case: { clinicalContext: { contains: search } } },
+    ]
+  }
+
+  if (difficulty) {
+    where.difficulty = difficulty as string
+  }
+
   const items = await prisma.teachingProposal.findMany({
-    where: { status: 'Validated' },
+    where,
     include: {
       case: {
         select: {
@@ -86,13 +107,22 @@ router.get('/library', async (req: AuthenticatedRequest, res) => {
     },
     orderBy: { validatedAt: 'desc' },
   })
-  const response = items.map((item) => ({
+  let response = items.map((item) => ({
     ...item,
     tags: item.tags ? JSON.parse(item.tags) : [],
     case: item.case
       ? { ...item.case, tags: item.case.tags ? JSON.parse(item.case.tags) : [] }
       : item.case,
   }))
+
+  // Filtro por tags (post-query, SQLite no soporta JSON contains nativo)
+  if (tags) {
+    const tagList = (tags as string).split(',').map((t) => t.trim().toLowerCase())
+    response = response.filter((item) =>
+      tagList.every((tag) => item.tags.some((t: string) => t.toLowerCase().includes(tag)))
+    )
+  }
+
   res.json(response)
 })
 
@@ -138,7 +168,7 @@ router.post('/proposals', async (req: AuthenticatedRequest, res) => {
         where: { caseId, status: { in: ['Proposed', 'Recommended', 'Validated'] } },
       })
       if (existing) {
-        throw Object.assign(new Error('duplicate'), { code: 'DUPLICATE_PROPOSAL' })
+        throw new DuplicateProposalError()
       }
       const created = await tx.teachingProposal.create({
         data: {
@@ -159,8 +189,8 @@ router.post('/proposals', async (req: AuthenticatedRequest, res) => {
       return created
     })
   } catch (err) {
-    if (err instanceof Error && (err as NodeJS.ErrnoException & { code?: string }).code === 'DUPLICATE_PROPOSAL') {
-      res.status(409).json({ error: 'Este caso ya tiene una propuesta docente activa' })
+    if (err instanceof DuplicateProposalError) {
+      res.status(409).json({ error: err.message })
       return
     }
     throw err

@@ -35,6 +35,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <Link to="/queue" className={navLinkClass('/queue')}>
               Cola de propuestas
             </Link>
+            {user?.role === 'Admin' && (
+              <Link to="/admin/users" className={navLinkClass('/admin/users')}>
+                Usuarios
+              </Link>
+            )}
           </nav>
           <div className="header-actions">
             {user && (

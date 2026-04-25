@@ -196,8 +196,12 @@ export default function CaseDetail() {
       const blob = new Blob([decryptedBuffer], { type: 'application/octet-stream' })
       const url = URL.createObjectURL(blob)
       setDecryptedUrl(url)
-    } catch {
-      alert('Clave incorrecta o archivo corrupto')
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'OperationError') {
+        alert('Clave incorrecta — el archivo no se pudo descifrar.')
+      } else {
+        alert('Error al descifrar: ' + (err instanceof Error ? err.message : 'Error desconocido'))
+      }
     } finally {
       setDecrypting(false)
     }

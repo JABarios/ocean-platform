@@ -16,6 +16,13 @@ cd "$(dirname "$0")/.."
 echo "=== OCEAN — Modo desarrollo ==="
 if [ "$NETWORK_MODE" = true ]; then
   IP_LOCAL=$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}')
+  if [ -z "$IP_LOCAL" ]; then
+    IP_LOCAL=$(hostname -I 2>/dev/null | awk '{print $1}')
+  fi
+  if [ -z "$IP_LOCAL" ]; then
+    echo "  ⚠️  No se pudo detectar IP local. Usando localhost."
+    IP_LOCAL="localhost"
+  fi
   echo "  Modo: ACCESIBLE DESDE RED LOCAL ($IP_LOCAL)"
 else
   echo "  Modo: LOCALHOST SOLO"

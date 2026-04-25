@@ -21,7 +21,7 @@ if (USE_S3) {
   })
 }
 
-const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads/cases'
+const UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR || './uploads/cases')
 
 async function ensureDir() {
   if (!USE_S3) {

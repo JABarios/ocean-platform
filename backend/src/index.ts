@@ -9,9 +9,21 @@ import commentRoutes from './routes/comments'
 import teachingRoutes from './routes/teaching'
 import userRoutes from './routes/users'
 import packageRoutes from './routes/packages'
+import groupRoutes from './routes/groups'
+import auditRoutes from './routes/audit'
 import { startCleanupJob } from './utils/cleanup'
 
 dotenv.config()
+
+// Validación de configuración obligatoria (solo fuera de test)
+if (process.env.NODE_ENV !== 'test') {
+  for (const key of ['JWT_SECRET', 'DATABASE_URL']) {
+    if (!process.env[key]) throw new Error(`[OCEAN] Variable requerida no configurada: ${key}`)
+  }
+  if (process.env.JWT_SECRET === 'dev-secret-change-me') {
+    throw new Error('[OCEAN] JWT_SECRET tiene el valor por defecto. Configura un secreto propio en producción.')
+  }
+}
 
 const app = express()
 const PORT = process.env.PORT || 4000
@@ -50,6 +62,8 @@ app.use('/requests', requestRoutes)
 app.use('/comments', commentRoutes)
 app.use('/teaching', teachingRoutes)
 app.use('/packages', packageRoutes)
+app.use('/groups', groupRoutes)
+app.use('/audit', auditRoutes)
 
 // 404 handler (ruta no encontrada)
 app.use((_req: express.Request, res: express.Response) => {

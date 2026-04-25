@@ -10,7 +10,7 @@ import { authMiddleware, AuthenticatedRequest } from '../middleware/auth'
 
 const router = Router()
 
-const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads/cases'
+const UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR || './uploads/cases')
 const TEMP_DIR = path.join(UPLOAD_DIR, 'tmp')
 
 const upload = multer({

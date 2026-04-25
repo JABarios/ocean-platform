@@ -24,20 +24,23 @@ export default function Dashboard() {
   const [cases, setCases] = useState<CaseItem[]>([])
   const [pending, setPending] = useState<ReviewRequest[]>([])
   const [active, setActive] = useState<ReviewRequest[]>([])
+  const [expired, setExpired] = useState<ReviewRequest[]>([])
   const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
 
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        const [c, p, a] = await Promise.all([
+        const [c, p, a, e] = await Promise.all([
           api.get<CaseItem[]>('/cases'),
           api.get<ReviewRequest[]>('/requests/pending'),
           api.get<ReviewRequest[]>('/requests/active'),
+          api.get<ReviewRequest[]>('/requests/expired'),
         ])
         setCases(c)
         setPending(p)
         setActive(a)
+        setExpired(e)
       } catch {
         // errors handled by client
       } finally {
@@ -158,6 +161,25 @@ export default function Dashboard() {
         )}
       </section>
 
+      {expired.length > 0 && (
+        <section className="dashboard-section">
+          <h3 className="expired-title">Solicitudes vencidas ({expired.length})</h3>
+          <ul className="request-list">
+            {expired.map((r) => (
+              <li key={r.id} className="request-row card expired-row">
+                <div className="request-info">
+                  <div className="request-case">
+                    {r.case ? r.case.title : `Caso ${r.caseId}`}
+                  </div>
+                  <span className="expired-label">Expiró sin respuesta</span>
+                </div>
+                <Link to={`/cases/${r.caseId}`}>Ver caso</Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <style>{`
         .dashboard {
           display: flex;
@@ -234,6 +256,18 @@ export default function Dashboard() {
         .request-actions {
           display: flex;
           gap: 0.5rem;
+        }
+        .expired-title {
+          color: var(--text-secondary);
+          opacity: 0.7;
+        }
+        .expired-row {
+          opacity: 0.6;
+          border-left: 3px solid #d97706;
+        }
+        .expired-label {
+          font-size: 0.8rem;
+          color: #92400e;
         }
       `}</style>
     </div>

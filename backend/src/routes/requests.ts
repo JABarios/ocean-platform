@@ -64,6 +64,28 @@ router.get('/active', async (req: AuthenticatedRequest, res) => {
   res.json(response)
 })
 
+// Listar solicitudes expiradas del usuario (como destinatario o solicitante)
+router.get('/expired', async (req: AuthenticatedRequest, res) => {
+  const requests = await prisma.reviewRequest.findMany({
+    where: {
+      OR: [
+        { targetUserId: req.user!.id, status: 'Expired' },
+        { requestedBy: req.user!.id, status: 'Expired' },
+      ],
+    },
+    include: {
+      case: { select: { id: true, title: true, statusClinical: true, owner: { select: { displayName: true } } } },
+      requester: { select: { id: true, displayName: true } },
+    },
+    orderBy: { expiresAt: 'desc' },
+  })
+  const response = requests.map((r) => ({
+    ...r,
+    case: r.case ? { ...r.case, status: r.case.statusClinical, statusClinical: undefined } : r.case,
+  }))
+  res.json(response)
+})
+
 // Crear solicitud de revisión
 router.post('/', async (req: AuthenticatedRequest, res) => {
   const parsed = createRequestSchema.safeParse(req.body)

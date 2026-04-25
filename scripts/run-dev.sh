@@ -81,7 +81,7 @@ else
 fi
 
 echo "  → Frontend listo. Sirviendo build estático..."
-python -m http.server 5173 --directory dist --bind 0.0.0.0 &
+python3 ../scripts/serve-spa.py 5173 &
 FRONTEND_PID=$!
 cd ..
 

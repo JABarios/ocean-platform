@@ -20,6 +20,7 @@ if type ocean_down &>/dev/null; then
 else
   pkill -f "tsx watch" 2>/dev/null || true
   pkill -f "python.*http.server" 2>/dev/null || true
+  pkill -f "serve-spa.py" 2>/dev/null || true
   sleep 2
 fi
 
@@ -48,7 +49,7 @@ cd "$BACKEND_DIR"
 nohup npm run dev >/dev/null 2>&1 &
 sleep 3
 cd "$FRONTEND_DIR/dist"
-nohup python -m http.server 5173 --bind 0.0.0.0 >/dev/null 2>&1 &
+nohup python3 "$OCEAN_DIR/scripts/serve-spa.py" 5173 >/dev/null 2>&1 &
 
 echo ""
 echo "========================================"

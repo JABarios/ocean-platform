@@ -2,6 +2,35 @@ import request from 'supertest'
 import app from '../src/index'
 import { createUser, generateToken, createCase, createReviewRequest } from './helpers'
 
+describe('POST /teaching/proposals — duplicado y acceso', () => {
+  it('rechaza segunda propuesta para el mismo caso (TOCTOU fix)', async () => {
+    const user = await createUser({ email: 'dup-p@ocean.local', displayName: 'DupP', password: 'pass' })
+    const c = await createCase(user.id, { statusClinical: 'Resolved' })
+    const token = generateToken(user.id, user.email, user.role)
+    const payload = { caseId: c.id, summary: 'S', difficulty: 'Intermediate' }
+
+    await request(app).post('/teaching/proposals').set('Authorization', `Bearer ${token}`).send(payload)
+    const res = await request(app).post('/teaching/proposals').set('Authorization', `Bearer ${token}`).send(payload)
+
+    expect(res.status).toBe(409)
+    expect(res.body.error).toMatch(/propuesta docente activa/)
+  })
+
+  it('rechaza proponer caso de otro usuario sin acceso', async () => {
+    const owner = await createUser({ email: 'tp-o@ocean.local', displayName: 'TpO', password: 'pass' })
+    const other = await createUser({ email: 'tp-ot@ocean.local', displayName: 'TpOt', password: 'pass' })
+    const c = await createCase(owner.id, { statusClinical: 'Resolved' })
+    const token = generateToken(other.id, other.email, other.role)
+
+    const res = await request(app)
+      .post('/teaching/proposals')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ caseId: c.id, summary: 'S', difficulty: 'Intermediate' })
+
+    expect(res.status).toBe(400)
+  })
+})
+
 describe('POST /teaching/proposals', () => {
   it('propone un caso resuelto para docencia', async () => {
     const user = await createUser({ email: 'teach@ocean.local', displayName: 'Teach', password: 'pass' })
@@ -58,6 +87,24 @@ describe('POST /teaching/proposals/:id/recommend', () => {
     expect(res.status).toBe(201)
   })
 
+  it('rechaza recomendar dos veces la misma propuesta', async () => {
+    const proposer = await createUser({ email: 'drec-p@ocean.local', displayName: 'DRecP', password: 'pass' })
+    const rec = await createUser({ email: 'drec-r@ocean.local', displayName: 'DRecR', password: 'pass' })
+    const c = await createCase(proposer.id, { statusClinical: 'Resolved' })
+    const pToken = generateToken(proposer.id, proposer.email, proposer.role)
+    const rToken = generateToken(rec.id, rec.email, rec.role)
+
+    const propRes = await request(app)
+      .post('/teaching/proposals')
+      .set('Authorization', `Bearer ${pToken}`)
+      .send({ caseId: c.id, summary: 'S', difficulty: 'Intermediate' })
+
+    await request(app).post(`/teaching/proposals/${propRes.body.id}/recommend`).set('Authorization', `Bearer ${rToken}`)
+    const res = await request(app).post(`/teaching/proposals/${propRes.body.id}/recommend`).set('Authorization', `Bearer ${rToken}`)
+
+    expect(res.status).toBe(409)
+  })
+
   it('rechaza recomendar la propia propuesta', async () => {
     const proposer = await createUser({ email: 'self@ocean.local', displayName: 'Self', password: 'pass' })
     const c = await createCase(proposer.id, { statusClinical: 'Resolved' })
@@ -102,6 +149,51 @@ describe('POST /teaching/proposals/:id/recommend', () => {
 
     const item = queue.body.find((p: any) => p.id === propRes.body.id)
     expect(item.status).toBe('Recommended')
+  })
+})
+
+describe('POST /teaching/proposals/:id/validate — rechazo', () => {
+  it('curador puede rechazar con motivo', async () => {
+    const proposer = await createUser({ email: 'rej-p@ocean.local', displayName: 'RejP', password: 'pass' })
+    const curator = await createUser({ email: 'rej-c@ocean.local', displayName: 'RejC', password: 'pass', role: 'Curator' })
+    const c = await createCase(proposer.id, { statusClinical: 'Resolved' })
+    const pToken = generateToken(proposer.id, proposer.email, proposer.role)
+
+    const propRes = await request(app)
+      .post('/teaching/proposals')
+      .set('Authorization', `Bearer ${pToken}`)
+      .send({ caseId: c.id, summary: 'S', difficulty: 'Intermediate' })
+
+    const cToken = generateToken(curator.id, curator.email, curator.role)
+    const res = await request(app)
+      .post(`/teaching/proposals/${propRes.body.id}/validate`)
+      .set('Authorization', `Bearer ${cToken}`)
+      .send({ status: 'Rejected', rejectionReason: 'Calidad insuficiente' })
+
+    expect(res.status).toBe(200)
+    expect(res.body.status).toBe('Rejected')
+    expect(res.body.rejectionReason).toBe('Calidad insuficiente')
+  })
+
+  it('validar actualiza statusTeaching del caso', async () => {
+    const proposer = await createUser({ email: 'stval-p@ocean.local', displayName: 'StValP', password: 'pass' })
+    const curator = await createUser({ email: 'stval-c@ocean.local', displayName: 'StValC', password: 'pass', role: 'Curator' })
+    const c = await createCase(proposer.id, { statusClinical: 'Resolved' })
+    const pToken = generateToken(proposer.id, proposer.email, proposer.role)
+
+    const propRes = await request(app)
+      .post('/teaching/proposals')
+      .set('Authorization', `Bearer ${pToken}`)
+      .send({ caseId: c.id, summary: 'S', difficulty: 'Intermediate' })
+
+    const cToken = generateToken(curator.id, curator.email, curator.role)
+    await request(app)
+      .post(`/teaching/proposals/${propRes.body.id}/validate`)
+      .set('Authorization', `Bearer ${cToken}`)
+      .send({ status: 'Validated' })
+
+    const caseRes = await request(app).get(`/cases/${c.id}`).set('Authorization', `Bearer ${pToken}`)
+    expect(caseRes.body.teachingStatus).toBe('Validated')
   })
 })
 
@@ -156,5 +248,50 @@ describe('GET /teaching/library', () => {
     const res = await request(app).get('/teaching/library').set('Authorization', `Bearer ${token}`)
     expect(res.status).toBe(200)
     expect(Array.isArray(res.body)).toBe(true)
+  })
+
+  it('no incluye propuestas no validadas', async () => {
+    const proposer = await createUser({ email: 'lib-p@ocean.local', displayName: 'LibP', password: 'pass' })
+    const c = await createCase(proposer.id, { statusClinical: 'Resolved' })
+    const pToken = generateToken(proposer.id, proposer.email, proposer.role)
+
+    const propRes = await request(app)
+      .post('/teaching/proposals')
+      .set('Authorization', `Bearer ${pToken}`)
+      .send({ caseId: c.id, summary: 'S', difficulty: 'Intermediate' })
+
+    const res = await request(app).get('/teaching/library').set('Authorization', `Bearer ${pToken}`)
+    const inLibrary = res.body.some((item: { id: string }) => item.id === propRes.body.id)
+    expect(inLibrary).toBe(false)
+  })
+
+  it('incluye propuesta validada con tags como array', async () => {
+    const proposer = await createUser({ email: 'lib-tv@ocean.local', displayName: 'LibTV', password: 'pass' })
+    const curator = await createUser({ email: 'lib-tc@ocean.local', displayName: 'LibTC', password: 'pass', role: 'Curator' })
+    const c = await createCase(proposer.id, { statusClinical: 'Resolved' })
+    const pToken = generateToken(proposer.id, proposer.email, proposer.role)
+    const cToken = generateToken(curator.id, curator.email, curator.role)
+
+    const propRes = await request(app)
+      .post('/teaching/proposals')
+      .set('Authorization', `Bearer ${pToken}`)
+      .send({ caseId: c.id, summary: 'Caso docente', difficulty: 'Intermediate', tags: ['eeg', 'epilepsia'] })
+
+    await request(app)
+      .post(`/teaching/proposals/${propRes.body.id}/validate`)
+      .set('Authorization', `Bearer ${cToken}`)
+      .send({ status: 'Validated' })
+
+    const res = await request(app).get('/teaching/library').set('Authorization', `Bearer ${pToken}`)
+    const item = res.body.find((p: { id: string }) => p.id === propRes.body.id)
+
+    expect(item).toBeDefined()
+    expect(Array.isArray(item.tags)).toBe(true)
+    expect(item.tags).toContain('eeg')
+  })
+
+  it('GET /teaching/proposals requiere autenticación', async () => {
+    const res = await request(app).get('/teaching/proposals')
+    expect(res.status).toBe(401)
   })
 })

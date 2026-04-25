@@ -76,7 +76,7 @@ backend/
 │   ├── schema.prisma
 │   ├── seed.ts               # 4 usuarios de prueba (pass: ocean123)
 │   └── migrations/
-├── tests/                    # 31 tests de integración (Jest + Supertest)
+├── tests/                    # 65 tests de integración (Jest + Supertest)
 ├── .env / .env.example
 └── package.json
 ```
@@ -119,7 +119,7 @@ npm run dev                 # tsx watch src/index.ts (puerto 4000)
 npm run build               # tsc → dist/
 npm run start               # node dist/index.js
 npm run db:seed             # tsx prisma/seed.ts
-npm test                    # Jest — 31 tests
+npm test                    # Jest — 65 tests
 ```
 
 ### Frontend
@@ -148,7 +148,7 @@ Ver `docs/MINERVA.md` para la guía completa de uso en el servidor.
 
 | Tag | Descripción |
 |---|---|
-| `v0.2.2-stable` | Versión actual. Control ocean_up/down robusto, cifrado fallback, API_BASE dinámico |
+| `v0.3.0-stable` | Versión actual. DB re-validation, máquina de estados, diskStorage, 65 tests backend, 34 frontend |
 | `v0.1.0-dev` | Primera versión funcional (solo localhost, sin control scripts) |
 
 Para instalar en máquina nueva:
@@ -185,7 +185,7 @@ git checkout v0.2.2-stable
 
 ## 8. Testing
 
-### Backend — 30 tests (Jest + Supertest + SQLite :memory:)
+### Backend — 65 tests (Jest + Supertest + SQLite :memory:)
 
 ```bash
 cd backend && npm test
@@ -193,7 +193,7 @@ cd backend && npm test
 
 Suites: auth, cases, requests, teaching, packages, comments.
 
-### Frontend — 14 tests (Vitest + React Testing Library)
+### Frontend — 34 tests (Vitest + React Testing Library)
 
 ```bash
 cd frontend && npm test

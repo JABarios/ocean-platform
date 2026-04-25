@@ -71,7 +71,16 @@ const LP_OPTIONS: { label: string; value: number }[] = [
 
 const WINDOW_OPTIONS = [10, 20, 30]
 
-const GAIN_OPTIONS = [3, 5, 10, 15, 30, 100, 500]
+const GAIN_OPTIONS: { label: string; value: number }[] = [
+  { label: 'Auto',    value: 0 },
+  { label: '3 µV',   value: 3 },
+  { label: '5 µV',   value: 5 },
+  { label: '10 µV',  value: 10 },
+  { label: '15 µV',  value: 15 },
+  { label: '30 µV',  value: 30 },
+  { label: '100 µV', value: 100 },
+  { label: '500 µV', value: 500 },
+]
 
 type Phase =
   | 'key-input'
@@ -95,6 +104,14 @@ interface EpochData {
 function computeScales(epoch: EpochData, gain: number): { p2: number; p98: number }[] {
   return epoch.data.map((d) => {
     const sorted = Float32Array.from(d).sort()
+    if (gain === 0) {
+      // Auto: stretch to actual signal range (percentile 2–98)
+      return {
+        p2:  sorted[Math.floor(sorted.length * 0.02)] ?? 0,
+        p98: sorted[Math.floor(sorted.length * 0.98)] ?? 0,
+      }
+    }
+    // Fixed µV: center on median, ±gain/2 defines the visible range
     const center = sorted[Math.floor(sorted.length * 0.5)] ?? 0
     return { p2: center - gain / 2, p98: center + gain / 2 }
   })
@@ -253,7 +270,7 @@ export default function EEGViewer() {
   const [hp,         setHp]         = useState(0.5)
   const [lp,         setLp]         = useState(45)
   const [notch,      setNotch]      = useState(true)
-  const [gain,       setGain]       = useState(100)
+  const [gain,       setGain]       = useState(0)   // 0 = auto
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const kappaRef  = useRef<KappaInstance | null>(null)
@@ -583,8 +600,8 @@ export default function EEGViewer() {
         </ToolbarSelect>
 
         <ToolbarSelect label="Ganancia" value={gain} onChange={(v) => setGain(parseInt(v))}>
-          {GAIN_OPTIONS.map((g) => (
-            <option key={g} value={g}>{g} µV</option>
+          {GAIN_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </ToolbarSelect>
 

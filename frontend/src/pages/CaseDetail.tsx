@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { api } from '../api/client'
+import { api, friendlyError } from '../api/client'
 import { useAuthStore } from '../store/authStore'
 import { useCrypto } from '../hooks/useCrypto'
 import type { CaseItem, Comment, User } from '../types'
@@ -99,7 +99,7 @@ export default function CaseDetail() {
       setRequestMessage('')
       alert('Solicitud enviada')
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error')
+      alert(friendlyError(err))
     } finally {
       setRequesting(false)
     }
@@ -116,7 +116,7 @@ export default function CaseDetail() {
       setComments((prev) => [...prev, newComment])
       setCommentText('')
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error')
+      alert(friendlyError(err))
     } finally {
       setSendingComment(false)
     }
@@ -142,7 +142,7 @@ export default function CaseDetail() {
       setDifficulty('')
       setTagsText('')
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error')
+      alert(friendlyError(err))
     } finally {
       setProposing(false)
     }
@@ -155,7 +155,7 @@ export default function CaseDetail() {
       const updated = await api.patch<CaseItem>(`/cases/${id}/status`, { statusClinical: newStatus })
       setCaseItem(updated)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error')
+      alert(friendlyError(err))
     } finally {
       setStatusBusy(false)
     }

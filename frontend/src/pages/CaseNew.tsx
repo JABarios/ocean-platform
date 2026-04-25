@@ -1,8 +1,8 @@
 import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api } from '../api/client'
+import { api, friendlyError } from '../api/client'
 import { useAuthStore } from '../store/authStore'
-import { useCrypto } from '../hooks/useCrypto'
+import { useCrypto, isCryptoAvailable } from '../hooks/useCrypto'
 import type { CaseItem } from '../types'
 
 export default function CaseNew() {
@@ -77,7 +77,7 @@ export default function CaseNew() {
 
       navigate(`/cases/${created.id}`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al crear el caso')
+      setError(friendlyError(err))
       setSaving(false)
     }
   }
@@ -147,6 +147,12 @@ export default function CaseNew() {
             ))}
           </select>
         </label>
+
+        <div className={isCryptoAvailable() ? 'crypto-badge crypto-native' : 'crypto-badge crypto-fallback'}>
+          {isCryptoAvailable()
+            ? '🔒 Cifrado nativo del navegador (Web Crypto API)'
+            : '⚠️ Cifrado de compatibilidad (node-forge) — para máxima seguridad usa HTTPS'}
+        </div>
 
         <label>
           Archivo EEG (.edf)
@@ -254,6 +260,22 @@ export default function CaseNew() {
           justify-content: flex-end;
           gap: 0.5rem;
           margin-top: 0.5rem;
+        }
+        .crypto-badge {
+          font-size: 0.8rem;
+          padding: 0.4rem 0.75rem;
+          border-radius: 6px;
+          font-weight: 500;
+        }
+        .crypto-native {
+          background: #f0fdf4;
+          color: #15803d;
+          border: 1px solid #86efac;
+        }
+        .crypto-fallback {
+          background: #fffbeb;
+          color: #92400e;
+          border: 1px solid #fcd34d;
         }
       `}</style>
     </div>

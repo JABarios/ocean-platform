@@ -1,11 +1,22 @@
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000'
 
-class ApiError extends Error {
+export class ApiError extends Error {
   status: number
   constructor(message: string, status: number) {
     super(message)
+    this.name = 'ApiError'
     this.status = status
   }
+}
+
+export function friendlyError(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 0) return 'Sin conexión con el servidor. Comprueba tu red.'
+    if (err.status === 403) return 'No tienes permiso para realizar esta acción.'
+    if (err.status === 404) return 'El recurso no fue encontrado.'
+    return err.message
+  }
+  return err instanceof Error ? err.message : 'Error inesperado.'
 }
 
 async function request<T>(

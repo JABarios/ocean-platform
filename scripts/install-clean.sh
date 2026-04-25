@@ -1,5 +1,5 @@
 #!/bin/bash
-# Instalación limpia de OCEAN v0.2.0-stable en Minerva
+# Instalación limpia de OCEAN en Minerva
 # Uso: ./scripts/install-clean.sh
 
 set -e
@@ -25,7 +25,7 @@ cd ocean-platform
 
 # 4. Checkout a versión estable
 echo "[4/6] Seleccionando versión estable..."
-git checkout v0.2.0-stable
+git checkout main
 
 # 5. Instalar dependencias y build
 echo "[5/6] Instalando dependencias..."
@@ -36,7 +36,9 @@ npx prisma generate
 npx prisma db push --accept-data-loss
 npx prisma db seed
 cd ../frontend
-echo "VITE_API_URL=http://localhost:4000" > .env
+# API_BASE se infiere dinámicamente en runtime (window.location.hostname:4000)
+# Si necesitas override, descomenta:
+# echo "VITE_API_URL=http://localhost:4000" > .env
 npm install
 npm run build
 cd ..

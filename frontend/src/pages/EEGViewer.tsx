@@ -71,6 +71,8 @@ const LP_OPTIONS: { label: string; value: number }[] = [
 
 const WINDOW_OPTIONS = [10, 20, 30]
 
+const GAIN_OPTIONS = [3, 5, 10, 15, 30, 100, 500]
+
 type Phase =
   | 'key-input'
   | 'downloading'
@@ -90,13 +92,11 @@ interface EpochData {
 
 // ─── Canvas helpers ───────────────────────────────────────────────────────────
 
-function computeScales(epoch: EpochData): { p2: number; p98: number }[] {
+function computeScales(epoch: EpochData, gain: number): { p2: number; p98: number }[] {
   return epoch.data.map((d) => {
     const sorted = Float32Array.from(d).sort()
-    return {
-      p2:  sorted[Math.floor(sorted.length * 0.02)] ?? 0,
-      p98: sorted[Math.floor(sorted.length * 0.98)] ?? 0,
-    }
+    const center = sorted[Math.floor(sorted.length * 0.5)] ?? 0
+    return { p2: center - gain / 2, p98: center + gain / 2 }
   })
 }
 
@@ -248,17 +248,18 @@ export default function EEGViewer() {
   const [totalSeconds, setTotalSeconds] = useState(0)
   const [meta,         setMeta]         = useState<{ subjectId: string; recordingDate: string } | null>(null)
 
-  // Filter & window state
+  // Filter, window & gain state
   const [windowSecs, setWindowSecs] = useState(10)
   const [hp,         setHp]         = useState(0.5)
   const [lp,         setLp]         = useState(45)
   const [notch,      setNotch]      = useState(true)
+  const [gain,       setGain]       = useState(100)
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const kappaRef  = useRef<KappaInstance | null>(null)
   const moduleRef = useRef<KappaModuleInstance | null>(null)
 
-  const scales = useMemo(() => epoch ? computeScales(epoch) : [], [epoch])
+  const scales = useMemo(() => epoch ? computeScales(epoch, gain) : [], [epoch, gain])
 
   // ── Load WASM module (singleton) ─────────────────────────────────────────────
   const loadModule = useCallback((): Promise<KappaModuleInstance> => {
@@ -578,6 +579,12 @@ export default function EEGViewer() {
         <ToolbarSelect label="Ventana" value={windowSecs} onChange={handleWindowChange}>
           {WINDOW_OPTIONS.map((s) => (
             <option key={s} value={s}>{s}s</option>
+          ))}
+        </ToolbarSelect>
+
+        <ToolbarSelect label="Ganancia" value={gain} onChange={(v) => setGain(parseInt(v))}>
+          {GAIN_OPTIONS.map((g) => (
+            <option key={g} value={g}>{g} µV</option>
           ))}
         </ToolbarSelect>
 

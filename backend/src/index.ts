@@ -20,8 +20,9 @@ if (process.env.NODE_ENV !== 'test') {
   for (const key of ['JWT_SECRET', 'DATABASE_URL']) {
     if (!process.env[key]) throw new Error(`[OCEAN] Variable requerida no configurada: ${key}`)
   }
-  if (process.env.JWT_SECRET === 'dev-secret-change-me') {
-    throw new Error('[OCEAN] JWT_SECRET tiene el valor por defecto. Configura un secreto propio en producción.')
+  const KNOWN_DEV_SECRETS = ['dev-secret-change-me', 'dev-secret-ocean-platform-2026']
+  if (KNOWN_DEV_SECRETS.includes(process.env.JWT_SECRET!)) {
+    throw new Error('[OCEAN] JWT_SECRET tiene un valor de desarrollo conocido. Genera uno propio con: openssl rand -hex 64')
   }
 }
 

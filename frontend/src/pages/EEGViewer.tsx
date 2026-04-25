@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useParams } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { useCrypto } from '../hooks/useCrypto'
@@ -31,7 +31,7 @@ interface KappaInstance {
 
 interface KappaModuleInstance {
   KappaWasm: new () => KappaInstance
-  FS: { writeFile: (path: string, data: Uint8Array) => void }
+  FS: { writeFile: (path: string, data: Uint8Array) => void; unlink: (path: string) => void }
 }
 
 declare global {
@@ -73,12 +73,21 @@ interface EpochData {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function percentile(arr: Float32Array, p: number): number {
-  const sorted = Float32Array.from(arr).sort()
-  return sorted[Math.floor(sorted.length * p)] ?? 0
+function computeScales(epoch: EpochData): { p2: number; p98: number }[] {
+  return epoch.data.map((d) => {
+    const sorted = Float32Array.from(d).sort()
+    return {
+      p2: sorted[Math.floor(sorted.length * 0.02)] ?? 0,
+      p98: sorted[Math.floor(sorted.length * 0.98)] ?? 0,
+    }
+  })
 }
 
-function drawEpoch(canvas: HTMLCanvasElement, epoch: EpochData) {
+function drawEpoch(
+  canvas: HTMLCanvasElement,
+  epoch: EpochData,
+  scales: { p2: number; p98: number }[]
+) {
   const totalHeight = epoch.nChannels * CHANNEL_HEIGHT
   canvas.width = canvas.offsetWidth || 1200
   canvas.height = totalHeight
@@ -97,6 +106,8 @@ function drawEpoch(canvas: HTMLCanvasElement, epoch: EpochData) {
     const type = epoch.channelTypes[c] ?? 'EEG'
     const name = epoch.channelNames[c] ?? `Ch${c + 1}`
     const color = CHANNEL_COLORS[type] ?? DEFAULT_COLOR
+    const { p2, p98 } = scales[c] ?? { p2: 0, p98: 1 }
+    const range = p98 - p2 || 1
 
     // Alternating row bg
     if (c % 2 === 1) {
@@ -117,10 +128,6 @@ function drawEpoch(canvas: HTMLCanvasElement, epoch: EpochData) {
     ctx.fillText(type.slice(0, 6), 4, y0 + 38)
 
     // Waveform
-    const p2 = percentile(data, 0.02)
-    const p98 = percentile(data, 0.98)
-    const range = p98 - p2 || 1
-
     const margin = CHANNEL_HEIGHT * 0.1
     const drawH = CHANNEL_HEIGHT - margin * 2
 
@@ -208,6 +215,12 @@ export default function EEGViewer() {
   const kappaRef = useRef<KappaInstance | null>(null)
   const moduleRef = useRef<KappaModuleInstance | null>(null)
 
+  // Compute scales once per epoch (cached)
+  const scales = useMemo(() => {
+    if (!epoch) return []
+    return computeScales(epoch)
+  }, [epoch])
+
   // ── Load WASM module (singleton) ────────────────────────────────────────────
   const loadModule = useCallback((): Promise<KappaModuleInstance> => {
     if (moduleRef.current) return Promise.resolve(moduleRef.current)
@@ -268,6 +281,8 @@ export default function EEGViewer() {
       const opened = kappa.openEDF('/tmp/file.edf')
       if (!opened) throw new Error('openEDF devolvió false — archivo inválido o incompatible')
 
+      kappa.setFilters(0.5, 45, 50)
+
       const info = kappa.getMeta()
       kappaRef.current = kappa
       setMeta({ subjectId: info.subjectId, recordingDate: info.recordingDate })
@@ -315,17 +330,27 @@ export default function EEGViewer() {
   // ── Canvas draw ───────────────────────────────────────────────────────────────
   useEffect(() => {
     if (phase !== 'viewing' || !epoch || !canvasRef.current) return
-    drawEpoch(canvasRef.current, epoch)
-  }, [phase, epoch])
+    drawEpoch(canvasRef.current, epoch, scales)
+  }, [phase, epoch, scales])
 
   // ── Resize canvas on window resize ────────────────────────────────────────────
   useEffect(() => {
     if (phase !== 'viewing' || !epoch || !canvasRef.current) return
     const canvas = canvasRef.current
-    const ro = new ResizeObserver(() => drawEpoch(canvas, epoch))
+    const ro = new ResizeObserver(() => drawEpoch(canvas, epoch, scales))
     ro.observe(canvas)
     return () => ro.disconnect()
-  }, [phase, epoch])
+  }, [phase, epoch, scales])
+
+  // ── Cleanup MEMFS on unmount ──────────────────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      const mod = moduleRef.current
+      if (mod) {
+        try { mod.FS.unlink('/tmp/file.edf') } catch { /* already gone */ }
+      }
+    }
+  }, [])
 
   // ── Submit key form ───────────────────────────────────────────────────────────
   const handleSubmitKey = (e: React.FormEvent) => {

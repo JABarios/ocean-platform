@@ -44,16 +44,32 @@ declare global {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const CHANNEL_COLORS: Record<string, string> = {
-  EEG: '#60a5fa',
-  EOG: '#34d399',
-  ECG: '#f87171',
-  EMG: '#fbbf24',
-  RESP: '#a78bfa',
+  EEG:  '#1d4ed8',
+  EOG:  '#047857',
+  ECG:  '#dc2626',
+  EMG:  '#b45309',
+  RESP: '#7c3aed',
 }
-const DEFAULT_COLOR = '#94a3b8'
-const LABEL_WIDTH = 76
+const DEFAULT_COLOR = '#475569'
+const LABEL_WIDTH   = 76
 const CHANNEL_HEIGHT = 80
-const RECORDS_PER_PAGE = 10
+
+const HP_OPTIONS: { label: string; value: number }[] = [
+  { label: 'Ninguno', value: 0 },
+  { label: '0.3 Hz',  value: 0.3 },
+  { label: '0.5 Hz',  value: 0.5 },
+  { label: '1 Hz',    value: 1 },
+  { label: '5 Hz',    value: 5 },
+]
+
+const LP_OPTIONS: { label: string; value: number }[] = [
+  { label: '15 Hz', value: 15 },
+  { label: '30 Hz', value: 30 },
+  { label: '45 Hz', value: 45 },
+  { label: '70 Hz', value: 70 },
+]
+
+const WINDOW_OPTIONS = [10, 20, 30]
 
 type Phase =
   | 'key-input'
@@ -72,13 +88,13 @@ interface EpochData {
   data: Float32Array[]
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Canvas helpers ───────────────────────────────────────────────────────────
 
 function computeScales(epoch: EpochData): { p2: number; p98: number }[] {
   return epoch.data.map((d) => {
     const sorted = Float32Array.from(d).sort()
     return {
-      p2: sorted[Math.floor(sorted.length * 0.02)] ?? 0,
+      p2:  sorted[Math.floor(sorted.length * 0.02)] ?? 0,
       p98: sorted[Math.floor(sorted.length * 0.98)] ?? 0,
     }
   })
@@ -87,37 +103,37 @@ function computeScales(epoch: EpochData): { p2: number; p98: number }[] {
 function drawEpoch(
   canvas: HTMLCanvasElement,
   epoch: EpochData,
-  scales: { p2: number; p98: number }[]
+  scales: { p2: number; p98: number }[],
 ) {
-  const totalHeight = epoch.nChannels * CHANNEL_HEIGHT
-  canvas.width = canvas.offsetWidth || 1200
-  canvas.height = totalHeight
+  canvas.width  = canvas.offsetWidth || 1200
+  canvas.height = epoch.nChannels * CHANNEL_HEIGHT
 
   const ctx = canvas.getContext('2d')
   if (!ctx) return
 
-  ctx.fillStyle = '#0f172a'
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
-
   const waveWidth = canvas.width - LABEL_WIDTH
 
+  // White background
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+
   for (let c = 0; c < epoch.nChannels; c++) {
-    const y0 = c * CHANNEL_HEIGHT
-    const data = epoch.data[c]
-    const type = epoch.channelTypes[c] ?? 'EEG'
-    const name = epoch.channelNames[c] ?? `Ch${c + 1}`
+    const y0    = c * CHANNEL_HEIGHT
+    const data  = epoch.data[c]
+    const type  = epoch.channelTypes[c] ?? 'EEG'
+    const name  = epoch.channelNames[c] ?? `Ch${c + 1}`
     const color = CHANNEL_COLORS[type] ?? DEFAULT_COLOR
     const { p2, p98 } = scales[c] ?? { p2: 0, p98: 1 }
     const range = p98 - p2 || 1
 
-    // Alternating row bg
+    // Alternating row
     if (c % 2 === 1) {
-      ctx.fillStyle = 'rgba(255,255,255,0.02)'
+      ctx.fillStyle = 'rgba(0,0,0,0.018)'
       ctx.fillRect(LABEL_WIDTH, y0, waveWidth, CHANNEL_HEIGHT)
     }
 
     // Label column
-    ctx.fillStyle = '#1e293b'
+    ctx.fillStyle = '#f8fafc'
     ctx.fillRect(0, y0, LABEL_WIDTH, CHANNEL_HEIGHT)
 
     ctx.fillStyle = color
@@ -129,36 +145,36 @@ function drawEpoch(
     ctx.fillText(type.slice(0, 6), 4, y0 + 38)
 
     // Waveform
-    const margin = CHANNEL_HEIGHT * 0.1
-    const drawH = CHANNEL_HEIGHT - margin * 2
-
     if (data.length < 2) continue
+
+    const margin = CHANNEL_HEIGHT * 0.1
+    const drawH  = CHANNEL_HEIGHT - margin * 2
 
     ctx.beginPath()
     ctx.strokeStyle = color
-    ctx.lineWidth = 1
-    ctx.globalAlpha = 0.9
+    ctx.lineWidth   = 1
+    ctx.globalAlpha = 0.85
 
     for (let i = 0; i < data.length; i++) {
-      const x = LABEL_WIDTH + (i / (data.length - 1)) * waveWidth
+      const x    = LABEL_WIDTH + (i / (data.length - 1)) * waveWidth
       const norm = (data[i] - p2) / range
-      const y = y0 + margin + drawH * (1 - norm)
+      const y    = y0 + margin + drawH * (1 - norm)
       if (i === 0) ctx.moveTo(x, y)
-      else ctx.lineTo(x, y)
+      else         ctx.lineTo(x, y)
     }
     ctx.stroke()
     ctx.globalAlpha = 1
 
-    // Separator
-    ctx.strokeStyle = 'rgba(255,255,255,0.07)'
-    ctx.lineWidth = 1
+    // Row separator
+    ctx.strokeStyle = 'rgba(0,0,0,0.08)'
+    ctx.lineWidth   = 1
     ctx.beginPath()
     ctx.moveTo(0, y0 + CHANNEL_HEIGHT)
     ctx.lineTo(canvas.width, y0 + CHANNEL_HEIGHT)
     ctx.stroke()
 
-    // Label border
-    ctx.strokeStyle = 'rgba(255,255,255,0.1)'
+    // Label / waveform border
+    ctx.strokeStyle = '#cbd5e1'
     ctx.beginPath()
     ctx.moveTo(LABEL_WIDTH, y0)
     ctx.lineTo(LABEL_WIDTH, y0 + CHANNEL_HEIGHT)
@@ -168,91 +184,101 @@ function drawEpoch(
 
 // ─── Loading screen ───────────────────────────────────────────────────────────
 
-function StatusScreen({ message, isError }: { message: string; isError?: boolean }) {
+function StatusScreen({ message }: { message: string }) {
   return (
     <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      height: '100vh',
-      background: '#0f172a',
-      color: isError ? '#f87171' : '#94a3b8',
-      fontFamily: 'monospace',
-      fontSize: '1rem',
-      gap: '1rem',
+      display: 'flex', flexDirection: 'column', alignItems: 'center',
+      justifyContent: 'center', height: '100vh', background: '#f1f5f9',
+      color: '#64748b', fontFamily: 'monospace', fontSize: '1rem', gap: '1rem',
     }}>
-      {!isError && (
-        <div style={{
-          width: 32,
-          height: 32,
-          border: '3px solid #334155',
-          borderTop: '3px solid #60a5fa',
-          borderRadius: '50%',
-          animation: 'spin 0.8s linear infinite',
-        }} />
-      )}
+      <div style={{
+        width: 28, height: 28,
+        border: '3px solid #e2e8f0', borderTop: '3px solid #2563eb',
+        borderRadius: '50%', animation: 'spin 0.8s linear infinite',
+      }} />
       <span>{message}</span>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   )
 }
 
+// ─── Toolbar select ───────────────────────────────────────────────────────────
+
+function ToolbarSelect({
+  label, value, onChange, children,
+}: {
+  label: string
+  value: string | number
+  onChange: (v: string) => void
+  children: React.ReactNode
+}) {
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+        {label}
+      </span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={{
+          background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 4,
+          color: '#1e293b', fontSize: '0.8rem', padding: '0.2rem 0.4rem',
+          cursor: 'pointer', outline: 'none',
+        }}
+      >
+        {children}
+      </select>
+    </label>
+  )
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function EEGViewer() {
-  const { id } = useParams<{ id: string }>()
-  const token = useAuthStore((s) => s.token)
+  const { id }       = useParams<{ id: string }>()
+  const token        = useAuthStore((s) => s.token)
   const { decryptFile } = useCrypto()
 
-  const [phase, setPhase] = useState<Phase>('key-input')
+  const [phase,    setPhase]    = useState<Phase>('key-input')
   const [errorMsg, setErrorMsg] = useState('')
   const [keyInput, setKeyInput] = useState('')
 
-  const [epoch, setEpoch] = useState<EpochData | null>(null)
-  const [page, setPage] = useState(0)
+  const [epoch,        setEpoch]        = useState<EpochData | null>(null)
+  const [page,         setPage]         = useState(0)
   const [totalSeconds, setTotalSeconds] = useState(0)
-  const [meta, setMeta] = useState<{ subjectId: string; recordingDate: string } | null>(null)
+  const [meta,         setMeta]         = useState<{ subjectId: string; recordingDate: string } | null>(null)
+
+  // Filter & window state
+  const [windowSecs, setWindowSecs] = useState(10)
+  const [hp,         setHp]         = useState(0.5)
+  const [lp,         setLp]         = useState(45)
+  const [notch,      setNotch]      = useState(true)
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const kappaRef = useRef<KappaInstance | null>(null)
+  const kappaRef  = useRef<KappaInstance | null>(null)
   const moduleRef = useRef<KappaModuleInstance | null>(null)
 
-  // Compute scales once per epoch (cached)
-  const scales = useMemo(() => {
-    if (!epoch) return []
-    return computeScales(epoch)
-  }, [epoch])
+  const scales = useMemo(() => epoch ? computeScales(epoch) : [], [epoch])
 
-  // ── Load WASM module (singleton) ────────────────────────────────────────────
+  // ── Load WASM module (singleton) ─────────────────────────────────────────────
   const loadModule = useCallback((): Promise<KappaModuleInstance> => {
     if (moduleRef.current) return Promise.resolve(moduleRef.current)
 
     return new Promise((resolve, reject) => {
       if (window.KappaModule) {
-        window.KappaModule().then((m) => {
-          moduleRef.current = m
-          resolve(m)
-        }).catch(reject)
+        window.KappaModule().then((m) => { moduleRef.current = m; resolve(m) }).catch(reject)
         return
       }
-
       const script = document.createElement('script')
       script.src = '/wasm/kappa_wasm.js'
       script.onload = () => {
         const poll = setInterval(() => {
           if (window.KappaModule) {
             clearInterval(poll)
-            window.KappaModule().then((m) => {
-              moduleRef.current = m
-              resolve(m)
-            }).catch(reject)
+            window.KappaModule().then((m) => { moduleRef.current = m; resolve(m) }).catch(reject)
           }
         }, 50)
-        setTimeout(() => {
-          clearInterval(poll)
-          reject(new Error('KappaModule no disponible después de cargar el script'))
-        }, 10000)
+        setTimeout(() => { clearInterval(poll); reject(new Error('KappaModule no disponible')) }, 10000)
       }
       script.onerror = () => reject(new Error('No se pudo cargar kappa_wasm.js'))
       document.head.appendChild(script)
@@ -262,7 +288,6 @@ export default function EEGViewer() {
   // ── Full pipeline ────────────────────────────────────────────────────────────
   const startViewer = useCallback(async (key: string) => {
     if (!id) return
-
     try {
       setPhase('downloading')
       const res = await fetch(`${API_BASE}/packages/download/${id}`, {
@@ -280,59 +305,100 @@ export default function EEGViewer() {
       setPhase('opening')
       const kappa = new Module.KappaWasm()
       Module.FS.writeFile('/tmp/file.edf', new Uint8Array(decryptedBuffer))
-      const opened = kappa.openEDF('/tmp/file.edf')
-      if (!opened) throw new Error('openEDF devolvió false — archivo inválido o incompatible')
+      if (!kappa.openEDF('/tmp/file.edf')) throw new Error('openEDF devolvió false — archivo inválido')
 
       const info = kappa.getMeta()
-      kappa.setFilters(0.5, 45, 50)
+      kappa.setFilters(0.5, 45, 50)   // defaults: HP 0.5, LP 45, notch 50
       kappaRef.current = kappa
       setMeta({ subjectId: info.subjectId, recordingDate: info.recordingDate })
       setTotalSeconds(Math.floor(info.numSamples / info.sampleRate))
 
-      const firstEpoch = kappa.readEpoch(0, RECORDS_PER_PAGE)
+      const firstEpoch = kappa.readEpoch(0, 10)
       if (!firstEpoch) throw new Error('readEpoch devolvió null')
       setEpoch(firstEpoch)
       setPage(0)
       sessionStorage.setItem(`ocean_eeg_key_${id}`, key)
       setPhase('viewing')
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Error desconocido'
-      const isBadKey =
-        (err instanceof DOMException && err.name === 'OperationError') ||
-        msg.includes('autenticación')
+      const msg      = err instanceof Error ? err.message : 'Error desconocido'
+      const isBadKey = (err instanceof DOMException && err.name === 'OperationError') || msg.includes('autenticación')
       setErrorMsg(isBadKey ? 'Clave incorrecta — el archivo no se pudo descifrar.' : msg)
       setPhase('error')
     }
   }, [id, token, decryptFile, loadModule])
 
-  // ── Auto-start with key from sessionStorage ───────────────────────────────────
+  // ── Auto-start from sessionStorage ───────────────────────────────────────────
   useEffect(() => {
     if (!id || phase !== 'key-input') return
-    const savedKey = sessionStorage.getItem(`ocean_eeg_key_${id}`)
-    if (savedKey) {
-      setKeyInput(savedKey)
-      startViewer(savedKey)
-    }
+    const saved = sessionStorage.getItem(`ocean_eeg_key_${id}`)
+    if (saved) { setKeyInput(saved); startViewer(saved) }
   }, [id, phase, startViewer])
 
-  // ── Pagination ───────────────────────────────────────────────────────────────
+  // ── Filter & window handlers ─────────────────────────────────────────────────
+  const refreshEpoch = useCallback((offsetPage: number, winSecs: number) => {
+    const kappa = kappaRef.current
+    if (!kappa) return
+    const e = kappa.readEpoch(offsetPage * winSecs, winSecs)
+    if (e) setEpoch(e)
+  }, [])
+
+  const handleHpChange = (val: string) => {
+    const v = parseFloat(val)
+    setHp(v)
+    const kappa = kappaRef.current
+    if (!kappa) return
+    kappa.setFilters(v, lp, notch ? 50 : 0)
+    refreshEpoch(page, windowSecs)
+  }
+
+  const handleLpChange = (val: string) => {
+    const v = parseFloat(val)
+    setLp(v)
+    const kappa = kappaRef.current
+    if (!kappa) return
+    kappa.setFilters(hp, v, notch ? 50 : 0)
+    refreshEpoch(page, windowSecs)
+  }
+
+  const handleNotchChange = (val: string) => {
+    const on = val === '1'
+    setNotch(on)
+    const kappa = kappaRef.current
+    if (!kappa) return
+    kappa.setFilters(hp, lp, on ? 50 : 0)
+    refreshEpoch(page, windowSecs)
+  }
+
+  const handleWindowChange = (val: string) => {
+    const newWin = parseInt(val)
+    const currentTime = page * windowSecs
+    const newPage = Math.floor(currentTime / newWin)
+    setWindowSecs(newWin)
+    setPage(newPage)
+    const kappa = kappaRef.current
+    if (!kappa) return
+    const e = kappa.readEpoch(newPage * newWin, newWin)
+    if (e) setEpoch(e)
+  }
+
+  // ── Pagination ────────────────────────────────────────────────────────────────
+  const maxPage = Math.max(0, Math.ceil(totalSeconds / windowSecs) - 1)
+
   const goToPage = useCallback((newPage: number) => {
     const kappa = kappaRef.current
     if (!kappa) return
-    const nextEpoch = kappa.readEpoch(newPage * RECORDS_PER_PAGE, RECORDS_PER_PAGE)
-    if (!nextEpoch) return
-    setEpoch(nextEpoch)
+    const e = kappa.readEpoch(newPage * windowSecs, windowSecs)
+    if (!e) return
+    setEpoch(e)
     setPage(newPage)
-  }, [])
-
-  const maxPage = Math.max(0, Math.ceil(totalSeconds / RECORDS_PER_PAGE) - 1)
+  }, [windowSecs])
 
   // ── Keyboard navigation ───────────────────────────────────────────────────────
   useEffect(() => {
     if (phase !== 'viewing') return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft' && page > 0) goToPage(page - 1)
-      if (e.key === 'ArrowRight' && page < maxPage) goToPage(page + 1)
+      if (e.key === 'ArrowLeft'  && page > 0)       goToPage(page - 1)
+      if (e.key === 'ArrowRight' && page < maxPage)  goToPage(page + 1)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -344,7 +410,6 @@ export default function EEGViewer() {
     drawEpoch(canvasRef.current, epoch, scales)
   }, [phase, epoch, scales])
 
-  // ── Resize canvas on window resize ────────────────────────────────────────────
   useEffect(() => {
     if (phase !== 'viewing' || !epoch || !canvasRef.current) return
     const canvas = canvasRef.current
@@ -356,10 +421,7 @@ export default function EEGViewer() {
   // ── Cleanup MEMFS on unmount ──────────────────────────────────────────────────
   useEffect(() => {
     return () => {
-      const mod = moduleRef.current
-      if (mod) {
-        try { mod.FS.unlink('/tmp/file.edf') } catch { /* already gone */ }
-      }
+      try { moduleRef.current?.FS.unlink('/tmp/file.edf') } catch { /* already gone */ }
     }
   }, [])
 
@@ -369,70 +431,50 @@ export default function EEGViewer() {
     if (keyInput.trim()) startViewer(keyInput.trim())
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────────
+  // ── Render: key input / error ─────────────────────────────────────────────────
 
   if (phase === 'key-input' || phase === 'error') {
     return (
       <div style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: '100vh',
-        background: '#0f172a',
-        fontFamily: 'system-ui, sans-serif',
-        padding: '1rem',
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        justifyContent: 'center', height: '100vh', background: '#f1f5f9',
+        fontFamily: 'system-ui, sans-serif', padding: '1rem',
       }}>
         <div style={{
-          background: '#1e293b',
-          border: '1px solid #334155',
-          borderRadius: 8,
-          padding: '2rem',
-          width: '100%',
-          maxWidth: 440,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '1.25rem',
+          background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 8,
+          padding: '2rem', width: '100%', maxWidth: 440,
+          display: 'flex', flexDirection: 'column', gap: '1.25rem',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
         }}>
           <div>
-            <div style={{ color: '#60a5fa', fontWeight: 700, fontSize: '1.1rem', marginBottom: 4 }}>
+            <div style={{ color: '#2563eb', fontWeight: 700, fontSize: '1.1rem', marginBottom: 4 }}>
               Visor EEG
             </div>
-            <div style={{ color: '#64748b', fontSize: '0.8rem' }}>Caso {id}</div>
+            <div style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Caso {id}</div>
           </div>
 
           {phase === 'error' && (
             <div style={{
-              background: 'rgba(248,113,113,0.1)',
-              border: '1px solid rgba(248,113,113,0.3)',
-              borderRadius: 6,
-              padding: '0.75rem',
-              color: '#f87171',
-              fontSize: '0.875rem',
+              background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6,
+              padding: '0.75rem', color: '#dc2626', fontSize: '0.875rem',
             }}>
               {errorMsg}
             </div>
           )}
 
           <div style={{
-            background: 'rgba(251,191,36,0.08)',
-            border: '1px solid rgba(251,191,36,0.25)',
-            borderRadius: 6,
-            padding: '0.75rem',
-            color: '#fbbf24',
-            fontSize: '0.8rem',
-            lineHeight: 1.5,
+            background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6,
+            padding: '0.75rem', color: '#92400e', fontSize: '0.8rem', lineHeight: 1.5,
           }}>
-            <strong>🔐 Clave requerida</strong>
+            <strong>Clave requerida</strong>
             <p style={{ margin: '0.4rem 0 0 0' }}>
-              OCEAN no almacena la clave de descifrado. Se mostró una sola vez al crear este caso.
-              Si eres el creador, recarga esta página — se intentará automáticamente durante esta sesión.
-              Si no, pídele la clave al clínico que subió el EEG.
+              OCEAN no almacena la clave de descifrado. Se mostró una sola vez al crear el caso.
+              Si eres el creador, recarga — se intentará automáticamente durante esta sesión.
             </p>
           </div>
 
           <form onSubmit={handleSubmitKey} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            <label style={{ color: '#94a3b8', fontSize: '0.85rem' }}>
+            <label style={{ color: '#475569', fontSize: '0.85rem' }}>
               Clave de descifrado
               <input
                 type="text"
@@ -441,18 +483,11 @@ export default function EEGViewer() {
                 placeholder="Pega la clave Base64…"
                 autoFocus
                 style={{
-                  display: 'block',
-                  marginTop: 6,
-                  width: '100%',
-                  background: '#0f172a',
-                  border: '1px solid #334155',
-                  borderRadius: 6,
-                  padding: '0.6rem 0.75rem',
-                  color: '#e2e8f0',
-                  fontFamily: 'monospace',
-                  fontSize: '0.8rem',
-                  boxSizing: 'border-box',
-                  outline: 'none',
+                  display: 'block', marginTop: 6, width: '100%',
+                  background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 6,
+                  padding: '0.6rem 0.75rem', color: '#1e293b',
+                  fontFamily: 'monospace', fontSize: '0.8rem',
+                  boxSizing: 'border-box', outline: 'none',
                 }}
               />
             </label>
@@ -460,13 +495,10 @@ export default function EEGViewer() {
               type="submit"
               disabled={!keyInput.trim()}
               style={{
-                background: keyInput.trim() ? '#2563eb' : '#1e3a5f',
-                color: keyInput.trim() ? '#fff' : '#64748b',
-                border: 'none',
-                borderRadius: 6,
-                padding: '0.65rem',
-                fontWeight: 600,
-                fontSize: '0.9rem',
+                background: keyInput.trim() ? '#2563eb' : '#e2e8f0',
+                color: keyInput.trim() ? '#fff' : '#94a3b8',
+                border: 'none', borderRadius: 6, padding: '0.65rem',
+                fontWeight: 600, fontSize: '0.9rem',
                 cursor: keyInput.trim() ? 'pointer' : 'not-allowed',
               }}
             >
@@ -478,57 +510,84 @@ export default function EEGViewer() {
     )
   }
 
+  // ── Render: loading phases ────────────────────────────────────────────────────
+
   if (phase !== 'viewing') {
     const messages: Record<Phase, string> = {
-      'key-input': '',
-      'downloading': 'Descargando paquete…',
-      'decrypting': 'Descifrando…',
+      'key-input':      '',
+      'downloading':    'Descargando paquete…',
+      'decrypting':     'Descifrando…',
       'loading-module': 'Cargando módulo EEG…',
-      'opening': 'Abriendo archivo…',
-      'viewing': '',
-      'error': '',
+      'opening':        'Abriendo archivo…',
+      'viewing':        '',
+      'error':          '',
     }
     return <StatusScreen message={messages[phase]} />
   }
 
-  const totalPages = maxPage + 1
-  const timeOffsetSec = page * RECORDS_PER_PAGE
+  // ── Render: viewer ────────────────────────────────────────────────────────────
+
+  const totalPages    = maxPage + 1
+  const timeOffsetSec = page * windowSecs
 
   return (
     <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      height: '100vh',
-      background: '#0f172a',
-      overflow: 'hidden',
+      display: 'flex', flexDirection: 'column', height: '100vh',
+      background: '#f1f5f9', overflow: 'hidden',
     }}>
       {/* Toolbar */}
       <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '1rem',
-        padding: '0.5rem 1rem',
-        background: '#1e293b',
-        borderBottom: '1px solid #334155',
-        flexShrink: 0,
-        flexWrap: 'wrap',
+        display: 'flex', alignItems: 'flex-end', gap: '1rem',
+        padding: '0.5rem 1rem', background: '#ffffff',
+        borderBottom: '1px solid #e2e8f0', flexShrink: 0, flexWrap: 'wrap',
       }}>
-        <span style={{ color: '#60a5fa', fontWeight: 700, fontFamily: 'monospace', fontSize: '0.85rem' }}>
-          EEG · {id}
-        </span>
-        {meta && (
-          <>
-            <span style={{ color: '#64748b', fontSize: '0.75rem' }}>{meta.subjectId}</span>
-            <span style={{ color: '#64748b', fontSize: '0.75rem' }}>{meta.recordingDate}</span>
-          </>
-        )}
+        {/* Identity */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginRight: 4 }}>
+          <span style={{ color: '#2563eb', fontWeight: 700, fontFamily: 'monospace', fontSize: '0.85rem' }}>
+            EEG · {id}
+          </span>
+          {meta && (
+            <span style={{ color: '#94a3b8', fontSize: '0.7rem' }}>
+              {meta.subjectId} · {meta.recordingDate}
+            </span>
+          )}
+        </div>
+
+        <div style={{ width: 1, height: 36, background: '#e2e8f0', flexShrink: 0 }} />
+
+        {/* Filter controls */}
+        <ToolbarSelect label="F. Baja (HP)" value={hp} onChange={handleHpChange}>
+          {HP_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </ToolbarSelect>
+
+        <ToolbarSelect label="F. Alta (LP)" value={lp} onChange={handleLpChange}>
+          {LP_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </ToolbarSelect>
+
+        <ToolbarSelect label="Notch" value={notch ? '1' : '0'} onChange={handleNotchChange}>
+          <option value="1">50 Hz</option>
+          <option value="0">Off</option>
+        </ToolbarSelect>
+
+        <div style={{ width: 1, height: 36, background: '#e2e8f0', flexShrink: 0 }} />
+
+        <ToolbarSelect label="Ventana" value={windowSecs} onChange={handleWindowChange}>
+          {WINDOW_OPTIONS.map((s) => (
+            <option key={s} value={s}>{s}s</option>
+          ))}
+        </ToolbarSelect>
+
         <div style={{ flex: 1 }} />
 
-        <span style={{ color: '#64748b', fontSize: '0.75rem', fontFamily: 'monospace' }}>
-          t = {timeOffsetSec}s
-        </span>
-
+        {/* Pagination */}
         <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+          <span style={{ color: '#94a3b8', fontSize: '0.75rem', fontFamily: 'monospace' }}>
+            t = {timeOffsetSec}s
+          </span>
           <button
             onClick={() => goToPage(page - 1)}
             disabled={page === 0}
@@ -537,7 +596,7 @@ export default function EEGViewer() {
           >
             ←
           </button>
-          <span style={{ color: '#94a3b8', fontSize: '0.8rem', fontFamily: 'monospace', minWidth: 70, textAlign: 'center' }}>
+          <span style={{ color: '#475569', fontSize: '0.8rem', fontFamily: 'monospace', minWidth: 64, textAlign: 'center' }}>
             {page + 1} / {totalPages}
           </span>
           <button
@@ -552,11 +611,8 @@ export default function EEGViewer() {
       </div>
 
       {/* Canvas area */}
-      <div style={{ flex: 1, overflow: 'auto' }}>
-        <canvas
-          ref={canvasRef}
-          style={{ display: 'block', width: '100%' }}
-        />
+      <div style={{ flex: 1, overflow: 'auto', background: '#f1f5f9' }}>
+        <canvas ref={canvasRef} style={{ display: 'block', width: '100%' }} />
       </div>
     </div>
   )
@@ -564,13 +620,13 @@ export default function EEGViewer() {
 
 function navBtnStyle(disabled: boolean): React.CSSProperties {
   return {
-    background: disabled ? '#1e293b' : '#334155',
-    color: disabled ? '#334155' : '#e2e8f0',
-    border: '1px solid #475569',
+    background:   disabled ? '#f1f5f9' : '#ffffff',
+    color:        disabled ? '#cbd5e1' : '#1e293b',
+    border:       `1px solid ${disabled ? '#e2e8f0' : '#cbd5e1'}`,
     borderRadius: 4,
-    padding: '0.3rem 0.6rem',
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    fontSize: '0.9rem',
-    fontWeight: 700,
+    padding:      '0.3rem 0.65rem',
+    cursor:       disabled ? 'not-allowed' : 'pointer',
+    fontSize:     '0.9rem',
+    fontWeight:   700,
   }
 }

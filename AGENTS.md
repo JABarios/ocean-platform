@@ -10,7 +10,7 @@
 
 - **No** es un repositorio masivo de EEGs.
 - **No** es una red social médica.
-- **No** incluye visor de EEG en navegador (la señal se abre en KAPPA local).
+- Incluye **visor de EEG en navegador** (`/cases/:id/eeg`) que desencripta y renderiza la señal vía módulo WebAssembly.
 - La unidad central del sistema es la **petición de revisión de un caso**.
 
 La estructura del repositorio es:
@@ -99,10 +99,12 @@ frontend/
 │   │   ├── Register.tsx
 │   │   ├── Dashboard.tsx
 │   │   ├── CaseNew.tsx       # Formulario + cifrado de .edf
-│   │   ├── CaseDetail.tsx    # Detalle, descarga, descifrado, comentarios
+│   │   ├── CaseDetail.tsx    # Detalle, descarga, descifrado, comentarios, botón Ver EEG
 │   │   ├── TeachingLibrary.tsx
 │   │   └── TeachingQueue.tsx
 │   └── test/                 # 34 tests en 5 suites (Vitest + RTL)
+├── public/
+│   └── wasm/                 # kappa_wasm.js + kappa_wasm.wasm (módulo Emscripten)
 └── package.json
 ```
 
@@ -148,14 +150,24 @@ Ver `docs/MINERVA.md` para la guía completa de uso en el servidor.
 
 | Tag | Descripción |
 |---|---|
-| `v0.3.0-stable` | Versión actual. DB re-validation, máquina de estados, diskStorage, 65 tests backend, 34 frontend |
+| `v0.3.1-stable` | Visor EEG integrado con módulo WASM, SPA fallback, flujo de clave automático, 82 tests backend, 34 frontend |
+| `v0.3.0-stable` | DB re-validation, máquina de estados, diskStorage, 65 tests backend, 34 frontend |
 | `v0.1.0-dev` | Primera versión funcional (solo localhost, sin control scripts) |
+
+Scripts principales:
+| Script | Uso |
+|---|---|
+| `ocean.sh` | `ocean_up` / `ocean_down` — arrancar/parar servicios |
+| `update.sh` | Actualización en caliente (pull + build + restart) |
+| `serve-spa.py` | Servidor estático con SPA fallback (React Router) |
+| `install-new-machine.sh` | Instalación limpia desde cero |
+| `run-dev.sh` | Modo desarrollo con `--network` para acceso LAN |
 
 Para instalar en máquina nueva:
 ```bash
 git clone git@github.com:JABarios/ocean-platform.git
 cd ocean-platform
-git checkout v0.2.2-stable
+git checkout v0.3.1-stable
 ./scripts/install-new-machine.sh
 ```
 
@@ -199,7 +211,21 @@ Suites: auth, cases, requests, teaching, packages, comments.
 cd frontend && npm test
 ```
 
-Suites: Login, Dashboard, CaseNew, CaseDetail, api.client (manejo de errores).
+Suites: Login, Dashboard, CaseNew, CaseDetail, api.client.
+
+### Scripts
+
+```bash
+# Arrancar/parar
+source scripts/ocean.sh && ocean_up    # backend + frontend
+ocean_down                             # parar todo
+
+# Actualizar en caliente (sin perder datos)
+./scripts/update.sh
+
+# Modo desarrollo con acceso desde red
+./scripts/run-dev.sh --network
+```
 
 ---
 
@@ -215,6 +241,8 @@ Suites: Login, Dashboard, CaseNew, CaseDetail, api.client (manejo de errores).
 - **Almacenamiento de archivos:** multer usa `diskStorage` (no RAM); hash SHA-256 por streaming.
 - **Propuestas docentes:** transacción interactiva evita race condition TOCTOU (duplicados).
 - **Cifrado:** AES-256-GCM en navegador. La clave nunca llega al servidor.
+- **Visor EEG:** Descarga paquete cifrado → desencripta con clave (almacenada en `sessionStorage` para el creador) → monta en MEMFS de Emscripten → renderiza señal en canvas con filtros aplicados.
+- **Clave de descifrado:** Se muestra una vez al crear el caso. El creador la tiene en `sessionStorage` durante la sesión. Otros usuarios deben pedírsela.
 
 ---
 

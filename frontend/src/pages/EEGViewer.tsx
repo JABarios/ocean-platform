@@ -72,14 +72,12 @@ const LP_OPTIONS: { label: string; value: number }[] = [
 const WINDOW_OPTIONS = [10, 20, 30]
 
 const GAIN_OPTIONS: { label: string; value: number }[] = [
-  { label: 'Auto',    value: 0 },
-  { label: '3 µV',   value: 3 },
-  { label: '5 µV',   value: 5 },
-  { label: '10 µV',  value: 10 },
-  { label: '15 µV',  value: 15 },
-  { label: '30 µV',  value: 30 },
-  { label: '100 µV', value: 100 },
-  { label: '500 µV', value: 500 },
+  { label: '0.1×', value: 0.1 },
+  { label: '0.5×', value: 0.5 },
+  { label: '1×',   value: 1   },
+  { label: '2×',   value: 2   },
+  { label: '4×',   value: 4   },
+  { label: '8×',   value: 8   },
 ]
 
 type Phase =
@@ -101,20 +99,26 @@ interface EpochData {
 
 // ─── Canvas helpers ───────────────────────────────────────────────────────────
 
-function computeScales(epoch: EpochData, gain: number): { p2: number; p98: number }[] {
-  return epoch.data.map((d) => {
+function computeScales(epoch: EpochData, gainMult: number): { p2: number; p98: number }[] {
+  // Step 1: per-channel auto range (p2–p98) and median center
+  const perChannel = epoch.data.map((d) => {
     const sorted = Float32Array.from(d).sort()
-    if (gain === 0) {
-      // Auto: stretch to actual signal range (percentile 2–98)
-      return {
-        p2:  sorted[Math.floor(sorted.length * 0.02)] ?? 0,
-        p98: sorted[Math.floor(sorted.length * 0.98)] ?? 0,
-      }
+    return {
+      p2:     sorted[Math.floor(sorted.length * 0.02)] ?? 0,
+      p98:    sorted[Math.floor(sorted.length * 0.98)] ?? 0,
+      center: sorted[Math.floor(sorted.length * 0.5)]  ?? 0,
     }
-    // Fixed µV: center on median, ±gain/2 defines the visible range
-    const center = sorted[Math.floor(sorted.length * 0.5)] ?? 0
-    return { p2: center - gain / 2, p98: center + gain / 2 }
   })
+
+  // Step 2: shared reference = median of all per-channel ranges
+  const ranges = perChannel.map(s => s.p98 - s.p2).filter(r => r > 0).sort((a, b) => a - b)
+  const refRange = ranges.length > 0
+    ? ranges[Math.floor(ranges.length * 0.5)]  // median — robust against ECG/EMG outliers
+    : 1
+
+  // Step 3: apply multiplier — each channel centered on its own median, shared range
+  const halfRange = (refRange / gainMult) / 2
+  return perChannel.map(s => ({ p2: s.center - halfRange, p98: s.center + halfRange }))
 }
 
 function drawEpoch(
@@ -270,13 +274,13 @@ export default function EEGViewer() {
   const [hp,         setHp]         = useState(0.5)
   const [lp,         setLp]         = useState(45)
   const [notch,      setNotch]      = useState(true)
-  const [gain,       setGain]       = useState(0)   // 0 = auto
+  const [gainMult,   setGainMult]   = useState(1)   // multiplier over shared auto reference
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const kappaRef  = useRef<KappaInstance | null>(null)
   const moduleRef = useRef<KappaModuleInstance | null>(null)
 
-  const scales = useMemo(() => epoch ? computeScales(epoch, gain) : [], [epoch, gain])
+  const scales = useMemo(() => epoch ? computeScales(epoch, gainMult) : [], [epoch, gainMult])
 
   // ── Load WASM module (singleton) ─────────────────────────────────────────────
   const loadModule = useCallback((): Promise<KappaModuleInstance> => {
@@ -599,7 +603,7 @@ export default function EEGViewer() {
           ))}
         </ToolbarSelect>
 
-        <ToolbarSelect label="Ganancia" value={gain} onChange={(v) => setGain(parseInt(v))}>
+        <ToolbarSelect label="Ganancia" value={gainMult} onChange={(v) => setGainMult(parseFloat(v))}>
           {GAIN_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}

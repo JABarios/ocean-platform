@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { api } from '../api/client'
+import { api, API_BASE } from '../api/client'
 import { useAuthStore } from '../store/authStore'
 import { useCrypto } from '../hooks/useCrypto'
 import type { CaseItem, Comment, User } from '../types'
@@ -156,8 +156,7 @@ export default function CaseDetail() {
   const downloadEncrypted = async () => {
     if (!id) return
     const token = localStorage.getItem('ocean_token')
-    const base = import.meta.env.VITE_API_URL || 'http://localhost:4000'
-    const response = await fetch(`${base}/packages/download/${id}`, {
+    const response = await fetch(`${API_BASE}/packages/download/${id}`, {
       headers: { Authorization: `Bearer ${token || ''}` },
     })
     if (!response.ok) {
@@ -178,8 +177,7 @@ export default function CaseDetail() {
     setDecrypting(true)
     try {
       const token = localStorage.getItem('ocean_token')
-      const base = import.meta.env.VITE_API_URL || 'http://localhost:4000'
-      const response = await fetch(`${base}/packages/download/${id}`, {
+      const response = await fetch(`${API_BASE}/packages/download/${id}`, {
         headers: { Authorization: `Bearer ${token || ''}` },
       })
       if (!response.ok) throw new Error('Error al descargar')

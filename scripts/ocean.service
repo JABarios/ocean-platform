@@ -1,0 +1,15 @@
+[Unit]
+Description=OCEAN Platform (backend + frontend)
+After=network.target
+
+[Service]
+Type=forking
+User=juan
+WorkingDirectory=/home/juan/ocean-platform
+ExecStart=/bin/bash -c 'source /home/juan/ocean-platform/scripts/ocean.sh && ocean_up'
+ExecStop=/bin/bash -c 'source /home/juan/ocean-platform/scripts/ocean.sh && ocean_down'
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

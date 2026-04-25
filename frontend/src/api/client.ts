@@ -1,20 +1,4 @@
-// Si VITE_API_URL está definida en build-time, la usamos.
-// Si no, inferimos desde window.location (misma IP que el frontend, puerto 4000).
-// Esto evita recompilar cuando cambia la IP de la máquina.
-export const API_BASE = import.meta.env.VITE_API_URL
-  || `${window.location.protocol}//${window.location.hostname}:4000`
-
-class ApiError extends Error {
-  public status: number
-  public detail?: string
-
-  constructor(message: string, status: number, detail?: string) {
-    super(message)
-    this.name = 'ApiError'
-    this.status = status
-    this.detail = detail
-  }
-}
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000'
 
 async function request<T>(
   method: string,
@@ -26,7 +10,10 @@ async function request<T>(
     'Content-Type': 'application/json',
   }
 
-  const token = localStorage.getItem('ocean_token')
+  const persistedAuth = localStorage.getItem('ocean-auth')
+  const token = persistedAuth
+    ? (JSON.parse(persistedAuth) as { state?: { token?: string } }).state?.token ?? null
+    : null
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
   }
@@ -40,50 +27,17 @@ async function request<T>(
     options.body = JSON.stringify(body)
   }
 
-  let response: Response
-  try {
-    response = await fetch(url, options)
-  } catch (err: any) {
-    // Error de red (no llega al servidor)
-    console.error(`[OCEAN API] No se pudo conectar a ${url}`, err)
-    throw new ApiError(
-      `No se pudo conectar al backend (${API_BASE}). ¿Está corriendo? ¿Es la URL correcta?`,
-      0,
-      err.message
-    )
-  }
-
-  // CORS bloqueado o respuesta vacía (status 0 en algunos navegadores)
-  if (response.status === 0 || (!response.ok && response.status === 0)) {
-    console.error(`[OCEAN API] Posible error CORS o red bloqueada en ${url}`)
-    throw new ApiError(
-      `El navegador bloqueó la petición a ${url}. Posible error CORS: verifica que el backend permita el origen ${window.location.origin}`,
-      0
-    )
-  }
+  const response = await fetch(url, options)
 
   if (response.status === 401) {
-    localStorage.removeItem('ocean_token')
+    localStorage.removeItem('ocean-auth')
     window.location.reload()
-    return Promise.reject(new ApiError('Unauthorized', 401))
+    return Promise.reject(new Error('Unauthorized'))
   }
 
   if (!response.ok) {
-    // Leer el body UNA sola vez como texto, luego intentar parsear JSON
-    const rawText = await response.text()
-    let errorText = rawText
-    try {
-      const json = JSON.parse(rawText)
-      errorText = json.error || JSON.stringify(json)
-    } catch {
-      // No es JSON válido, usar el texto crudo
-    }
-    console.error(`[OCEAN API] HTTP ${response.status} en ${url}: ${errorText}`)
-    throw new ApiError(
-      errorText || `Error HTTP ${response.status}`,
-      response.status,
-      `URL: ${url} | Método: ${method}`
-    )
+    const errorText = await response.text()
+    throw new Error(errorText || `HTTP ${response.status}`)
   }
 
   if (response.status === 204) {

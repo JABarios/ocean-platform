@@ -48,14 +48,12 @@ export default function Dashboard() {
   }, [])
 
   const respondRequest = async (id: string, action: 'Accepted' | 'Rejected') => {
+    const endpoint = action === 'Accepted' ? 'accept' : 'reject'
     try {
-      const endpoint = action === 'Accepted' ? 'accept' : 'reject'
       await api.post(`/requests/${id}/${endpoint}`)
       setPending((prev) => prev.filter((r) => r.id !== id))
-      if (action === 'Accepted') {
-        const updated = await api.get<ReviewRequest[]>('/requests/active')
-        setActive(updated)
-      }
+      const updated = await api.get<ReviewRequest[]>('/requests/active')
+      setActive(updated)
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Error')
     }

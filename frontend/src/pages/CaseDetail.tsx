@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { api, API_BASE } from '../api/client'
+import { api } from '../api/client'
 import { useAuthStore } from '../store/authStore'
 import { useCrypto } from '../hooks/useCrypto'
 import type { CaseItem, Comment, User } from '../types'
@@ -25,11 +25,13 @@ function statusBadgeClass(status: CaseItem['status']) {
 export default function CaseDetail() {
   const { id } = useParams<{ id: string }>()
   const user = useAuthStore((s) => s.user)
+  const token = useAuthStore((s) => s.token)
 
   const [caseItem, setCaseItem] = useState<CaseItem | null>(null)
   const [comments, setComments] = useState<Comment[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
+  const [fetchError, setFetchError] = useState('')
 
   const [targetUserId, setTargetUserId] = useState('')
   const [requestMessage, setRequestMessage] = useState('')
@@ -55,6 +57,12 @@ export default function CaseDetail() {
   const { decryptFile } = useCrypto()
 
   useEffect(() => {
+    return () => {
+      if (decryptedUrl) URL.revokeObjectURL(decryptedUrl)
+    }
+  }, [decryptedUrl])
+
+  useEffect(() => {
     if (!id) return
     const fetchAll = async () => {
       try {
@@ -66,8 +74,8 @@ export default function CaseDetail() {
         setCaseItem(c)
         setComments(com)
         setUsers(u)
-      } catch {
-        // handled by client
+      } catch (err) {
+        setFetchError(err instanceof Error ? err.message : 'Error al cargar el caso')
       } finally {
         setLoading(false)
       }
@@ -155,8 +163,8 @@ export default function CaseDetail() {
 
   const downloadEncrypted = async () => {
     if (!id) return
-    const token = localStorage.getItem('ocean_token')
-    const response = await fetch(`${API_BASE}/packages/download/${id}`, {
+    const base = import.meta.env.VITE_API_URL || 'http://localhost:4000'
+    const response = await fetch(`${base}/packages/download/${id}`, {
       headers: { Authorization: `Bearer ${token || ''}` },
     })
     if (!response.ok) {
@@ -176,8 +184,8 @@ export default function CaseDetail() {
     if (!id || !decryptKey) return
     setDecrypting(true)
     try {
-      const token = localStorage.getItem('ocean_token')
-      const response = await fetch(`${API_BASE}/packages/download/${id}`, {
+      const base = import.meta.env.VITE_API_URL || 'http://localhost:4000'
+      const response = await fetch(`${base}/packages/download/${id}`, {
         headers: { Authorization: `Bearer ${token || ''}` },
       })
       if (!response.ok) throw new Error('Error al descargar')
@@ -201,6 +209,10 @@ export default function CaseDetail() {
         Cargando…
       </div>
     )
+  }
+
+  if (fetchError) {
+    return <div className="card" style={{ color: 'var(--error, #e53e3e)' }}>{fetchError}</div>
   }
 
   if (!caseItem) {

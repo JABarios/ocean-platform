@@ -3,6 +3,17 @@ import { prisma } from './prisma'
 import { deleteBlob } from './storage'
 
 export function startCleanupJob() {
+  // Cada hora: expirar solicitudes de revisión pendientes vencidas
+  cron.schedule('0 * * * *', async () => {
+    const result = await prisma.reviewRequest.updateMany({
+      where: { status: 'Pending', expiresAt: { lt: new Date() } },
+      data: { status: 'Expired' },
+    })
+    if (result.count > 0) {
+      console.log(`[cleanup] ${result.count} solicitudes de revisión expiradas`)
+    }
+  })
+
   // Cada hora: eliminar paquetes expirados
   cron.schedule('0 * * * *', async () => {
     console.log('[cleanup] Ejecutando limpieza de paquetes expirados…')

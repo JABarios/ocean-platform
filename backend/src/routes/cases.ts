@@ -20,13 +20,22 @@ const updateStatusSchema = z.object({
 
 router.use(authMiddleware)
 
+function safeParseJson(value: unknown): unknown {
+  if (typeof value !== 'string') return value
+  try {
+    return JSON.parse(value)
+  } catch {
+    return null
+  }
+}
+
 function toCaseResponse(caseObj: Record<string, unknown>) {
   return {
     ...caseObj,
     status: caseObj.statusClinical,
     teachingStatus: caseObj.statusTeaching,
-    tags: caseObj.tags ? JSON.parse(caseObj.tags as string) : [],
-    summaryMetrics: caseObj.summaryMetrics ? JSON.parse(caseObj.summaryMetrics as string) : null,
+    tags: safeParseJson(caseObj.tags) ?? [],
+    summaryMetrics: safeParseJson(caseObj.summaryMetrics),
   }
 }
 
@@ -98,6 +107,7 @@ router.get('/:id', async (req: AuthenticatedRequest, res) => {
     },
     include: {
       owner: { select: { id: true, displayName: true, email: true } },
+      package: true,
       reviewRequests: {
         include: {
           requester: { select: { id: true, displayName: true } },

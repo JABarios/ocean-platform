@@ -1,4 +1,7 @@
-export const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000'
+// Fallback dinámico: si no hay VITE_API_URL en build-time, usa la IP
+// desde la que se cargó el frontend (funciona en localhost y en red local).
+export const API_BASE = import.meta.env.VITE_API_URL
+  || `${window.location.protocol}//${window.location.hostname}:4000`
 
 export class ApiError extends Error {
   status: number
@@ -29,10 +32,7 @@ async function request<T>(
     'Content-Type': 'application/json',
   }
 
-  const persistedAuth = localStorage.getItem('ocean-auth')
-  const token = persistedAuth
-    ? (JSON.parse(persistedAuth) as { state?: { token?: string } }).state?.token ?? null
-    : null
+  const token = localStorage.getItem('ocean_token')
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
   }

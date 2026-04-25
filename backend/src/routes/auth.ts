@@ -73,7 +73,7 @@ router.post('/login', async (req, res) => {
     return
   }
 
-  if (!user.passwordHash) {
+  if (!user.passwordHash || user.status !== 'Active') {
     res.status(401).json({ error: 'Credenciales inválidas' })
     return
   }

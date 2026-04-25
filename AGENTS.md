@@ -60,10 +60,10 @@ backend/
 │   ├── index.ts              # Punto de entrada Express
 │   ├── routes/
 │   │   ├── auth.ts           # POST /register, POST /login, GET /me
-│   │   ├── cases.ts          # CRUD de casos, cambio de estado, incluye package
+│   │   ├── cases.ts          # CRUD de casos, máquina de estados VALID_TRANSITIONS, incluye package
 │   │   ├── comments.ts       # Comentarios vinculados a casos
 │   │   ├── requests.ts       # Solicitudes de revisión (pending, active, accept, reject)
-│   │   ├── packages.ts       # Subida/descarga de blobs cifrados
+│   │   ├── packages.ts       # Subida/descarga con diskStorage + hash streaming (sin cargar en RAM)
 │   │   ├── teaching.ts       # Propuestas docentes, recomendaciones, validación
 │   │   └── users.ts          # Listado de usuarios
 │   ├── middleware/
@@ -76,7 +76,7 @@ backend/
 │   ├── schema.prisma
 │   ├── seed.ts               # 4 usuarios de prueba (pass: ocean123)
 │   └── migrations/
-├── tests/                    # 30 tests de integración (Jest + Supertest)
+├── tests/                    # 31 tests de integración (Jest + Supertest)
 ├── .env / .env.example
 └── package.json
 ```
@@ -102,7 +102,7 @@ frontend/
 │   │   ├── CaseDetail.tsx    # Detalle, descarga, descifrado, comentarios
 │   │   ├── TeachingLibrary.tsx
 │   │   └── TeachingQueue.tsx
-│   └── test/                 # 14 tests (Vitest + RTL)
+│   └── test/                 # 34 tests en 5 suites (Vitest + RTL)
 └── package.json
 ```
 
@@ -119,7 +119,7 @@ npm run dev                 # tsx watch src/index.ts (puerto 4000)
 npm run build               # tsc → dist/
 npm run start               # node dist/index.js
 npm run db:seed             # tsx prisma/seed.ts
-npm test                    # Jest — 30 tests
+npm test                    # Jest — 31 tests
 ```
 
 ### Frontend
@@ -129,7 +129,7 @@ cd frontend
 npm install
 npm run dev                 # vite — puerto 5173
 npm run build               # tsc && vite build → dist/
-npm test                    # Vitest — 14 tests
+npm test                    # Vitest — 34 tests
 ```
 
 ### Control rápido en Minerva (o máquina con ocean.sh)
@@ -164,7 +164,7 @@ git checkout v0.2.2-stable
 ## 6. Modelo de datos principal
 
 - **User:** roles (`Clinician`, `Reviewer`, `Curator`, `Admin`)
-- **Case:** estados clínicos `Draft → Requested → InReview → Resolved → Archived`
+- **Case:** estados clínicos `Draft → Requested → InReview → Resolved → Archived` (máquina de estados en backend)
 - **CasePackage:** blob cifrado (IV + ciphertext AES-GCM), hash SHA-256
 - **ReviewRequest:** estados `Pending`, `Accepted`, `Rejected`, `Completed`
 - **Comment:** tipos `Comment`, `Conclusion`, `TeachingNote`
@@ -176,8 +176,8 @@ git checkout v0.2.2-stable
 ## 7. Flujo de autenticación y autorización
 
 1. JWT firmado con `JWT_SECRET` (7 días de expiración).
-2. Token en `localStorage` (`ocean_token`), adjunto a cada petición.
-3. `authMiddleware` verifica JWT y adjunta `req.user`.
+2. Token dual: Zustand persist (`ocean-auth`) + `localStorage` (`ocean_token`) para compatibilidad api/client.
+3. `authMiddleware` verifica JWT **y re-valida rol + status contra la DB** en cada petición. Rechaza tokens de usuarios inactivos o roles degradados.
 4. `requireRole` protege endpoints sensibles (validación docente).
 5. Respuesta 401 → limpia token y recarga página.
 
@@ -199,7 +199,7 @@ Suites: auth, cases, requests, teaching, packages, comments.
 cd frontend && npm test
 ```
 
-Suites: Login, Dashboard, CaseNew, api.client (manejo de errores).
+Suites: Login, Dashboard, CaseNew, CaseDetail, api.client (manejo de errores).
 
 ---
 
@@ -210,6 +210,10 @@ Suites: Login, Dashboard, CaseNew, api.client (manejo de errores).
 - **Contraseñas:** bcrypt a 10 rounds.
 - **Validación:** Zod en todos los endpoints con body.
 - **Autorización:** verificación `ownerId` o participación en `ReviewRequest`.
+- **Transiciones de estado:** máquina de estados `VALID_TRANSITIONS` en `PATCH /cases/:id/status`.
+- **Transacciones:** operaciones multi-write (aceptar solicitud, crear propuesta docente) envueltas en `prisma.$transaction`.
+- **Almacenamiento de archivos:** multer usa `diskStorage` (no RAM); hash SHA-256 por streaming.
+- **Propuestas docentes:** transacción interactiva evita race condition TOCTOU (duplicados).
 - **Cifrado:** AES-256-GCM en navegador. La clave nunca llega al servidor.
 
 ---

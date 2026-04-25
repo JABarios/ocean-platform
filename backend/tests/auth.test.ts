@@ -12,8 +12,9 @@ describe('POST /auth/register', () => {
       specialty: 'Neurofisiología',
     })
     expect(res.status).toBe(201)
-    expect(res.body).toHaveProperty('id')
-    expect(res.body.email).toBe('test@ocean.local')
+    expect(res.body).toHaveProperty('token')
+    expect(res.body.user.id).toBeDefined()
+    expect(res.body.user.email).toBe('test@ocean.local')
   })
 
   it('rechaza email duplicado', async () => {

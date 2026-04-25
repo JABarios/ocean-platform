@@ -1,23 +1,47 @@
 import { vi } from 'vitest'
 
-export function mockFetch(response: any, status = 200) {
-  global.fetch = vi.fn().mockResolvedValue({
+type FetchMock = ReturnType<typeof vi.fn>
+
+function makeResponse(data: unknown, status = 200): Response {
+  return {
     ok: status >= 200 && status < 300,
     status,
-    json: () => Promise.resolve(response),
-    text: () => Promise.resolve(JSON.stringify(response)),
-  } as Response)
+    json: () => Promise.resolve(data),
+    text: () => Promise.resolve(typeof data === 'string' ? data : JSON.stringify(data)),
+  } as Response
 }
 
-export function mockFetchError(message: string, status = 500) {
-  global.fetch = vi.fn().mockResolvedValue({
-    ok: false,
-    status,
-    json: () => Promise.resolve({ error: message }),
-    text: () => Promise.resolve(message),
-  } as Response)
+export function mockFetch(response: unknown, status = 200): FetchMock {
+  const mock = vi.fn().mockResolvedValue(makeResponse(response, status))
+  vi.stubGlobal('fetch', mock)
+  return mock
 }
 
-export function mockFetchNetworkError() {
-  global.fetch = vi.fn().mockRejectedValue(new Error('Network error'))
+export function mockFetchError(message: string, status = 500): FetchMock {
+  const mock = vi.fn().mockResolvedValue(makeResponse(message, status))
+  vi.stubGlobal('fetch', mock)
+  return mock
+}
+
+export function mockFetchNetworkError(): FetchMock {
+  const mock = vi.fn().mockRejectedValue(new Error('Network error'))
+  vi.stubGlobal('fetch', mock)
+  return mock
+}
+
+// Mocks múltiples respuestas secuenciales (una por llamada a fetch).
+// Devuelve la referencia al mock para inspeccionarlo en los tests.
+export function mockFetchSequence(
+  responses: Array<{ data: unknown; status?: number } | 'network_error'>
+): FetchMock {
+  let mock = vi.fn()
+  for (const r of responses) {
+    if (r === 'network_error') {
+      mock = mock.mockRejectedValueOnce(new Error('Network error'))
+    } else {
+      mock = mock.mockResolvedValueOnce(makeResponse(r.data, r.status ?? 200))
+    }
+  }
+  vi.stubGlobal('fetch', mock)
+  return mock
 }

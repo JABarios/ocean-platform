@@ -20,13 +20,30 @@ const updateStatusSchema = z.object({
 
 router.use(authMiddleware)
 
+function safeParseJson(value: any): any {
+  if (typeof value !== 'string') return value
+  try {
+    return JSON.parse(value)
+  } catch {
+    return null
+  }
+}
+
 function toCaseResponse(caseObj: any) {
   const plain = JSON.parse(JSON.stringify(caseObj))
   plain.status = plain.statusClinical
   plain.teachingStatus = plain.statusTeaching
-  plain.tags = plain.tags ? JSON.parse(plain.tags) : []
-  plain.summaryMetrics = plain.summaryMetrics ? JSON.parse(plain.summaryMetrics) : null
+  plain.tags = safeParseJson(plain.tags) ?? []
+  plain.summaryMetrics = safeParseJson(plain.summaryMetrics)
   return plain
+}
+
+const VALID_TRANSITIONS: Record<string, string[]> = {
+  Draft: ['Requested', 'Archived'],
+  Requested: ['Draft', 'InReview', 'Archived'],
+  InReview: ['Resolved', 'Archived'],
+  Resolved: ['Archived'],
+  Archived: [],
 }
 
 // Listar casos del usuario autenticado
@@ -132,6 +149,14 @@ router.patch('/:id/status', async (req: AuthenticatedRequest, res) => {
   })
   if (!caseItem) {
     res.status(404).json({ error: 'Caso no encontrado' })
+    return
+  }
+
+  const allowed = VALID_TRANSITIONS[caseItem.statusClinical] ?? []
+  if (!allowed.includes(parsed.data.statusClinical)) {
+    res.status(400).json({
+      error: `Transición no permitida: ${caseItem.statusClinical} → ${parsed.data.statusClinical}`,
+    })
     return
   }
 

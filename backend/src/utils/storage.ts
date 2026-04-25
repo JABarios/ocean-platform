@@ -29,7 +29,7 @@ async function ensureDir() {
   }
 }
 
-export async function uploadBlob(key: string, buffer: Buffer): Promise<string> {
+export async function uploadBlob(key: string, data: Buffer | Readable): Promise<string> {
   await ensureDir()
 
   if (USE_S3 && s3Client) {
@@ -37,7 +37,7 @@ export async function uploadBlob(key: string, buffer: Buffer): Promise<string> {
       new PutObjectCommand({
         Bucket: BUCKET,
         Key: key,
-        Body: buffer,
+        Body: data,
         ContentType: 'application/octet-stream',
       })
     )
@@ -47,7 +47,17 @@ export async function uploadBlob(key: string, buffer: Buffer): Promise<string> {
   // Filesystem fallback
   const filePath = path.join(UPLOAD_DIR, key)
   await fsPromises.mkdir(path.dirname(filePath), { recursive: true })
-  await fsPromises.writeFile(filePath, buffer)
+  if (data instanceof Readable) {
+    const writeStream = createWriteStream(filePath)
+    await new Promise<void>((resolve, reject) => {
+      data.pipe(writeStream)
+      writeStream.on('finish', resolve)
+      writeStream.on('error', reject)
+      data.on('error', reject)
+    })
+  } else {
+    await fsPromises.writeFile(filePath, data)
+  }
   return filePath
 }
 
@@ -79,7 +89,7 @@ export async function deleteBlob(key: string): Promise<void> {
     return
   }
 
-  await fsPromises.unlink(key).catch(() => {})
+  await fsPromises.unlink(key)
 }
 
 export async function generatePresignedDownloadUrl(key: string, expiresInSeconds = 3600): Promise<string> {

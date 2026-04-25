@@ -12,7 +12,7 @@ export interface AuthenticatedRequest extends Request {
   }
 }
 
-export function authMiddleware(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+export async function authMiddleware(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization
   if (!authHeader?.startsWith('Bearer ')) {
     res.status(401).json({ error: 'Token requerido' })
@@ -20,29 +20,25 @@ export function authMiddleware(req: AuthenticatedRequest, res: Response, next: N
   }
 
   const token = authHeader.split(' ')[1]
+  let decoded: { userId: string; email: string; role: string }
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; email: string; role: string }
-    req.user = { id: decoded.userId, email: decoded.email, role: decoded.role }
-    next()
+    decoded = jwt.verify(token, JWT_SECRET) as { userId: string; email: string; role: string }
   } catch {
     res.status(401).json({ error: 'Token inválido' })
     return
   }
-}
 
-export async function attachUserOptional(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-  const authHeader = req.headers.authorization
-  if (!authHeader?.startsWith('Bearer ')) {
-    next()
+  const dbUser = await prisma.user.findUnique({
+    where: { id: decoded.userId },
+    select: { id: true, email: true, role: true, status: true },
+  })
+
+  if (!dbUser || dbUser.status !== 'Active') {
+    res.status(401).json({ error: 'Usuario inactivo o no encontrado' })
     return
   }
-  const token = authHeader.split(' ')[1]
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; email: string; role: string }
-    req.user = { id: decoded.userId, email: decoded.email, role: decoded.role }
-  } catch {
-    // ignore invalid token on optional attach
-  }
+
+  req.user = { id: dbUser.id, email: dbUser.email, role: dbUser.role }
   next()
 }
 

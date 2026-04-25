@@ -93,6 +93,16 @@ async function request<T>(
   return response.json() as Promise<T>
 }
 
+export function friendlyError(err: unknown): string {
+  if (err instanceof ApiError) {
+    return err.message
+  }
+  if (err instanceof Error) {
+    return err.message
+  }
+  return 'Error desconocido'
+}
+
 export const api = {
   get: <T>(endpoint: string) => request<T>('GET', endpoint),
   post: <T>(endpoint: string, body?: unknown) => request<T>('POST', endpoint, body),

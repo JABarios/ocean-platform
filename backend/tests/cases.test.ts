@@ -73,8 +73,39 @@ describe('GET /cases/:id', () => {
 })
 
 describe('PATCH /cases/:id/status', () => {
-  it('cambia el estado del caso', async () => {
+  it('cambia el estado del caso siguiendo transiciones válidas', async () => {
     const user = await createUser({ email: 'status@ocean.local', displayName: 'Status', password: 'pass' })
+    const c = await createCase(user.id)
+    const token = generateToken(user.id, user.email, user.role)
+
+    // Draft → Requested
+    let res = await request(app)
+      .patch(`/cases/${c.id}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ statusClinical: 'Requested' })
+    expect(res.status).toBe(200)
+    expect(res.body.status).toBe('Requested')
+
+    // Requested → InReview
+    res = await request(app)
+      .patch(`/cases/${c.id}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ statusClinical: 'InReview' })
+    expect(res.status).toBe(200)
+    expect(res.body.status).toBe('InReview')
+
+    // InReview → Resolved
+    res = await request(app)
+      .patch(`/cases/${c.id}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ statusClinical: 'Resolved' })
+    expect(res.status).toBe(200)
+    expect(res.body.status).toBe('Resolved')
+    expect(res.body.resolvedAt).toBeDefined()
+  })
+
+  it('rechaza transición inválida', async () => {
+    const user = await createUser({ email: 'badtx@ocean.local', displayName: 'BadTx', password: 'pass' })
     const c = await createCase(user.id)
     const token = generateToken(user.id, user.email, user.role)
 
@@ -83,8 +114,8 @@ describe('PATCH /cases/:id/status', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ statusClinical: 'Resolved' })
 
-    expect(res.status).toBe(200)
-    expect(res.body.status).toBe('Resolved')
+    expect(res.status).toBe(400)
+    expect(res.body.error).toContain('Transición no permitida')
   })
 
   it('solo el owner puede cambiar estado', async () => {

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useParams } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { useCrypto } from '../hooks/useCrypto'
+import { API_BASE } from '../api/client'
 
 // ─── WASM types ───────────────────────────────────────────────────────────────
 
@@ -262,8 +263,7 @@ export default function EEGViewer() {
 
     try {
       setPhase('downloading')
-      const base = import.meta.env.VITE_API_URL || 'http://localhost:4000'
-      const res = await fetch(`${base}/packages/download/${id}`, {
+      const res = await fetch(`${API_BASE}/packages/download/${id}`, {
         headers: { Authorization: `Bearer ${token ?? ''}` },
       })
       if (!res.ok) throw new Error(`Error al descargar (${res.status})`)

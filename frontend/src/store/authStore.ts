@@ -11,7 +11,6 @@ interface AuthState {
   register: (data: RegisterData) => Promise<void>
   logout: () => void
   fetchMe: () => Promise<void>
-  setToken: (token: string | null) => void
 }
 
 interface RegisterData {
@@ -29,15 +28,6 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       isLoading: false,
 
-      setToken: (token) => {
-        set({ token })
-        if (token) {
-          localStorage.setItem('ocean_token', token)
-        } else {
-          localStorage.removeItem('ocean_token')
-        }
-      },
-
       login: async (email, password) => {
         set({ isLoading: true })
         try {
@@ -45,11 +35,7 @@ export const useAuthStore = create<AuthState>()(
             email,
             password,
           })
-          localStorage.setItem('ocean_token', res.token)
           set({ token: res.token, user: res.user })
-        } catch (err) {
-          set({ isLoading: false })
-          throw err
         } finally {
           set({ isLoading: false })
         }
@@ -59,30 +45,23 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true })
         try {
           const res = await api.post<{ token: string; user: User }>('/auth/register', data)
-          localStorage.setItem('ocean_token', res.token)
           set({ token: res.token, user: res.user })
-        } catch (err) {
-          set({ isLoading: false })
-          throw err
         } finally {
           set({ isLoading: false })
         }
       },
 
       logout: () => {
-        localStorage.removeItem('ocean_token')
         set({ token: null, user: null })
       },
 
       fetchMe: async () => {
-        const token = get().token || localStorage.getItem('ocean_token')
-        if (!token) return
+        if (!get().token) return
         set({ isLoading: true })
         try {
           const user = await api.get<User>('/auth/me')
-          set({ user, token })
+          set({ user })
         } catch {
-          localStorage.removeItem('ocean_token')
           set({ token: null, user: null })
         } finally {
           set({ isLoading: false })

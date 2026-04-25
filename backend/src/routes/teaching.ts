@@ -50,16 +50,18 @@ router.get('/proposals', async (req: AuthenticatedRequest, res) => {
     orderBy: { createdAt: 'desc' },
   })
 
-  const response = items.map((item: any) => {
-    const plain = JSON.parse(JSON.stringify(item))
-    plain.tags = plain.tags ? JSON.parse(plain.tags) : []
-    if (plain.case) {
-      plain.case.tags = plain.case.tags ? JSON.parse(plain.case.tags) : []
-      plain.case.status = plain.case.statusClinical
-      delete plain.case.statusClinical
-    }
-    return plain
-  })
+  const response = items.map((item) => ({
+    ...item,
+    tags: item.tags ? JSON.parse(item.tags) : [],
+    case: item.case
+      ? {
+          ...item.case,
+          tags: item.case.tags ? JSON.parse(item.case.tags) : [],
+          status: item.case.statusClinical,
+          statusClinical: undefined,
+        }
+      : item.case,
+  }))
   res.json(response)
 })
 
@@ -84,14 +86,13 @@ router.get('/library', async (req: AuthenticatedRequest, res) => {
     },
     orderBy: { validatedAt: 'desc' },
   })
-  const response = items.map((item: any) => {
-    const plain = JSON.parse(JSON.stringify(item))
-    plain.tags = plain.tags ? JSON.parse(plain.tags) : []
-    if (plain.case) {
-      plain.case.tags = plain.case.tags ? JSON.parse(plain.case.tags) : []
-    }
-    return plain
-  })
+  const response = items.map((item) => ({
+    ...item,
+    tags: item.tags ? JSON.parse(item.tags) : [],
+    case: item.case
+      ? { ...item.case, tags: item.case.tags ? JSON.parse(item.case.tags) : [] }
+      : item.case,
+  }))
   res.json(response)
 })
 
@@ -130,31 +131,40 @@ router.post('/proposals', async (req: AuthenticatedRequest, res) => {
     return
   }
 
-  const existing = await prisma.teachingProposal.findFirst({
-    where: { caseId, status: { in: ['Proposed', 'Recommended', 'Validated'] } },
-  })
-  if (existing) {
-    res.status(409).json({ error: 'Este caso ya tiene una propuesta docente activa' })
-    return
+  let proposal: Awaited<ReturnType<typeof prisma.teachingProposal.create>>
+  try {
+    proposal = await prisma.$transaction(async (tx) => {
+      const existing = await tx.teachingProposal.findFirst({
+        where: { caseId, status: { in: ['Proposed', 'Recommended', 'Validated'] } },
+      })
+      if (existing) {
+        throw Object.assign(new Error('duplicate'), { code: 'DUPLICATE_PROPOSAL' })
+      }
+      const created = await tx.teachingProposal.create({
+        data: {
+          caseId,
+          proposerId: req.user!.id,
+          summary,
+          keyFindings,
+          learningPoints,
+          difficulty,
+          tags: JSON.stringify(tags),
+          status: 'Proposed',
+        },
+      })
+      await tx.case.update({
+        where: { id: caseId },
+        data: { statusTeaching: 'Proposed' },
+      })
+      return created
+    })
+  } catch (err) {
+    if (err instanceof Error && (err as NodeJS.ErrnoException & { code?: string }).code === 'DUPLICATE_PROPOSAL') {
+      res.status(409).json({ error: 'Este caso ya tiene una propuesta docente activa' })
+      return
+    }
+    throw err
   }
-
-  const proposal = await prisma.teachingProposal.create({
-    data: {
-      caseId,
-      proposerId: req.user!.id,
-      summary,
-      keyFindings,
-      learningPoints,
-      difficulty,
-      tags: JSON.stringify(tags),
-      status: 'Proposed',
-    },
-  })
-
-  await prisma.case.update({
-    where: { id: caseId },
-    data: { statusTeaching: 'Proposed' },
-  })
 
   await prisma.auditEvent.create({
     data: {
@@ -209,14 +219,16 @@ router.post('/proposals/:id/recommend', async (req: AuthenticatedRequest, res) =
     where: { proposalId: req.params.id },
   })
   if (count >= 2 && proposal.status === 'Proposed') {
-    await prisma.teachingProposal.update({
-      where: { id: req.params.id },
-      data: { status: 'Recommended' },
-    })
-    await prisma.case.update({
-      where: { id: proposal.caseId },
-      data: { statusTeaching: 'Recommended' },
-    })
+    await prisma.$transaction([
+      prisma.teachingProposal.update({
+        where: { id: req.params.id },
+        data: { status: 'Recommended' },
+      }),
+      prisma.case.update({
+        where: { id: proposal.caseId },
+        data: { statusTeaching: 'Recommended' },
+      }),
+    ])
   }
 
   res.status(201).json(rec)
@@ -238,30 +250,30 @@ router.post('/proposals/:id/validate', requireRole(['Curator', 'Admin']), async 
     return
   }
 
-  const updated = await prisma.teachingProposal.update({
-    where: { id: req.params.id },
-    data: {
-      status: parsed.data.status,
-      validatedBy: req.user!.id,
-      validatedAt: new Date(),
-      rejectionReason: parsed.data.status === 'Rejected' ? parsed.data.rejectionReason : null,
-    },
-  })
-
-  await prisma.case.update({
-    where: { id: proposal.caseId },
-    data: { statusTeaching: parsed.data.status === 'Validated' ? 'Validated' : 'Rejected' },
-  })
-
-  await prisma.auditEvent.create({
-    data: {
-      actorId: req.user!.id,
-      caseId: proposal.caseId,
-      action: parsed.data.status === 'Validated' ? 'TeachingValidated' : 'TeachingRejected',
-      target: proposal.id,
-      metadata: JSON.stringify({ reason: parsed.data.rejectionReason }),
-    },
-  })
+  const [updated] = await prisma.$transaction([
+    prisma.teachingProposal.update({
+      where: { id: req.params.id },
+      data: {
+        status: parsed.data.status,
+        validatedBy: req.user!.id,
+        validatedAt: new Date(),
+        rejectionReason: parsed.data.status === 'Rejected' ? parsed.data.rejectionReason : null,
+      },
+    }),
+    prisma.case.update({
+      where: { id: proposal.caseId },
+      data: { statusTeaching: parsed.data.status === 'Validated' ? 'Validated' : 'Rejected' },
+    }),
+    prisma.auditEvent.create({
+      data: {
+        actorId: req.user!.id,
+        caseId: proposal.caseId,
+        action: parsed.data.status === 'Validated' ? 'TeachingValidated' : 'TeachingRejected',
+        target: proposal.id,
+        metadata: JSON.stringify({ reason: parsed.data.rejectionReason }),
+      },
+    }),
+  ])
 
   res.json(updated)
 })

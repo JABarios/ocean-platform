@@ -20,13 +20,23 @@ const updateStatusSchema = z.object({
 
 router.use(authMiddleware)
 
-function toCaseResponse(caseObj: any) {
-  const plain = JSON.parse(JSON.stringify(caseObj))
-  plain.status = plain.statusClinical
-  plain.teachingStatus = plain.statusTeaching
-  plain.tags = plain.tags ? JSON.parse(plain.tags) : []
-  plain.summaryMetrics = plain.summaryMetrics ? JSON.parse(plain.summaryMetrics) : null
-  return plain
+function safeParseJson(value: unknown): unknown {
+  if (typeof value !== 'string') return value
+  try {
+    return JSON.parse(value)
+  } catch {
+    return null
+  }
+}
+
+function toCaseResponse(caseObj: Record<string, unknown>) {
+  return {
+    ...caseObj,
+    status: caseObj.statusClinical,
+    teachingStatus: caseObj.statusTeaching,
+    tags: safeParseJson(caseObj.tags) ?? [],
+    summaryMetrics: safeParseJson(caseObj.summaryMetrics),
+  }
 }
 
 // Listar casos del usuario autenticado
@@ -119,6 +129,14 @@ router.get('/:id', async (req: AuthenticatedRequest, res) => {
   res.json(toCaseResponse(caseItem))
 })
 
+const VALID_TRANSITIONS: Record<string, string[]> = {
+  Draft: ['Requested', 'Archived'],
+  Requested: ['Draft', 'InReview', 'Archived'],
+  InReview: ['Resolved', 'Archived'],
+  Resolved: ['Archived'],
+  Archived: [],
+}
+
 // Actualizar estado clínico
 router.patch('/:id/status', async (req: AuthenticatedRequest, res) => {
   const parsed = updateStatusSchema.safeParse(req.body)
@@ -135,7 +153,17 @@ router.patch('/:id/status', async (req: AuthenticatedRequest, res) => {
     return
   }
 
-  const updateData: any = { statusClinical: parsed.data.statusClinical }
+  const allowed = VALID_TRANSITIONS[caseItem.statusClinical] ?? []
+  if (!allowed.includes(parsed.data.statusClinical)) {
+    res.status(400).json({
+      error: `Transición no permitida: ${caseItem.statusClinical} → ${parsed.data.statusClinical}`,
+    })
+    return
+  }
+
+  const updateData: { statusClinical: string; resolvedAt?: Date } = {
+    statusClinical: parsed.data.statusClinical,
+  }
   if (parsed.data.statusClinical === 'Resolved') {
     updateData.resolvedAt = new Date()
   }

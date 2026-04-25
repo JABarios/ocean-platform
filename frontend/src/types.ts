@@ -25,11 +25,16 @@ export interface CaseItem {
   ageRange: string
   studyReason: string
   modality: string
+  tags: string[]
   status: 'Draft' | 'Requested' | 'InReview' | 'Resolved' | 'Archived'
+  teachingStatus: 'None' | 'Proposed' | 'Recommended' | 'Validated' | 'Rejected'
   ownerId: string
+  owner?: { id: string; displayName: string; email: string }
   createdAt: string
   updatedAt: string
+  resolvedAt?: string
   package?: CasePackage
+  reviewRequests?: ReviewRequest[]
 }
 
 export interface ReviewRequest {
@@ -39,18 +44,23 @@ export interface ReviewRequest {
   targetUserId?: string
   targetGroupId?: string
   message?: string
-  status: 'Pending' | 'Accepted' | 'Rejected' | 'Completed'
+  status: 'Pending' | 'Accepted' | 'Rejected' | 'Expired' | 'Completed'
   createdAt: string
-  case?: CaseItem
+  acceptedAt?: string
+  expiresAt?: string
+  case?: Pick<CaseItem, 'id' | 'title' | 'status'>
+  requester?: Pick<User, 'id' | 'displayName'>
+  targetUser?: Pick<User, 'id' | 'displayName'>
 }
 
 export interface Comment {
   id: string
   caseId: string
   authorId: string
+  type: 'Comment' | 'Conclusion' | 'TeachingNote'
   content: string
   createdAt: string
-  author?: User
+  author?: Pick<User, 'id' | 'displayName'>
 }
 
 export interface TeachingProposalPayload {
@@ -65,7 +75,7 @@ export interface TeachingProposal {
   id: string
   caseId: string
   proposerId: string
-  status: string
+  status: 'Proposed' | 'Recommended' | 'Validated' | 'Rejected'
   summary: string
   keyFindings?: string
   learningPoints?: string
@@ -73,8 +83,9 @@ export interface TeachingProposal {
   tags?: string[]
   validatedAt?: string
   validatedBy?: string
-  case?: CaseItem
-  proposer?: User
-  recommendations?: Array<{ authorId: string; author?: User; rationale?: string }>
+  rejectionReason?: string
+  case?: Pick<CaseItem, 'id' | 'title' | 'clinicalContext' | 'ageRange' | 'modality' | 'tags' | 'status'>
+  proposer?: Pick<User, 'id' | 'displayName'>
+  recommendations?: Array<{ authorId: string; author?: Pick<User, 'id' | 'displayName'>; rationale?: string }>
   _count?: { recommendations: number }
 }

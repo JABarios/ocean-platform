@@ -1,6 +1,6 @@
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
-import { createReadStream, createWriteStream, promises as fsPromises } from 'fs'
+import { createReadStream, promises as fsPromises } from 'fs'
 import { Readable } from 'stream'
 import path from 'path'
 
@@ -29,7 +29,7 @@ async function ensureDir() {
   }
 }
 
-export async function uploadBlob(key: string, buffer: Buffer): Promise<string> {
+export async function uploadBlob(key: string, data: Buffer | Readable): Promise<string> {
   await ensureDir()
 
   if (USE_S3 && s3Client) {
@@ -37,7 +37,7 @@ export async function uploadBlob(key: string, buffer: Buffer): Promise<string> {
       new PutObjectCommand({
         Bucket: BUCKET,
         Key: key,
-        Body: buffer,
+        Body: data,
         ContentType: 'application/octet-stream',
       })
     )
@@ -47,7 +47,20 @@ export async function uploadBlob(key: string, buffer: Buffer): Promise<string> {
   // Filesystem fallback
   const filePath = path.join(UPLOAD_DIR, key)
   await fsPromises.mkdir(path.dirname(filePath), { recursive: true })
-  await fsPromises.writeFile(filePath, buffer)
+
+  if (Buffer.isBuffer(data)) {
+    await fsPromises.writeFile(filePath, data)
+  } else {
+    await new Promise<void>((resolve, reject) => {
+      const { createWriteStream } = require('fs') as typeof import('fs')
+      const dest = createWriteStream(filePath)
+      data.pipe(dest)
+      dest.on('finish', resolve)
+      dest.on('error', reject)
+      data.on('error', reject)
+    })
+  }
+
   return filePath
 }
 
@@ -79,7 +92,7 @@ export async function deleteBlob(key: string): Promise<void> {
     return
   }
 
-  await fsPromises.unlink(key).catch(() => {})
+  await fsPromises.unlink(key)
 }
 
 export async function generatePresignedDownloadUrl(key: string, expiresInSeconds = 3600): Promise<string> {

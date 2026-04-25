@@ -2,7 +2,7 @@ import { vi } from 'vitest'
 
 type FetchMock = ReturnType<typeof vi.fn>
 
-function makeResponse(data: unknown, status = 200): Response {
+export function makeResponse(data: unknown, status = 200): Response {
   return {
     ok: status >= 200 && status < 300,
     status,

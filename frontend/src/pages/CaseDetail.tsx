@@ -347,6 +347,12 @@ export default function CaseDetail() {
             <button className="btn-secondary" onClick={downloadEncrypted}>
               Descargar .enc (cifrado)
             </button>
+            <button
+              className="btn-primary"
+              onClick={() => window.open(`/cases/${id}/eeg`, '_blank')}
+            >
+              Ver EEG
+            </button>
           </div>
           <div className="decrypt-box">
             <input

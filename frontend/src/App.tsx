@@ -6,6 +6,7 @@ import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
 import CaseNew from './pages/CaseNew'
 import CaseDetail from './pages/CaseDetail'
+import EEGViewer from './pages/EEGViewer'
 import TeachingLibrary from './pages/TeachingLibrary'
 import TeachingQueue from './pages/TeachingQueue'
 import UserAdmin from './pages/UserAdmin'
@@ -45,6 +46,7 @@ export default function App() {
           </ProtectedRoute>
         }
       />
+      <Route path="/cases/:id/eeg" element={<EEGViewer />} />
       <Route
         path="/library"
         element={

@@ -34,10 +34,14 @@ router.get('/pending', async (req: AuthenticatedRequest, res) => {
     },
     orderBy: { createdAt: 'desc' },
   })
-  const response = requests.map((r) => ({
-    ...r,
-    case: r.case ? { ...r.case, status: r.case.statusClinical, statusClinical: undefined } : r.case,
-  }))
+  const response = requests.map((r: any) => {
+    const plain = JSON.parse(JSON.stringify(r))
+    if (plain.case) {
+      plain.case.status = plain.case.statusClinical
+      delete plain.case.statusClinical
+    }
+    return plain
+  })
   res.json(response)
 })
 
@@ -57,10 +61,14 @@ router.get('/active', async (req: AuthenticatedRequest, res) => {
     },
     orderBy: { createdAt: 'desc' },
   })
-  const response = requests.map((r) => ({
-    ...r,
-    case: r.case ? { ...r.case, status: r.case.statusClinical, statusClinical: undefined } : r.case,
-  }))
+  const response = requests.map((r: any) => {
+    const plain = JSON.parse(JSON.stringify(r))
+    if (plain.case) {
+      plain.case.status = plain.case.statusClinical
+      delete plain.case.statusClinical
+    }
+    return plain
+  })
   res.json(response)
 })
 
@@ -140,24 +148,25 @@ router.post('/:id/accept', async (req: AuthenticatedRequest, res) => {
     return
   }
 
-  const [updated] = await prisma.$transaction([
-    prisma.reviewRequest.update({
-      where: { id: req.params.id },
-      data: { status: 'Accepted', acceptedAt: new Date() },
-    }),
-    prisma.case.update({
-      where: { id: request.caseId },
-      data: { statusClinical: 'InReview' },
-    }),
-    prisma.auditEvent.create({
-      data: {
-        actorId: req.user!.id,
-        caseId: request.caseId,
-        action: 'RequestAccepted',
-        target: request.id,
-      },
-    }),
-  ])
+  const updated = await prisma.reviewRequest.update({
+    where: { id: req.params.id },
+    data: { status: 'Accepted', acceptedAt: new Date() },
+  })
+
+  // Actualizar caso a InReview si aplica
+  await prisma.case.update({
+    where: { id: request.caseId },
+    data: { statusClinical: 'InReview' },
+  })
+
+  await prisma.auditEvent.create({
+    data: {
+      actorId: req.user!.id,
+      caseId: request.caseId,
+      action: 'RequestAccepted',
+      target: request.id,
+    },
+  })
 
   res.json(updated)
 })

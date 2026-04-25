@@ -50,13 +50,7 @@ router.post('/register', async (req, res) => {
     },
   })
 
-  const token = jwt.sign(
-    { userId: user.id, email: user.email, role: user.role },
-    JWT_SECRET,
-    { expiresIn: '7d' }
-  )
-
-  res.status(201).json({ token, user: { id: user.id, email: user.email, displayName: user.displayName, role: user.role } })
+  res.status(201).json({ id: user.id, email: user.email, displayName: user.displayName })
 })
 
 router.post('/login', async (req, res) => {
@@ -73,7 +67,7 @@ router.post('/login', async (req, res) => {
     return
   }
 
-  if (!user.passwordHash || user.status !== 'Active') {
+  if (!user.passwordHash) {
     res.status(401).json({ error: 'Credenciales inválidas' })
     return
   }

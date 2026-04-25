@@ -1,8 +1,7 @@
 import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api, friendlyError } from '../api/client'
-import { useAuthStore } from '../store/authStore'
-import { useCrypto, isCryptoAvailable } from '../hooks/useCrypto'
+import { api, API_BASE } from '../api/client'
+import { useCrypto } from '../hooks/useCrypto'
 import type { CaseItem } from '../types'
 
 export default function CaseNew() {
@@ -20,7 +19,6 @@ export default function CaseNew() {
   const [decryptionKey, setDecryptionKey] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const token = useAuthStore((s) => s.token)
   const { encryptFile } = useCrypto()
   const navigate = useNavigate()
 
@@ -66,10 +64,10 @@ export default function CaseNew() {
         formData.append('blob', encryptedBlob, `${created.id}.enc`)
         formData.append('retentionPolicy', 'Temporal72h')
 
-        await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:4000'}/packages/upload`, {
+        await fetch(`${API_BASE}/packages/upload`, {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${token || ''}`,
+            Authorization: `Bearer ${localStorage.getItem('ocean_token') || ''}`,
           },
           body: formData,
         })
@@ -77,7 +75,7 @@ export default function CaseNew() {
 
       navigate(`/cases/${created.id}`)
     } catch (err) {
-      setError(friendlyError(err))
+      setError(err instanceof Error ? err.message : 'Error al crear el caso')
       setSaving(false)
     }
   }
@@ -147,12 +145,6 @@ export default function CaseNew() {
             ))}
           </select>
         </label>
-
-        <div className={isCryptoAvailable() ? 'crypto-badge crypto-native' : 'crypto-badge crypto-fallback'}>
-          {isCryptoAvailable()
-            ? '🔒 Cifrado nativo del navegador (Web Crypto API)'
-            : '⚠️ Cifrado de compatibilidad (node-forge) — para máxima seguridad usa HTTPS'}
-        </div>
 
         <label>
           Archivo EEG (.edf)
@@ -260,22 +252,6 @@ export default function CaseNew() {
           justify-content: flex-end;
           gap: 0.5rem;
           margin-top: 0.5rem;
-        }
-        .crypto-badge {
-          font-size: 0.8rem;
-          padding: 0.4rem 0.75rem;
-          border-radius: 6px;
-          font-weight: 500;
-        }
-        .crypto-native {
-          background: #f0fdf4;
-          color: #15803d;
-          border: 1px solid #86efac;
-        }
-        .crypto-fallback {
-          background: #fffbeb;
-          color: #92400e;
-          border: 1px solid #fcd34d;
         }
       `}</style>
     </div>

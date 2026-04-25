@@ -1,25 +1,19 @@
-// Fallback dinámico: si no hay VITE_API_URL en build-time, usa la IP
-// desde la que se cargó el frontend (funciona en localhost y en red local).
+// Si VITE_API_URL está definida en build-time, la usamos.
+// Si no, inferimos desde window.location (misma IP que el frontend, puerto 4000).
+// Esto evita recompilar cuando cambia la IP de la máquina.
 export const API_BASE = import.meta.env.VITE_API_URL
   || `${window.location.protocol}//${window.location.hostname}:4000`
 
-export class ApiError extends Error {
-  status: number
-  constructor(message: string, status: number) {
+class ApiError extends Error {
+  public status: number
+  public detail?: string
+
+  constructor(message: string, status: number, detail?: string) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.detail = detail
   }
-}
-
-export function friendlyError(err: unknown): string {
-  if (err instanceof ApiError) {
-    if (err.status === 0) return 'Sin conexión con el servidor. Comprueba tu red.'
-    if (err.status === 403) return 'No tienes permiso para realizar esta acción.'
-    if (err.status === 404) return 'El recurso no fue encontrado.'
-    return err.message
-  }
-  return err instanceof Error ? err.message : 'Error inesperado.'
 }
 
 async function request<T>(
@@ -37,7 +31,11 @@ async function request<T>(
     headers['Authorization'] = `Bearer ${token}`
   }
 
-  const options: RequestInit = { method, headers }
+  const options: RequestInit = {
+    method,
+    headers,
+  }
+
   if (body !== undefined) {
     options.body = JSON.stringify(body)
   }
@@ -45,26 +43,47 @@ async function request<T>(
   let response: Response
   try {
     response = await fetch(url, options)
-  } catch {
-    throw new ApiError('No se pudo conectar con el servidor', 0)
+  } catch (err: any) {
+    // Error de red (no llega al servidor)
+    console.error(`[OCEAN API] No se pudo conectar a ${url}`, err)
+    throw new ApiError(
+      `No se pudo conectar al backend (${API_BASE}). ¿Está corriendo? ¿Es la URL correcta?`,
+      0,
+      err.message
+    )
+  }
+
+  // CORS bloqueado o respuesta vacía (status 0 en algunos navegadores)
+  if (response.status === 0 || (!response.ok && response.status === 0)) {
+    console.error(`[OCEAN API] Posible error CORS o red bloqueada en ${url}`)
+    throw new ApiError(
+      `El navegador bloqueó la petición a ${url}. Posible error CORS: verifica que el backend permita el origen ${window.location.origin}`,
+      0
+    )
   }
 
   if (response.status === 401) {
-    localStorage.removeItem('ocean-auth')
+    localStorage.removeItem('ocean_token')
     window.location.reload()
-    throw new ApiError('Unauthorized', 401)
+    return Promise.reject(new ApiError('Unauthorized', 401))
   }
 
   if (!response.ok) {
-    // Intentar parsear JSON primero; si falla, usar texto plano
-    let message: string
+    // Leer el body UNA sola vez como texto, luego intentar parsear JSON
+    const rawText = await response.text()
+    let errorText = rawText
     try {
-      const json = await response.json()
-      message = json?.error ?? JSON.stringify(json)
+      const json = JSON.parse(rawText)
+      errorText = json.error || JSON.stringify(json)
     } catch {
-      message = (await response.text()) || `HTTP ${response.status}`
+      // No es JSON válido, usar el texto crudo
     }
-    throw new ApiError(message, response.status)
+    console.error(`[OCEAN API] HTTP ${response.status} en ${url}: ${errorText}`)
+    throw new ApiError(
+      errorText || `Error HTTP ${response.status}`,
+      response.status,
+      `URL: ${url} | Método: ${method}`
+    )
   }
 
   if (response.status === 204) {

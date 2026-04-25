@@ -12,7 +12,7 @@ export interface AuthenticatedRequest extends Request {
   }
 }
 
-export async function authMiddleware(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+export function authMiddleware(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization
   if (!authHeader?.startsWith('Bearer ')) {
     res.status(401).json({ error: 'Token requerido' })
@@ -20,28 +20,31 @@ export async function authMiddleware(req: AuthenticatedRequest, res: Response, n
   }
 
   const token = authHeader.split(' ')[1]
-  let decoded: { userId: string; email: string; role: string }
   try {
-    decoded = jwt.verify(token, JWT_SECRET) as { userId: string; email: string; role: string }
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; email: string; role: string }
+    req.user = { id: decoded.userId, email: decoded.email, role: decoded.role }
+    next()
   } catch {
     res.status(401).json({ error: 'Token inválido' })
     return
   }
-
-  const dbUser = await prisma.user.findUnique({
-    where: { id: decoded.userId },
-    select: { id: true, email: true, role: true, status: true },
-  })
-
-  if (!dbUser || dbUser.status !== 'Active') {
-    res.status(401).json({ error: 'Usuario inactivo o no encontrado' })
-    return
-  }
-
-  req.user = { id: dbUser.id, email: dbUser.email, role: dbUser.role }
-  next()
 }
 
+export async function attachUserOptional(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  const authHeader = req.headers.authorization
+  if (!authHeader?.startsWith('Bearer ')) {
+    next()
+    return
+  }
+  const token = authHeader.split(' ')[1]
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; email: string; role: string }
+    req.user = { id: decoded.userId, email: decoded.email, role: decoded.role }
+  } catch {
+    // ignore invalid token on optional attach
+  }
+  next()
+}
 
 export function requireRole(roles: string[]) {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {

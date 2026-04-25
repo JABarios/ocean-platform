@@ -15,30 +15,6 @@ router.use(authMiddleware)
 
 // Listar comentarios de un caso
 router.get('/case/:caseId', async (req: AuthenticatedRequest, res) => {
-  const caseItem = await prisma.case.findFirst({
-    where: {
-      id: req.params.caseId,
-      OR: [
-        { ownerId: req.user!.id },
-        {
-          reviewRequests: {
-            some: {
-              OR: [
-                { targetUserId: req.user!.id },
-                { requestedBy: req.user!.id },
-              ],
-            },
-          },
-        },
-      ],
-    },
-  })
-
-  if (!caseItem) {
-    res.status(404).json({ error: 'Caso no encontrado o sin acceso' })
-    return
-  }
-
   const comments = await prisma.comment.findMany({
     where: { caseId: req.params.caseId },
     orderBy: { createdAt: 'asc' },
@@ -46,11 +22,12 @@ router.get('/case/:caseId', async (req: AuthenticatedRequest, res) => {
       author: { select: { id: true, displayName: true } },
     },
   })
-  const response = comments.map((c) => ({
-    ...c,
-    content: c.body,
-    body: undefined,
-  }))
+  const response = comments.map((c: any) => {
+    const plain = JSON.parse(JSON.stringify(c))
+    plain.content = plain.body
+    delete plain.body
+    return plain
+  })
   res.json(response)
 })
 
@@ -108,7 +85,10 @@ router.post('/case/:caseId', async (req: AuthenticatedRequest, res) => {
     },
   })
 
-  res.status(201).json({ ...comment, content: comment.body, body: undefined })
+  const plain = JSON.parse(JSON.stringify(comment))
+  plain.content = plain.body
+  delete plain.body
+  res.status(201).json(plain)
 })
 
 export default router

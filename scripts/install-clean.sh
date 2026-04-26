@@ -20,7 +20,7 @@ rm -rf ocean-platform
 
 # 3. Clonar repo
 echo "[3/6] Clonando repositorio..."
-git clone git@github.com:JABarios/ocean-platform.git
+git clone https://github.com/JABarios/ocean-platform.git
 cd ocean-platform
 
 # 4. Checkout a versión estable

@@ -87,7 +87,7 @@ backend/
 frontend/
 ├── src/
 │   ├── main.tsx
-│   ├── App.tsx               # Rutas: /, /login, /register, /cases/new, /cases/:id, /library, /queue
+│   ├── App.tsx               # Rutas: /, /login, /register, /cases/new, /cases/:id, /cases/:id/eeg, /library, /queue
 │   ├── api/
 │   │   └── client.ts         # API_BASE dinámico (window.location.hostname:4000)
 │   ├── store/
@@ -100,6 +100,7 @@ frontend/
 │   │   ├── Dashboard.tsx
 │   │   ├── CaseNew.tsx       # Formulario + cifrado de .edf
 │   │   ├── CaseDetail.tsx    # Detalle, descarga, descifrado, comentarios, botón Ver EEG
+│   │   ├── EEGViewer.tsx     # Visor EEG completo (ver §EEG Viewer)
 │   │   ├── TeachingLibrary.tsx
 │   │   └── TeachingQueue.tsx
 │   └── test/                 # 34 tests en 5 suites (Vitest + RTL)
@@ -150,6 +151,7 @@ Ver `docs/MINERVA.md` para la guía completa de uso en el servidor.
 
 | Tag | Descripción |
 |---|---|
+| `v0.3.2-stable` | Visor EEG con tema claro, filtros HP/LP/notch, ganancia relativa auto, ventana temporal, navegación por teclado |
 | `v0.3.1-stable` | Visor EEG integrado con módulo WASM, SPA fallback, flujo de clave automático, 82 tests backend, 34 frontend |
 | `v0.3.0-stable` | DB re-validation, máquina de estados, diskStorage, 65 tests backend, 34 frontend |
 | `v0.1.0-dev` | Primera versión funcional (solo localhost, sin control scripts) |
@@ -241,12 +243,70 @@ ocean_down                             # parar todo
 - **Almacenamiento de archivos:** multer usa `diskStorage` (no RAM); hash SHA-256 por streaming.
 - **Propuestas docentes:** transacción interactiva evita race condition TOCTOU (duplicados).
 - **Cifrado:** AES-256-GCM en navegador. La clave nunca llega al servidor.
-- **Visor EEG:** Descarga paquete cifrado → desencripta con clave (almacenada en `sessionStorage` para el creador) → monta en MEMFS de Emscripten → renderiza señal en canvas con filtros aplicados.
-- **Clave de descifrado:** Se muestra una vez al crear el caso. El creador la tiene en `sessionStorage` durante la sesión. Otros usuarios deben pedírsela.
+- **Visor EEG:** Descarga paquete cifrado → desencripta con clave → monta en MEMFS de Emscripten → renderiza señal en canvas. Clave guardada en `sessionStorage` para el creador (auto-start en recargas). Otros usuarios deben introducirla manualmente.
+- **Clave de descifrado:** Se muestra una vez al crear el caso. El servidor nunca la almacena.
+- **Controles del visor:** Filtro paso-alto (HP: off/0.3/0.5/1/5 Hz), paso-bajo (LP: 15/30/45/70 Hz), notch 50 Hz, ventana temporal (10/20/30 s), ganancia relativa (0.1×–4× sobre escala auto compartida). Teclado: ←/→ navega páginas, ↑/↓ ajusta ganancia.
 
 ---
 
-## 10. Documentación adicional
+## 10. Visor EEG (`/cases/:id/eeg`)
+
+Página fullscreen sin Layout ni ProtectedRoute. Valida el token internamente al hacer el fetch del paquete.
+
+### Pipeline de carga
+
+```
+1. Formulario de clave  →  sessionStorage lookup (auto-start si existe)
+2. GET /packages/download/:id  (Authorization: Bearer <token>)
+3. decryptFile(buffer, keyBase64)  ←  useCrypto (AES-GCM / forge fallback)
+4. Cargar kappa_wasm.js como <script> clásico (UMD, no ESM)
+   └─ poll window.KappaModule cada 50ms, timeout 10s
+5. Module.FS.writeFile('/tmp/file.edf', bytes)
+6. kappa.openEDF('/tmp/file.edf')
+7. getMeta() → setFilters(hp, lp, notch) → readEpoch(0, windowSecs)
+8. Render canvas
+```
+
+### Módulo WASM (`public/wasm/kappa_wasm.js`)
+
+```typescript
+const Module = await KappaModule()        // global UMD
+const k = new Module.KappaWasm()
+k.openEDF('/tmp/file.edf')                // → bool
+k.getMeta()                               // → { numChannels, sampleRate, numSamples, subjectId, recordingDate, channelLabels }
+k.setFilters(hp, lp, notch)              // Hz; 0 = desactivado
+k.readEpoch(offsetRecords, numRecords)   // → { nChannels, nSamples, sfreq, channelNames, channelTypes, data: Float32Array[] }
+```
+
+> `kappa_wasm.js` es UMD. No usar `import`. Cargarlo con `createElement('script')`.
+
+### Escala de amplitud (heurística compartida)
+
+1. Por canal: calcular rango auto (percentil 2–98) y centro (mediana)
+2. Referencia = **mediana** de todos los rangos (robusto ante canales ECG/EMG con amplitud muy diferente)
+3. Cada canal se centra en su propia mediana; todos comparten el mismo rango = `refRange / gainMult`
+4. Ganancia por defecto: 1× (escala natural)
+
+### Controles de teclado
+
+| Tecla | Acción |
+|-------|--------|
+| `←` / `→` | Página anterior / siguiente |
+| `↑` / `↓` | Aumentar / reducir ganancia (paso por opciones: 0.1×, 0.3×, 0.5×, 0.7×, 1×, 2×, 4×) |
+
+### Colores de canal
+
+| Tipo | Color |
+|------|-------|
+| EEG  | `#1d4ed8` (azul) |
+| EOG  | `#047857` (verde) |
+| ECG  | `#dc2626` (rojo) |
+| EMG  | `#b45309` (ámbar) |
+| RESP | `#7c3aed` (violeta) |
+
+---
+
+## 11. Documentación adicional
 
 - `docs/DEPLOY.md` — Guía de despliegue en Arch Linux (Docker y nativo)
 - `docs/MINERVA.md` — Guía rápida para uso en el servidor Minerva

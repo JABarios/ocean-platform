@@ -32,10 +32,10 @@ OCEAN **no** es un repositorio masivo de EEGs, ni una red social médica, ni un 
 - Propuesta de casos para docencia.
 - Sistema de recomendaciones y validación docente ligera (1-2 curadores).
 - Tags docentes básicos (patrón, artefacto, pediatría, UCI, etc.).
+- **Visor EEG en navegador** (`/cases/:id/eeg`): desencriptación en cliente, renderizado canvas vía WebAssembly (módulo KAPPA), filtros HP/LP/notch, ganancia relativa, navegación temporal.
 
 ### 2.2 Fuera del alcance (V1)
 - Almacenamiento permanente centralizado de todos los EEGs de todos los usuarios.
-- Visor de EEG integrado en navegador (la señal se abre en KAPPA local).
 - Interpretación automática o asistencia por IA.
 - Mensajería directa desvinculada de casos.
 - Publicaciones científicas o foros abiertos.

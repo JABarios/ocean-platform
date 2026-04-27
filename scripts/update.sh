@@ -27,7 +27,7 @@ git reset --hard origin/main
 # 3. Backend
 echo "[3/5] Actualizando backend..."
 cd "$BACKEND_DIR"
-npm install --omit=dev
+npm install
 npx prisma generate
 npx prisma migrate deploy 2>/dev/null || npx prisma db push --accept-data-loss
 npm run build

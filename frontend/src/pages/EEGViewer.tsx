@@ -82,6 +82,8 @@ const GAIN_OPTIONS: { label: string; value: number }[] = [
   { label: '4×',   value: 4   },
 ]
 
+const SCALE_BAR_VALUES_UV = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000]
+
 const MONTAGES = {
   doble_banana: [
     ['Fp1', 'F7'], ['F7', 'T3'], ['T3', 'T5'], ['T5', 'O1'],
@@ -153,7 +155,7 @@ interface RenderMeta {
   chanH: number          // px per channel row (dynamic, fits all channels)
   W: number
   H: number
-  sbHalfMuV: number
+  sbMuV: number
   sbPxH: number
 }
 
@@ -170,16 +172,6 @@ function zscoreNormalize(data: Float32Array): Float32Array {
   const out = new Float32Array(n)
   for (let i = 0; i < n; i++) out[i] = (data[i] - mean) / std
   return out
-}
-
-function niceRound(v: number): number {
-  if (v <= 0) return 1
-  const mag = Math.pow(10, Math.floor(Math.log10(v)))
-  const n = v / mag
-  if (n < 1.5) return mag
-  if (n < 3.5) return 2 * mag
-  if (n < 7.5) return 5 * mag
-  return 10 * mag
 }
 
 function fmtTimeGrid(sec: number): string {
@@ -431,7 +423,7 @@ function drawOverlay(
   mouseOn: boolean,
   sbPos: { x: number; y: number } | null,
 ): void {
-  const { tStart, pageDuration, W, H, sbHalfMuV, sbPxH } = meta
+  const { tStart, pageDuration, W, H, sbMuV, sbPxH } = meta
   overlay.width  = W
   overlay.height = H
 
@@ -456,9 +448,9 @@ function drawOverlay(
   octx.fillStyle = '#64748b'; octx.font = '9px monospace'; octx.textBaseline = 'middle'
   const lY = sbY + sbPxH / 2
   if (sbX - LABEL_WIDTH > 44) {
-    octx.textAlign = 'right'; octx.fillText(`±${sbHalfMuV} µV`, sbX - 4, lY)
+    octx.textAlign = 'right'; octx.fillText(`${sbMuV} µV`, sbX - 4, lY)
   } else {
-    octx.textAlign = 'left';  octx.fillText(`±${sbHalfMuV} µV`, sbX + SB_BAR_W + 4, lY)
+    octx.textAlign = 'left';  octx.fillText(`${sbMuV} µV`, sbX + SB_BAR_W + 4, lY)
   }
   octx.restore()
 
@@ -614,13 +606,22 @@ export default function EEGViewer() {
 
   // ── Scale bar size (function inside component to close over refRange/gainMult) ─
 
-  function computeSBSize(chanH: number, totalH: number): { sbHalfMuV: number; sbPxH: number } {
-    const drawH     = chanH * 0.8
-    const sbTarget  = Math.round(chanH * 0.75)
-    const pxPerUV   = (drawH * gainMult) / refRange
-    const sbHalfMuV = niceRound(sbTarget / (2 * pxPerUV))
-    const sbPxH     = Math.max(20, Math.min(totalH * 0.35, sbHalfMuV * 2 * pxPerUV))
-    return { sbHalfMuV, sbPxH }
+  function computeSBSize(chanH: number, totalH: number): { sbMuV: number; sbPxH: number } {
+    const drawH = chanH * 0.8
+    const safeRange = Number.isFinite(refRange) && refRange > 0 ? refRange : 1
+    const pxPerUV = (drawH * gainMult) / safeRange
+
+    let sbMuV = SCALE_BAR_VALUES_UV[0]
+    if (Number.isFinite(pxPerUV) && pxPerUV > 0) {
+      for (const candidate of SCALE_BAR_VALUES_UV) {
+        sbMuV = candidate
+        if (candidate * pxPerUV >= 25) break
+      }
+    }
+
+    const rawPx = Number.isFinite(pxPerUV) && pxPerUV > 0 ? sbMuV * pxPerUV : 0
+    const sbPxH = Math.max(20, Math.min(totalH * 0.35, rawPx))
+    return { sbMuV, sbPxH }
   }
 
   // ── Shared draw logic (called from effect and ResizeObserver) ────────────────
@@ -633,13 +634,13 @@ export default function EEGViewer() {
     const containerH = container.clientHeight || processedEpoch.nChannels * 60
     const tStart     = recordOffset * recordDurationSec
     const chanH      = drawEpoch(canvas, processedEpoch, scales, tStart, pageDuration, containerH)
-    const { sbHalfMuV, sbPxH } = computeSBSize(chanH, canvas.height)
+    const { sbMuV, sbPxH } = computeSBSize(chanH, canvas.height)
 
     renderMetaRef.current = {
       tStart, pageDuration,
       chanH,
       W: canvas.width, H: canvas.height,
-      sbHalfMuV, sbPxH,
+      sbMuV, sbPxH,
     }
     refreshOverlay()
   // eslint-disable-next-line react-hooks/exhaustive-deps

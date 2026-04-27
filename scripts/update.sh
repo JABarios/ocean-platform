@@ -35,7 +35,7 @@ npm run build
 # 4. Frontend — VITE_API_URL desde .env.production si existe, si no desde entorno
 echo "[4/5] Compilando frontend..."
 cd "$FRONTEND_DIR"
-npm install --omit=dev
+npm install
 
 if [ -f ".env.production" ]; then
   echo "  Usando .env.production para VITE_API_URL"

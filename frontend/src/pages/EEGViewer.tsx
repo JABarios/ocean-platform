@@ -82,6 +82,51 @@ const GAIN_OPTIONS: { label: string; value: number }[] = [
   { label: '4×',   value: 4   },
 ]
 
+const MONTAGES = {
+  doble_banana: [
+    ['Fp1', 'F7'], ['F7', 'T3'], ['T3', 'T5'], ['T5', 'O1'],
+    ['Fp2', 'F8'], ['F8', 'T4'], ['T4', 'T6'], ['T6', 'O2'],
+    ['Fp1', 'F3'], ['F3', 'C3'], ['C3', 'P3'], ['P3', 'O1'],
+    ['Fp2', 'F4'], ['F4', 'C4'], ['C4', 'P4'], ['P4', 'O2'],
+    ['Fz', 'Cz'], ['Cz', 'Pz'],
+  ],
+  transversal: [
+    ['F7', 'F3'], ['F3', 'Fz'], ['Fz', 'F4'], ['F4', 'F8'],
+    ['T3', 'C3'], ['C3', 'Cz'], ['Cz', 'C4'], ['C4', 'T4'],
+    ['T5', 'P3'], ['P3', 'Pz'], ['Pz', 'P4'], ['P4', 'T6'],
+    ['A1', 'T3'], ['A1', 'Fp1'],
+    ['A2', 'T4'], ['A2', 'Fp2'],
+  ],
+  promedio: [
+    ['Fp1', 'AVG'], ['Fp2', 'AVG'],
+    ['F7', 'AVG'], ['F3', 'AVG'], ['Fz', 'AVG'], ['F4', 'AVG'], ['F8', 'AVG'],
+    ['T3', 'AVG'], ['C3', 'AVG'], ['Cz', 'AVG'], ['C4', 'AVG'], ['T4', 'AVG'],
+    ['T5', 'AVG'], ['P3', 'AVG'], ['Pz', 'AVG'], ['P4', 'AVG'], ['T6', 'AVG'],
+    ['O1', 'AVG'], ['O2', 'AVG'],
+  ],
+  linked_mastoids: [
+    ['Fp1', 'LM'], ['Fp2', 'LM'],
+    ['F7', 'LM'], ['F3', 'LM'], ['Fz', 'LM'], ['F4', 'LM'], ['F8', 'LM'],
+    ['T3', 'LM'], ['C3', 'LM'], ['Cz', 'LM'], ['C4', 'LM'], ['T4', 'LM'],
+    ['T5', 'LM'], ['P3', 'LM'], ['Pz', 'LM'], ['P4', 'LM'], ['T6', 'LM'],
+    ['O1', 'LM'], ['O2', 'LM'],
+  ],
+  hjorth: [
+    ['Fp1', 'F3', 'F7', 'Fz'],
+    ['Fp2', 'F4', 'F8', 'Fz'],
+    ['F3', 'Fp1', 'F7', 'C3', 'Fz'],
+    ['F4', 'Fp2', 'F8', 'C4', 'Fz'],
+    ['C3', 'F3', 'T3', 'P3', 'Cz'],
+    ['C4', 'F4', 'T4', 'P4', 'Cz'],
+    ['P3', 'C3', 'T5', 'O1', 'Pz'],
+    ['P4', 'C4', 'T6', 'O2', 'Pz'],
+    ['O1', 'P3', 'T5'],
+    ['O2', 'P4', 'T6'],
+  ],
+} as const
+
+const MONTAGE_OPTIONS = Object.keys(MONTAGES) as Array<keyof typeof MONTAGES>
+
 type Phase =
   | 'key-input'
   | 'downloading'
@@ -99,6 +144,8 @@ interface EpochData {
   channelTypes: string[]
   data: Float32Array[]
 }
+
+type MontageName = keyof typeof MONTAGES
 
 interface RenderMeta {
   tStart: number
@@ -151,6 +198,79 @@ function pad2(n: number): string { return String(n).padStart(2, '0') }
 function getRecordsPerPage(windowSecs: number, recordDurationSec: number): number {
   if (recordDurationSec <= 0) return Math.max(1, windowSecs)
   return Math.max(1, Math.round(windowSecs / recordDurationSec))
+}
+
+function subtractSignals(a: Float32Array, b: Float32Array): Float32Array {
+  const n = Math.min(a.length, b.length)
+  const out = new Float32Array(n)
+  for (let i = 0; i < n; i++) out[i] = a[i] - b[i]
+  return out
+}
+
+function averageSignals(signals: Float32Array[], nSamples: number): Float32Array {
+  const out = new Float32Array(nSamples)
+  if (signals.length === 0) return out
+  for (const signal of signals) {
+    for (let i = 0; i < nSamples; i++) out[i] += signal[i] ?? 0
+  }
+  for (let i = 0; i < nSamples; i++) out[i] /= signals.length
+  return out
+}
+
+function applyMontage(epoch: EpochData, montageName: MontageName): EpochData {
+  const definitions = MONTAGES[montageName]
+  const byName = new Map<string, { data: Float32Array; type: string }>()
+  epoch.channelNames.forEach((name, i) => {
+    byName.set(name, {
+      data: epoch.data[i],
+      type: epoch.channelTypes[i] ?? 'EEG',
+    })
+  })
+
+  const zero = new Float32Array(epoch.nSamples)
+  const getSignal = (name: string) => byName.get(name)?.data ?? zero
+  const getType = (name: string) => byName.get(name)?.type ?? 'EEG'
+
+  const avgReference = montageName === 'promedio'
+    ? averageSignals(epoch.data, epoch.nSamples)
+    : null
+
+  const linkedMastoidsReference = montageName === 'linked_mastoids'
+    ? averageSignals([getSignal('A1'), getSignal('A2')], epoch.nSamples)
+    : null
+
+  const channelNames: string[] = []
+  const channelTypes: string[] = []
+  const data: Float32Array[] = []
+
+  for (const definition of definitions) {
+    if (montageName === 'hjorth') {
+      const [active, ...neighbors] = definition as readonly string[]
+      const neighborMean = averageSignals(neighbors.map(getSignal), epoch.nSamples)
+      channelNames.push(`${active} - AVG(${neighbors.join(',')})`)
+      channelTypes.push(getType(active))
+      data.push(subtractSignals(getSignal(active), neighborMean))
+      continue
+    }
+
+    const [channelA, channelB] = definition as readonly [string, string]
+    const reference =
+      channelB === 'AVG' ? avgReference :
+      channelB === 'LM' ? linkedMastoidsReference :
+      getSignal(channelB)
+
+    channelNames.push(`${channelA} - ${channelB}`)
+    channelTypes.push(getType(channelA))
+    data.push(subtractSignals(getSignal(channelA), reference ?? zero))
+  }
+
+  return {
+    ...epoch,
+    nChannels: data.length,
+    channelNames,
+    channelTypes,
+    data,
+  }
 }
 
 // ─── Canvas helpers ───────────────────────────────────────────────────────────
@@ -435,6 +555,7 @@ export default function EEGViewer() {
   const [notch,           setNotch]           = useState(true)
   const [gainMult,        setGainMult]        = useState(1)
   const [normalizeNonEEG, setNormalizeNonEEG] = useState(false)
+  const [montage,         setMontage]         = useState<MontageName>('doble_banana')
 
   const canvasRef  = useRef<HTMLCanvasElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)
@@ -451,16 +572,21 @@ export default function EEGViewer() {
 
   // ── Derived data ─────────────────────────────────────────────────────────────
 
-  const processedEpoch = useMemo(() => {
+  const montagedEpoch = useMemo(() => {
     if (!epoch) return null
-    if (!normalizeNonEEG) return epoch
+    return applyMontage(epoch, montage)
+  }, [epoch, montage])
+
+  const processedEpoch = useMemo(() => {
+    if (!montagedEpoch) return null
+    if (!normalizeNonEEG) return montagedEpoch
     return {
-      ...epoch,
-      data: epoch.data.map((d, i) =>
-        (epoch.channelTypes[i] ?? 'EEG') !== 'EEG' ? zscoreNormalize(d) : d
+      ...montagedEpoch,
+      data: montagedEpoch.data.map((d, i) =>
+        (montagedEpoch.channelTypes[i] ?? 'EEG') !== 'EEG' ? zscoreNormalize(d) : d
       ),
     }
-  }, [epoch, normalizeNonEEG])
+  }, [montagedEpoch, normalizeNonEEG])
 
   const { scales, refRange } = useMemo(() => {
     if (!processedEpoch) return { scales: [] as { p2: number; p98: number }[], refRange: 1 }
@@ -853,6 +979,9 @@ export default function EEGViewer() {
 
         <ToolbarSelect label="Ventana" value={windowSecs} onChange={handleWindowChange}>
           {WINDOW_OPTIONS.map((s) => <option key={s} value={s}>{s}s</option>)}
+        </ToolbarSelect>
+        <ToolbarSelect label="Montaje" value={montage} onChange={(v) => setMontage(v as MontageName)}>
+          {MONTAGE_OPTIONS.map((name) => <option key={name} value={name}>{name}</option>)}
         </ToolbarSelect>
         <ToolbarSelect label="Ganancia" value={gainMult} onChange={(v) => setGainMult(parseFloat(v))}>
           {GAIN_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}

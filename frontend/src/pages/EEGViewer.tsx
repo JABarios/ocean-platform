@@ -587,12 +587,12 @@ function ToolbarSelect({
 }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+      <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>
         {label}
       </span>
       <select value={value} onChange={(e) => onChange(e.target.value)} style={{
         background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 4,
-        color: '#1e293b', fontSize: '0.8rem', padding: '0.2rem 0.4rem',
+        color: '#1e293b', fontSize: '0.75rem', padding: '0.16rem 0.35rem',
         cursor: 'pointer', outline: 'none',
       }}>
         {children}
@@ -1294,17 +1294,11 @@ export default function EEGViewer() {
 
       {/* Toolbar */}
       <div style={{
-        display: 'flex', alignItems: 'flex-end', gap: '1rem', flexWrap: 'wrap',
-        padding: '0.5rem 1rem', background: '#ffffff',
+        display: 'flex', alignItems: 'flex-end', gap: '0.65rem', flexWrap: 'nowrap',
+        overflowX: 'auto',
+        padding: '0.35rem 0.6rem', background: '#ffffff',
         borderBottom: '1px solid #e2e8f0', flexShrink: 0,
       }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginRight: 4 }}>
-          <span style={{ color: '#2563eb', fontWeight: 700, fontFamily: 'monospace', fontSize: '0.85rem' }}>EEG · {id}</span>
-          {meta && <span style={{ color: '#94a3b8', fontSize: '0.7rem' }}>{meta.subjectId} · {meta.recordingDate}</span>}
-        </div>
-
-        <div style={{ width: 1, height: 36, background: '#e2e8f0', flexShrink: 0 }} />
-
         <ToolbarSelect label="F. Baja (HP)" value={hp} onChange={handleHpChange}>
           {HP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </ToolbarSelect>
@@ -1330,7 +1324,7 @@ export default function EEGViewer() {
         </ToolbarSelect>
 
         <label style={{ display: 'flex', flexDirection: 'column', gap: 2, cursor: dsaChannel === 'off' ? 'not-allowed' : 'pointer' }}>
-          <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Artefactos</span>
+          <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>Artefactos</span>
           <button
             onClick={() => { if (dsaChannel !== 'off') setArtifactReject((v) => !v) }}
             disabled={dsaChannel === 'off'}
@@ -1339,7 +1333,7 @@ export default function EEGViewer() {
               background: artifactReject ? '#dcfce7' : '#f8fafc',
               border: `1px solid ${artifactReject ? '#86efac' : '#cbd5e1'}`,
               borderRadius: 4, color: artifactReject ? '#166534' : '#475569',
-              fontSize: '0.8rem', padding: '0.2rem 0.6rem',
+              fontSize: '0.75rem', padding: '0.16rem 0.45rem',
               cursor: dsaChannel === 'off' ? 'not-allowed' : 'pointer',
               fontWeight: artifactReject ? 600 : 400,
               opacity: dsaChannel === 'off' ? 0.6 : 1,
@@ -1353,10 +1347,10 @@ export default function EEGViewer() {
           {GAIN_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </ToolbarSelect>
 
-        <div style={{ width: 1, height: 36, background: '#e2e8f0', flexShrink: 0 }} />
+        <div style={{ width: 1, height: 32, background: '#e2e8f0', flexShrink: 0 }} />
 
         <label style={{ display: 'flex', flexDirection: 'column', gap: 2, cursor: 'pointer' }}>
-          <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Norm. no-EEG</span>
+          <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>Norm. no-EEG</span>
           <button
             onClick={() => setNormalizeNonEEG((v) => !v)}
             title="Normalizar canales no-EEG a z-score (media=0, σ=1)"
@@ -1364,7 +1358,7 @@ export default function EEGViewer() {
               background: normalizeNonEEG ? '#dbeafe' : '#f8fafc',
               border: `1px solid ${normalizeNonEEG ? '#93c5fd' : '#cbd5e1'}`,
               borderRadius: 4, color: normalizeNonEEG ? '#1d4ed8' : '#475569',
-              fontSize: '0.8rem', padding: '0.2rem 0.6rem',
+              fontSize: '0.75rem', padding: '0.16rem 0.45rem',
               cursor: 'pointer', fontWeight: normalizeNonEEG ? 600 : 400,
             }}
           >
@@ -1372,12 +1366,12 @@ export default function EEGViewer() {
           </button>
         </label>
 
-        <div style={{ flex: 1 }} />
+        <div style={{ flex: 1, minWidth: 8 }} />
 
-        <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-          <span style={{ color: '#94a3b8', fontSize: '0.75rem', fontFamily: 'monospace' }}>t = {timeOffsetSec}s</span>
+        <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center', flexShrink: 0 }}>
+          <span style={{ color: '#94a3b8', fontSize: '0.7rem', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>t={timeOffsetSec}s</span>
           <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 0} title="Anterior (←)" style={navBtnStyle(currentPage === 0)}>←</button>
-          <span style={{ color: '#475569', fontSize: '0.8rem', fontFamily: 'monospace', minWidth: 64, textAlign: 'center' }}>
+          <span style={{ color: '#475569', fontSize: '0.75rem', fontFamily: 'monospace', minWidth: 54, textAlign: 'center', whiteSpace: 'nowrap' }}>
             {currentPage + 1} / {totalPages}
           </span>
           <button onClick={() => goToPage(currentPage + 1)} disabled={currentPage >= maxPage} title="Siguiente (→)" style={navBtnStyle(currentPage >= maxPage)}>→</button>
@@ -1395,6 +1389,27 @@ export default function EEGViewer() {
           onMouseLeave={handleMouseLeave}
           onMouseDown={handleMouseDown}
         >
+          {meta && (
+            <div style={{
+              position: 'absolute',
+              top: 10,
+              left: 10,
+              zIndex: 2,
+              background: 'rgba(255,255,255,0.88)',
+              border: '1px solid rgba(203,213,225,0.9)',
+              borderRadius: 6,
+              padding: '0.3rem 0.45rem',
+              color: '#475569',
+              fontSize: '0.68rem',
+              fontFamily: 'monospace',
+              lineHeight: 1.35,
+              pointerEvents: 'none',
+              backdropFilter: 'blur(2px)',
+            }}>
+              <div>{meta.subjectId.trim() || `Caso ${id}`}</div>
+              <div>{meta.recordingDate}</div>
+            </div>
+          )}
           <canvas ref={canvasRef} style={{ display: 'block', width: '100%' }} />
           <canvas ref={overlayRef} style={{ position: 'absolute', top: 0, left: 0, width: '100%', pointerEvents: 'none' }} />
         </div>
@@ -1426,7 +1441,7 @@ function navBtnStyle(disabled: boolean): React.CSSProperties {
   return {
     background: disabled ? '#f1f5f9' : '#ffffff', color: disabled ? '#cbd5e1' : '#1e293b',
     border: `1px solid ${disabled ? '#e2e8f0' : '#cbd5e1'}`, borderRadius: 4,
-    padding: '0.3rem 0.65rem', cursor: disabled ? 'not-allowed' : 'pointer',
-    fontSize: '0.9rem', fontWeight: 700,
+    padding: '0.22rem 0.48rem', cursor: disabled ? 'not-allowed' : 'pointer',
+    fontSize: '0.82rem', fontWeight: 700,
   }
 }

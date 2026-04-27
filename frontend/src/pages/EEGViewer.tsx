@@ -53,7 +53,7 @@ const CHANNEL_COLORS: Record<string, string> = {
 const DEFAULT_COLOR = '#475569'
 const LABEL_WIDTH   = 76
 const SB_BAR_W      = 12
-const MIN_CHAN_H     = 28   // px — minimum channel row height
+const MIN_CHAN_H    = 10   // px — allow dense montages to fit in one screen
 
 const HP_OPTIONS: { label: string; value: number }[] = [
   { label: 'Ninguno', value: 0 },
@@ -148,6 +148,11 @@ function fmtTimeGrid(sec: number): string {
 
 function pad2(n: number): string { return String(n).padStart(2, '0') }
 
+function getRecordsPerPage(windowSecs: number, recordDurationSec: number): number {
+  if (recordDurationSec <= 0) return Math.max(1, windowSecs)
+  return Math.max(1, Math.round(windowSecs / recordDurationSec))
+}
+
 // ─── Canvas helpers ───────────────────────────────────────────────────────────
 
 function computeScales(
@@ -195,7 +200,7 @@ function drawEpoch(
   containerH: number,
 ): number {                // returns chanH used
   canvas.width  = canvas.offsetWidth || 1200
-  const chanH   = Math.max(MIN_CHAN_H, Math.floor(containerH / epoch.nChannels))
+  const chanH   = Math.max(MIN_CHAN_H, Math.floor(containerH / Math.max(epoch.nChannels, 1)))
   canvas.height = epoch.nChannels * chanH
 
   const ctx = canvas.getContext('2d')
@@ -203,34 +208,10 @@ function drawEpoch(
 
   const W     = canvas.width
   const waveW = W - LABEL_WIDTH
+  const rowInfo: Array<{ y0: number; data: Float32Array; type: string; name: string; color: string; p2: number; p98: number }> = []
 
   ctx.fillStyle = '#ffffff'
   ctx.fillRect(0, 0, W, canvas.height)
-
-  // ── Time grid — one line per whole second, aligned to absolute recording time ─
-  {
-    const tEnd      = tStart + pageDuration
-    const firstTick = Math.ceil(tStart + 1e-9)   // first integer second strictly after tStart
-    const MIN_LBL   = 42                          // min px between labels to avoid overlap
-
-    ctx.save()
-    ctx.strokeStyle = 'rgba(0,0,0,0.09)'
-    ctx.lineWidth   = 1
-    ctx.setLineDash([2, 4])
-    ctx.fillStyle    = '#94a3b8'
-    ctx.font         = '9px monospace'
-    ctx.textAlign    = 'center'
-    ctx.textBaseline = 'top'
-
-    let prevLblX = -Infinity
-    for (let t = firstTick; t < tEnd; t++) {
-      const x = LABEL_WIDTH + ((t - tStart) / pageDuration) * waveW
-      if (x <= LABEL_WIDTH + 1 || x >= W - 1) continue
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke()
-      if (x - prevLblX >= MIN_LBL) { ctx.fillText(fmtTimeGrid(t), x, 3); prevLblX = x }
-    }
-    ctx.restore()
-  }
 
   // ── Channel rows ───────────────────────────────────────────────────────────
   for (let c = 0; c < epoch.nChannels; c++) {
@@ -240,7 +221,7 @@ function drawEpoch(
     const name  = epoch.channelNames[c]  ?? `Ch${c + 1}`
     const color = CHANNEL_COLORS[type]   ?? DEFAULT_COLOR
     const { p2, p98 } = scales[c] ?? { p2: 0, p98: 1 }
-    const range = p98 - p2 || 1
+    rowInfo.push({ y0, data, type, name, color, p2, p98 })
 
     if (c % 2 === 1) {
       ctx.fillStyle = 'rgba(0,0,0,0.018)'
@@ -262,6 +243,43 @@ function drawEpoch(
       ctx.fillText(type.slice(0, 6), 4, y0 + chanH * 0.62)
     }
 
+    ctx.strokeStyle = 'rgba(0,0,0,0.08)'
+    ctx.lineWidth   = 1
+    ctx.beginPath(); ctx.moveTo(0, y0 + chanH); ctx.lineTo(W, y0 + chanH); ctx.stroke()
+
+    ctx.strokeStyle = '#cbd5e1'
+    ctx.beginPath(); ctx.moveTo(LABEL_WIDTH, y0); ctx.lineTo(LABEL_WIDTH, y0 + chanH); ctx.stroke()
+  }
+
+  // ── Time grid — draw after row backgrounds so lines stay visible ───────────
+  {
+    const tEnd      = tStart + pageDuration
+    const firstTick = Math.ceil(tStart + 1e-9)
+    const MIN_LBL   = 42
+
+    ctx.save()
+    ctx.strokeStyle = 'rgba(37,99,235,0.22)'
+    ctx.lineWidth   = 1
+    ctx.setLineDash([3, 4])
+    ctx.fillStyle    = '#64748b'
+    ctx.font         = '9px monospace'
+    ctx.textAlign    = 'center'
+    ctx.textBaseline = 'top'
+
+    let prevLblX = -Infinity
+    for (let t = firstTick; t < tEnd; t++) {
+      const x = LABEL_WIDTH + ((t - tStart) / pageDuration) * waveW
+      if (x <= LABEL_WIDTH + 1 || x >= W - 1) continue
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke()
+      if (x - prevLblX >= MIN_LBL) { ctx.fillText(fmtTimeGrid(t), x, 3); prevLblX = x }
+    }
+    ctx.restore()
+  }
+
+  // ── Waveforms ───────────────────────────────────────────────────────────────
+  for (const row of rowInfo) {
+    const { y0, data, color, p2, p98 } = row
+    const range = p98 - p2 || 1
     if (data.length < 2) continue
 
     const margin = chanH * 0.08
@@ -281,13 +299,6 @@ function drawEpoch(
     }
     ctx.stroke()
     ctx.globalAlpha = 1
-
-    ctx.strokeStyle = 'rgba(0,0,0,0.08)'
-    ctx.lineWidth   = 1
-    ctx.beginPath(); ctx.moveTo(0, y0 + chanH); ctx.lineTo(W, y0 + chanH); ctx.stroke()
-
-    ctx.strokeStyle = '#cbd5e1'
-    ctx.beginPath(); ctx.moveTo(LABEL_WIDTH, y0); ctx.lineTo(LABEL_WIDTH, y0 + chanH); ctx.stroke()
   }
 
   return chanH
@@ -413,8 +424,9 @@ export default function EEGViewer() {
   const [keyInput, setKeyInput] = useState('')
 
   const [epoch,        setEpoch]        = useState<EpochData | null>(null)
-  const [page,         setPage]         = useState(0)
+  const [recordOffset, setRecordOffset] = useState(0)
   const [totalSeconds, setTotalSeconds] = useState(0)
+  const [recordDurationSec, setRecordDurationSec] = useState(1)
   const [meta,         setMeta]         = useState<{ subjectId: string; recordingDate: string } | null>(null)
 
   const [windowSecs,      setWindowSecs]      = useState(10)
@@ -460,7 +472,10 @@ export default function EEGViewer() {
     ? processedEpoch.nSamples / processedEpoch.sfreq
     : windowSecs
 
-  const maxPage = Math.max(0, Math.ceil(totalSeconds / (pageDuration || 1)) - 1)
+  const totalRecords = Math.max(1, Math.ceil(totalSeconds / Math.max(recordDurationSec, 1e-9)))
+  const recordsPerPage = getRecordsPerPage(windowSecs, recordDurationSec)
+  const currentPage = Math.floor(recordOffset / recordsPerPage)
+  const maxPage = Math.max(0, Math.ceil(totalRecords / recordsPerPage) - 1)
 
   // ── Overlay redraw (imperative — reads refs, no React re-render) ─────────────
 
@@ -490,7 +505,7 @@ export default function EEGViewer() {
     if (!canvas || !container || !processedEpoch) return
 
     const containerH = container.clientHeight || processedEpoch.nChannels * 60
-    const tStart     = page * pageDuration
+    const tStart     = recordOffset * recordDurationSec
     const chanH      = drawEpoch(canvas, processedEpoch, scales, tStart, pageDuration, containerH)
     const { sbHalfMuV, sbPxH } = computeSBSize(chanH, canvas.height)
 
@@ -502,7 +517,7 @@ export default function EEGViewer() {
     }
     refreshOverlay()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [processedEpoch, scales, refRange, gainMult, page, pageDuration, refreshOverlay])
+  }, [processedEpoch, scales, refRange, gainMult, recordOffset, recordDurationSec, pageDuration, refreshOverlay])
 
   // ── Draw effect ───────────────────────────────────────────────────────────────
 
@@ -623,11 +638,15 @@ export default function EEGViewer() {
       sbPosRef.current = null
       setMeta({ subjectId: info.subjectId, recordingDate: info.recordingDate })
       setTotalSeconds(Math.floor(info.numSamples / info.sampleRate))
+      const probeEpoch = kappa.readEpoch(0, 1)
+      if (!probeEpoch) throw new Error('readEpoch(0, 1) devolvió null')
+      const probeDurationSec = probeEpoch.nSamples / probeEpoch.sfreq
+      setRecordDurationSec(probeDurationSec)
 
-      const firstEpoch = kappa.readEpoch(0, 10)
+      const firstEpoch = kappa.readEpoch(0, getRecordsPerPage(windowSecs, probeDurationSec))
       if (!firstEpoch) throw new Error('readEpoch devolvió null')
       setEpoch(firstEpoch)
-      setPage(0)
+      setRecordOffset(0)
       sessionStorage.setItem(`ocean_eeg_key_${id}`, key)
       setPhase('viewing')
     } catch (err) {
@@ -636,7 +655,7 @@ export default function EEGViewer() {
       setErrorMsg(isBadKey ? 'Clave incorrecta — el archivo no se pudo descifrar.' : msg)
       setPhase('error')
     }
-  }, [id, token, decryptFile, loadModule])
+  }, [id, token, decryptFile, loadModule, windowSecs])
 
   // ── Auto-start from sessionStorage ───────────────────────────────────────────
 
@@ -648,54 +667,55 @@ export default function EEGViewer() {
 
   // ── Filter & window handlers ──────────────────────────────────────────────────
 
-  const refreshEpoch = useCallback((offsetPage: number, winSecs: number) => {
-    const e = kappaRef.current?.readEpoch(offsetPage * winSecs, winSecs)
+  const refreshEpoch = useCallback((nextRecordOffset: number, nextRecordsPerPage: number) => {
+    const e = kappaRef.current?.readEpoch(nextRecordOffset, nextRecordsPerPage)
     if (e) setEpoch(e)
   }, [])
 
   const handleHpChange = (val: string) => {
     const v = parseFloat(val); setHp(v)
     kappaRef.current?.setFilters(v, lp, notch ? 50 : 0)
-    refreshEpoch(page, windowSecs)
+    refreshEpoch(recordOffset, recordsPerPage)
   }
   const handleLpChange = (val: string) => {
     const v = parseFloat(val); setLp(v)
     kappaRef.current?.setFilters(hp, v, notch ? 50 : 0)
-    refreshEpoch(page, windowSecs)
+    refreshEpoch(recordOffset, recordsPerPage)
   }
   const handleNotchChange = (val: string) => {
     const on = val === '1'; setNotch(on)
     kappaRef.current?.setFilters(hp, lp, on ? 50 : 0)
-    refreshEpoch(page, windowSecs)
+    refreshEpoch(recordOffset, recordsPerPage)
   }
   const handleWindowChange = (val: string) => {
-    const newWin  = parseInt(val)
-    const currentTimeSec = page * pageDuration
+    const newWin = parseInt(val)
+    const nextRecordsPerPage = getRecordsPerPage(newWin, recordDurationSec)
+    const nextPage = Math.floor(recordOffset / nextRecordsPerPage)
+    const nextRecordOffset = nextPage * nextRecordsPerPage
     setWindowSecs(newWin)
-    const e = kappaRef.current?.readEpoch(0, newWin)  // read first to get new pageDuration
+    const e = kappaRef.current?.readEpoch(nextRecordOffset, nextRecordsPerPage)
     if (!e) return
-    const newPageDur = e.nSamples / e.sfreq
-    const np = Math.max(0, Math.floor(currentTimeSec / newPageDur))
-    const e2 = kappaRef.current?.readEpoch(np * newWin, newWin)
-    setEpoch(e2 ?? e)
-    setPage(np)
+    setEpoch(e)
+    setRecordOffset(nextRecordOffset)
   }
 
   // ── Pagination ────────────────────────────────────────────────────────────────
 
   const goToPage = useCallback((newPage: number) => {
-    const e = kappaRef.current?.readEpoch(newPage * windowSecs, windowSecs)
+    const nextRecordOffset = newPage * recordsPerPage
+    const e = kappaRef.current?.readEpoch(nextRecordOffset, recordsPerPage)
     if (!e) return
-    setEpoch(e); setPage(newPage)
-  }, [windowSecs])
+    setEpoch(e)
+    setRecordOffset(nextRecordOffset)
+  }, [recordsPerPage])
 
   // ── Keyboard navigation ───────────────────────────────────────────────────────
 
   useEffect(() => {
     if (phase !== 'viewing') return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft'  && page > 0)       goToPage(page - 1)
-      if (e.key === 'ArrowRight' && page < maxPage)  goToPage(page + 1)
+      if (e.key === 'ArrowLeft'  && currentPage > 0)        goToPage(currentPage - 1)
+      if (e.key === 'ArrowRight' && currentPage < maxPage)  goToPage(currentPage + 1)
       if (e.key === 'ArrowUp') {
         e.preventDefault()
         setGainMult((prev) => {
@@ -713,7 +733,7 @@ export default function EEGViewer() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [phase, page, maxPage, goToPage])
+  }, [phase, currentPage, maxPage, goToPage])
 
   // ── Cleanup ───────────────────────────────────────────────────────────────────
 
@@ -798,7 +818,7 @@ export default function EEGViewer() {
 
   // ── Viewer ────────────────────────────────────────────────────────────────────
 
-  const tStart        = page * pageDuration
+  const tStart        = recordOffset * recordDurationSec
   const totalPages    = maxPage + 1
   const timeOffsetSec = tStart.toFixed(1)
 
@@ -861,11 +881,11 @@ export default function EEGViewer() {
 
         <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
           <span style={{ color: '#94a3b8', fontSize: '0.75rem', fontFamily: 'monospace' }}>t = {timeOffsetSec}s</span>
-          <button onClick={() => goToPage(page - 1)} disabled={page === 0} title="Anterior (←)" style={navBtnStyle(page === 0)}>←</button>
+          <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 0} title="Anterior (←)" style={navBtnStyle(currentPage === 0)}>←</button>
           <span style={{ color: '#475569', fontSize: '0.8rem', fontFamily: 'monospace', minWidth: 64, textAlign: 'center' }}>
-            {page + 1} / {totalPages}
+            {currentPage + 1} / {totalPages}
           </span>
-          <button onClick={() => goToPage(page + 1)} disabled={page >= maxPage} title="Siguiente (→)" style={navBtnStyle(page >= maxPage)}>→</button>
+          <button onClick={() => goToPage(currentPage + 1)} disabled={currentPage >= maxPage} title="Siguiente (→)" style={navBtnStyle(currentPage >= maxPage)}>→</button>
         </div>
       </div>
 

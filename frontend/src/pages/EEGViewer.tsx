@@ -399,7 +399,7 @@ function drawEpoch(
     const MIN_LBL   = 42
 
     ctx.save()
-    ctx.strokeStyle = 'rgba(0,0,0,0.6)'
+    ctx.strokeStyle = 'rgba(100,116,139,0.45)'
     ctx.lineWidth   = 1
     ctx.setLineDash([])
     ctx.fillStyle    = '#64748b'

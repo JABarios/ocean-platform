@@ -28,7 +28,9 @@ interface KappaInstance {
     channelTypes: string[]
     data: Float32Array[]
   } | null
-  computeDSAForChannel: (channelIndex: number) => {
+  computeDSAForChannel: (channelIndex: number, artifactRejectEnabled: boolean) => {
+    artifactEpochSec: number
+    artifactStatuses: number[]
     channelName: string
     normPow: Float32Array[]
     stages: number[]
@@ -174,6 +176,8 @@ interface RenderMeta {
 }
 
 interface DSAData {
+  artifactEpochSec: number
+  artifactStatuses: number[]
   channelName: string
   normPow: Float32Array[]
   stages: number[]
@@ -252,6 +256,12 @@ function jetColor(t: number): string {
   const g = clamp(1.5 - Math.abs(4 * x - 2))
   const b = clamp(1.5 - Math.abs(4 * x - 1))
   return `rgb(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)})`
+}
+
+function artifactColor(status: number): string {
+  if (status === 2) return '#ef4444'
+  if (status === 1) return '#f59e0b'
+  return '#22c55e'
 }
 
 function getRecordsPerPage(windowSecs: number, recordDurationSec: number): number {
@@ -593,18 +603,22 @@ function ToolbarSelect({
 
 function DSAHeatmap({
   data,
+  artifactEnabled,
   loading,
   error,
   currentStartSec,
   currentEndSec,
   onEpochClick,
+  onArtifactEpochClick,
 }: {
   data: DSAData | null
+  artifactEnabled: boolean
   loading: boolean
   error: string
   currentStartSec: number
   currentEndSec: number
   onEpochClick: (epochIndex: number) => void
+  onArtifactEpochClick: (epochIndex: number) => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -632,22 +646,37 @@ function DSAHeatmap({
       return
     }
 
+    const artifactH = artifactEnabled ? 12 : 0
     const stageH = 12
     const axisH = 18
     const freqW = 34
     const plotX = freqW
-    const plotY = stageH
+    const plotY = artifactH + stageH
     const plotW = Math.max(1, width - freqW - 2)
-    const plotH = Math.max(1, height - stageH - axisH - 2)
+    const plotH = Math.max(1, height - artifactH - stageH - axisH - 2)
+
+    if (artifactEnabled && data.artifactStatuses.length > 0) {
+      for (let ep = 0; ep < data.artifactStatuses.length; ep++) {
+        const x1 = plotX + Math.floor((ep * plotW) / data.artifactStatuses.length)
+        const x2 = plotX + Math.floor(((ep + 1) * plotW) / data.artifactStatuses.length)
+        ctx.fillStyle = artifactColor(data.artifactStatuses[ep] ?? 0)
+        ctx.fillRect(x1, 0, Math.max(1, x2 - x1), artifactH)
+      }
+      ctx.strokeStyle = '#111827'
+      ctx.strokeRect(plotX, 0, plotW, artifactH)
+      ctx.fillStyle = '#64748b'
+      ctx.font = '9px monospace'
+      ctx.fillText('Artef.', 2, artifactH - 3)
+    }
 
     for (let ep = 0; ep < data.nEpochs; ep++) {
       const x1 = plotX + Math.floor((ep * plotW) / data.nEpochs)
       const x2 = plotX + Math.floor(((ep + 1) * plotW) / data.nEpochs)
       ctx.fillStyle = stageColor(data.stages[ep] ?? 0)
-      ctx.fillRect(x1, 0, Math.max(1, x2 - x1), stageH)
+      ctx.fillRect(x1, artifactH, Math.max(1, x2 - x1), stageH)
     }
     ctx.strokeStyle = '#111827'
-    ctx.strokeRect(plotX, 0, plotW, stageH)
+    ctx.strokeRect(plotX, artifactH, plotW, stageH)
 
     for (let fi = 0; fi < data.nFreqs; fi++) {
       const f = data.freqMin + fi * data.freqStep
@@ -707,7 +736,7 @@ function DSAHeatmap({
     ctx.fillStyle = '#64748b'
     ctx.font = '11px monospace'
     ctx.fillText(`${data.channelName} · ${Math.round(totalSec / 60)} min`, plotX + 6, height - 4)
-  }, [currentEndSec, currentStartSec, data, error, loading])
+  }, [artifactEnabled, currentEndSec, currentStartSec, data, error, loading])
 
   useEffect(() => {
     redraw()
@@ -725,12 +754,20 @@ function DSAHeatmap({
     if (!data) return
     const rect = e.currentTarget.getBoundingClientRect()
     const x = e.clientX - rect.left
+    const y = e.clientY - rect.top
     const freqW = 34
     const plotW = Math.max(1, (canvasRef.current?.width ?? rect.width) - freqW - 2)
+    const artifactH = artifactEnabled ? 12 : 0
+    if (artifactEnabled && y <= artifactH && data.artifactStatuses.length > 0) {
+      const relArtifact = (x - freqW) / plotW
+      const clampedArtifact = Math.max(0, Math.min(0.999999, relArtifact))
+      onArtifactEpochClick(Math.floor(clampedArtifact * data.artifactStatuses.length))
+      return
+    }
     const rel = (x - freqW) / plotW
     const clamped = Math.max(0, Math.min(0.999999, rel))
     onEpochClick(Math.floor(clamped * data.nEpochs))
-  }, [data, onEpochClick])
+  }, [artifactEnabled, data, onArtifactEpochClick, onEpochClick])
 
   return (
     <div
@@ -777,6 +814,7 @@ export default function EEGViewer() {
   const [normalizeNonEEG, setNormalizeNonEEG] = useState(false)
   const [montage,         setMontage]         = useState<MontageName>('promedio')
   const [dsaChannel,      setDsaChannel]      = useState('off')
+  const [artifactReject,  setArtifactReject]  = useState(false)
   const [dsaData,         setDsaData]         = useState<DSAData | null>(null)
   const [dsaLoading,      setDsaLoading]      = useState(false)
   const [dsaError,        setDsaError]        = useState('')
@@ -1003,6 +1041,7 @@ export default function EEGViewer() {
       sbPosRef.current = null
       dsaCacheRef.current.clear()
       setDsaChannel('off')
+      setArtifactReject(false)
       setDsaData(null)
       setDsaLoading(false)
       setDsaError('')
@@ -1102,7 +1141,7 @@ export default function EEGViewer() {
       return
     }
 
-    const cacheKey = `${channelIndex}|${hp}|${lp}|${notch ? 1 : 0}`
+    const cacheKey = `${channelIndex}|${hp}|${lp}|${notch ? 1 : 0}|${artifactReject ? 1 : 0}`
     const cached = dsaCacheRef.current.get(cacheKey)
     if (cached) {
       setDsaData(cached)
@@ -1118,7 +1157,7 @@ export default function EEGViewer() {
 
     const timer = window.setTimeout(() => {
       try {
-        const result = kappaRef.current?.computeDSAForChannel(channelIndex)
+        const result = kappaRef.current?.computeDSAForChannel(channelIndex, artifactReject)
         if (cancelled) return
         if (!result) throw new Error('No se pudo calcular el DSA')
         dsaCacheRef.current.set(cacheKey, result)
@@ -1135,7 +1174,7 @@ export default function EEGViewer() {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [phase, dsaChannel, hp, lp, notch])
+  }, [phase, dsaChannel, hp, lp, notch, artifactReject])
 
   // ── Keyboard navigation ───────────────────────────────────────────────────────
 
@@ -1289,6 +1328,27 @@ export default function EEGViewer() {
           <option value="off">Desactivado</option>
           {dsaChannels.map((channel) => <option key={channel.index} value={channel.index}>{channel.name}</option>)}
         </ToolbarSelect>
+
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 2, cursor: dsaChannel === 'off' ? 'not-allowed' : 'pointer' }}>
+          <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Artefactos</span>
+          <button
+            onClick={() => { if (dsaChannel !== 'off') setArtifactReject((v) => !v) }}
+            disabled={dsaChannel === 'off'}
+            title="Excluir épocas con artefacto del DSA y mostrar barra de artefactos"
+            style={{
+              background: artifactReject ? '#dcfce7' : '#f8fafc',
+              border: `1px solid ${artifactReject ? '#86efac' : '#cbd5e1'}`,
+              borderRadius: 4, color: artifactReject ? '#166534' : '#475569',
+              fontSize: '0.8rem', padding: '0.2rem 0.6rem',
+              cursor: dsaChannel === 'off' ? 'not-allowed' : 'pointer',
+              fontWeight: artifactReject ? 600 : 400,
+              opacity: dsaChannel === 'off' ? 0.6 : 1,
+            }}
+          >
+            {artifactReject ? 'on ✓' : 'off'}
+          </button>
+        </label>
+
         <ToolbarSelect label="Ganancia" value={gainMult} onChange={(v) => setGainMult(parseFloat(v))}>
           {GAIN_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </ToolbarSelect>
@@ -1343,6 +1403,7 @@ export default function EEGViewer() {
       {dsaChannel !== 'off' && (
         <DSAHeatmap
           data={dsaData}
+          artifactEnabled={artifactReject}
           loading={dsaLoading}
           error={dsaError}
           currentStartSec={tStart}
@@ -1350,6 +1411,10 @@ export default function EEGViewer() {
           onEpochClick={(epochIndex) => {
             if (!dsaData) return
             goToDSAEpoch(epochIndex, dsaData.epochSec)
+          }}
+          onArtifactEpochClick={(epochIndex) => {
+            if (!dsaData) return
+            goToDSAEpoch(epochIndex, dsaData.artifactEpochSec)
           }}
         />
       )}

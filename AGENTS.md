@@ -103,7 +103,7 @@ frontend/
 │   │   ├── EEGViewer.tsx     # Visor EEG completo (ver §EEG Viewer)
 │   │   ├── TeachingLibrary.tsx
 │   │   └── TeachingQueue.tsx
-│   └── test/                 # 34 tests en 5 suites (Vitest + RTL)
+│   └── test/                 # 42 tests en 6 suites (Vitest + RTL)
 ├── public/
 │   └── wasm/                 # kappa_wasm.js + kappa_wasm.wasm (módulo Emscripten)
 └── package.json
@@ -132,7 +132,7 @@ cd frontend
 npm install
 npm run dev                 # vite — puerto 5173
 npm run build               # tsc && vite build → dist/
-npm test                    # Vitest — 34 tests
+npm test                    # Vitest — 42 tests
 ```
 
 ### Producción (servidor Hetzner — app.ocean-eeg.org)
@@ -222,13 +222,33 @@ cd backend && npm test
 
 Suites: auth, cases, requests, teaching, packages, comments.
 
-### Frontend — 34 tests (Vitest + React Testing Library)
+### Frontend — 42 tests (Vitest + React Testing Library)
 
 ```bash
 cd frontend && npm test
 ```
 
-Suites: Login, Dashboard, CaseNew, CaseDetail, api.client.
+Suites: Login, Dashboard, CaseNew, CaseDetail, api.client, EEGViewer.utils.
+
+### EEG Viewer
+
+- El visor web usa `frontend/public/wasm/kappa_wasm.js/.wasm`, compilado desde el repo padre `kappa`.
+- `EEGViewer.tsx` trabaja con duración real de página derivada de `nSamples / sfreq`; no asume que `1 record = 1 s`.
+- Soporta montajes `promedio` (por defecto), `doble_banana`, `transversal`, `linked_mastoids` y `hjorth`.
+- `promedio` resta la media instantánea de todos los canales.
+- `linked_mastoids` usa `(A1 + A2) / 2` como referencia común.
+- `hjorth` resta al electrodo activo la media instantánea de los vecinos listados.
+- El orden del selector es `promedio`, `doble_banana`, `transversal`, `linked_mastoids`, `hjorth`.
+- Los canales EEG izquierdos impares se dibujan en azul, los derechos pares en rojo y la línea media (`z`) en gris.
+- El fondo del trazado es amarillo pálido y las marcas verticales de `1 s` usan gris suave.
+- La metadata del estudio (`subjectId`, fecha) va en un flotante dentro del visor y solo aparece al pasar el ratón por la banda izquierda de etiquetas.
+- La barra superior está compactada para mantener todos los controles en una sola fila desplazable.
+- El módulo WASM aplica HP/LP en modo zero-phase (warmup + forward + backward) y notch forward-only para evitar transitorios severos en el borde izquierdo de cada página.
+- La barra de amplitud usa una escala discreta clínica (`1, 2, 5, 10... µV`) y cambia de tamaño junto con la ganancia visible.
+- El visor incluye selector DSA bajo demanda por canal EEG. Al activarlo, `Artefactos` se enciende por defecto, aunque luego puede desactivarse.
+- El panel DSA permite click para saltar a la época correspondiente; la barra de artefactos encima del DSA también permite navegar a épocas marcadas.
+- Parte de la lógica pura del visor vive en `frontend/src/pages/eegViewerUtils.ts` y está cubierta con tests unitarios (montajes, colores, tiempo real, hover de metadata, regla DSA→Artefactos).
+- Si se cambia `src/wasm/kappa_wasm.cpp` en `kappa`, hay que recompilar con `./build_wasm.sh` y refrescar los binarios de `frontend/public/wasm/`.
 
 ### Scripts
 
@@ -278,7 +298,7 @@ Página fullscreen sin Layout ni ProtectedRoute. Valida el token internamente al
    └─ poll window.KappaModule cada 50ms, timeout 10s
 5. Module.FS.writeFile('/tmp/file.edf', bytes)
 6. kappa.openEDF('/tmp/file.edf')
-7. getMeta() → setFilters(hp, lp, notch) → readEpoch(0, windowSecs)
+7. getMeta() → setFilters(hp, lp, notch) → `readEpoch(0, recordsPerPage)` usando `windowSecs / recordDurationSec`
 8. Render canvas
 ```
 
@@ -291,6 +311,8 @@ k.openEDF('/tmp/file.edf')                // → bool
 k.getMeta()                               // → { numChannels, sampleRate, numSamples, subjectId, recordingDate, channelLabels }
 k.setFilters(hp, lp, notch)              // Hz; 0 = desactivado
 k.readEpoch(offsetRecords, numRecords)   // → { nChannels, nSamples, sfreq, channelNames, channelTypes, data: Float32Array[] }
+k.computeDSAForChannel(channelIndex, artifactRejectEnabled)
+                                          // → { normPow, stages, artifactStatuses, epochSec, artifactEpochSec, ... }
 ```
 
 > `kappa_wasm.js` es UMD. No usar `import`. Cargarlo con `createElement('script')`.
@@ -301,6 +323,15 @@ k.readEpoch(offsetRecords, numRecords)   // → { nChannels, nSamples, sfreq, ch
 2. Referencia = **mediana** de todos los rangos (robusto ante canales ECG/EMG con amplitud muy diferente)
 3. Cada canal se centra en su propia mediana; todos comparten el mismo rango = `refRange / gainMult`
 4. Ganancia por defecto: 1× (escala natural)
+
+### Funciones clínicas y de interacción
+
+- Selector de montaje con `promedio` por defecto.
+- Selector `DSA` por canal EEG; el valor inicial es `Desactivado`.
+- Toggle `Artefactos` asociado al DSA. Si el DSA pasa de `Desactivado` a un canal, el toggle se activa automáticamente.
+- Barra de artefactos encima del DSA, coloreada por estado de época, con click para navegar.
+- Heatmap DSA navegable por click.
+- Tooltip temporal del cursor y barra de amplitud arrastrable.
 
 ### Controles de teclado
 
@@ -318,6 +349,27 @@ k.readEpoch(offsetRecords, numRecords)   // → { nChannels, nSamples, sfreq, ch
 | ECG  | `#dc2626` (rojo) |
 | EMG  | `#b45309` (ámbar) |
 | RESP | `#7c3aed` (violeta) |
+
+### Harness standalone (`tools/eeg-viewer-harness/`)
+
+Programa mínimo para probar cambios en el visor sin necesidad del backend OCEAN completo.
+
+```bash
+python tools/eeg-viewer-harness/server.py /ruta/a/archivo.edf [puerto]
+# Abrir http://localhost:8765
+```
+
+Sirve una página vanilla-JS que:
+1. Carga el módulo WASM desde `frontend/public/wasm/`.
+2. Lee el archivo EDF vía endpoint `/edf` (sin cifrado).
+3. Monta el EDF en MEMFS y renderiza con la misma lógica de canvas que la app React.
+
+Incluye filtros HP/LP/notch, ventana, ganancia, normalización z-score, cursor, barra de escala arrastrable, navegación por teclado y los montajes clínicos principales. No replica todavía el panel DSA ni la barra de artefactos de la app React.
+
+Archivos:
+- `server.py` — servidor Python sin dependencias (sirve HTML, JS, WASM y el EDF)
+- `index.html` — página del visor
+- `viewer.js` — lógica de renderizado portada desde `EEGViewer.tsx`
 
 ---
 

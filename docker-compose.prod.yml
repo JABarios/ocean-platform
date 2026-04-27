@@ -1,22 +1,4 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: ocean-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-ocean}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD no está definido}
-      POSTGRES_DB: ${POSTGRES_DB:-ocean_db}
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ocean} -d ${POSTGRES_DB:-ocean_db}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    networks:
-      - ocean
-
   backend:
     build:
       context: ./backend
@@ -26,7 +8,7 @@ services:
     ports:
       - "127.0.0.1:4000:4000"
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-ocean}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ocean_db}
+      DATABASE_URL: file:/app/data/prod.db
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET no está definido}
       PORT: 4000
       NODE_ENV: production
@@ -34,16 +16,5 @@ services:
       UPLOAD_DIR: /app/uploads/cases
       CORS_ORIGIN: ${CORS_ORIGIN:-*}
     volumes:
+      - ./backend/data:/app/data
       - ./backend/uploads:/app/uploads/cases
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - ocean
-
-volumes:
-  pgdata:
-
-networks:
-  ocean:
-    driver: bridge

@@ -96,41 +96,41 @@ const MONTAGES = {
     ['Fz', 'Cz'], ['Cz', 'Pz'],
   ],
   transversal: [
-    ['F7', 'F3'], ['F3', 'Fz'], ['Fz', 'F4'], ['F4', 'F8'],
-    ['T3', 'C3'], ['C3', 'Cz'], ['Cz', 'C4'], ['C4', 'T4'],
-    ['T5', 'P3'], ['P3', 'Pz'], ['Pz', 'P4'], ['P4', 'T6'],
-    ['A1', 'T3'], ['A1', 'Fp1'],
-    ['A2', 'T4'], ['A2', 'Fp2'],
+    ['A1', 'Fp1'], ['F7', 'F3'], ['A1', 'T3'], ['T3', 'C3'], ['T5', 'P3'],
+    ['F3', 'Fz'], ['C3', 'Cz'], ['P3', 'Pz'],
+    ['Fz', 'F4'], ['Cz', 'C4'], ['Pz', 'P4'], ['A2', 'Fp2'], ['F4', 'F8'], ['A2', 'T4'], ['C4', 'T4'], ['P4', 'T6'],
   ],
   promedio: [
-    ['Fp1', 'AVG'], ['Fp2', 'AVG'],
-    ['F7', 'AVG'], ['F3', 'AVG'], ['Fz', 'AVG'], ['F4', 'AVG'], ['F8', 'AVG'],
-    ['T3', 'AVG'], ['C3', 'AVG'], ['Cz', 'AVG'], ['C4', 'AVG'], ['T4', 'AVG'],
-    ['T5', 'AVG'], ['P3', 'AVG'], ['Pz', 'AVG'], ['P4', 'AVG'], ['T6', 'AVG'],
-    ['O1', 'AVG'], ['O2', 'AVG'],
+    ['Fp1', 'AVG'], ['F7', 'AVG'], ['F3', 'AVG'], ['T3', 'AVG'], ['C3', 'AVG'], ['T5', 'AVG'], ['P3', 'AVG'], ['O1', 'AVG'],
+    ['Fz', 'AVG'], ['Cz', 'AVG'], ['Pz', 'AVG'],
+    ['Fp2', 'AVG'], ['F4', 'AVG'], ['F8', 'AVG'], ['C4', 'AVG'], ['T4', 'AVG'], ['P4', 'AVG'], ['T6', 'AVG'], ['O2', 'AVG'],
   ],
   linked_mastoids: [
-    ['Fp1', 'LM'], ['Fp2', 'LM'],
-    ['F7', 'LM'], ['F3', 'LM'], ['Fz', 'LM'], ['F4', 'LM'], ['F8', 'LM'],
-    ['T3', 'LM'], ['C3', 'LM'], ['Cz', 'LM'], ['C4', 'LM'], ['T4', 'LM'],
-    ['T5', 'LM'], ['P3', 'LM'], ['Pz', 'LM'], ['P4', 'LM'], ['T6', 'LM'],
-    ['O1', 'LM'], ['O2', 'LM'],
+    ['Fp1', 'LM'], ['F7', 'LM'], ['F3', 'LM'], ['T3', 'LM'], ['C3', 'LM'], ['T5', 'LM'], ['P3', 'LM'], ['O1', 'LM'],
+    ['Fz', 'LM'], ['Cz', 'LM'], ['Pz', 'LM'],
+    ['Fp2', 'LM'], ['F4', 'LM'], ['F8', 'LM'], ['C4', 'LM'], ['T4', 'LM'], ['P4', 'LM'], ['T6', 'LM'], ['O2', 'LM'],
   ],
   hjorth: [
     ['Fp1', 'F3', 'F7', 'Fz'],
-    ['Fp2', 'F4', 'F8', 'Fz'],
     ['F3', 'Fp1', 'F7', 'C3', 'Fz'],
-    ['F4', 'Fp2', 'F8', 'C4', 'Fz'],
     ['C3', 'F3', 'T3', 'P3', 'Cz'],
-    ['C4', 'F4', 'T4', 'P4', 'Cz'],
     ['P3', 'C3', 'T5', 'O1', 'Pz'],
-    ['P4', 'C4', 'T6', 'O2', 'Pz'],
     ['O1', 'P3', 'T5'],
+    ['Fp2', 'F4', 'F8', 'Fz'],
+    ['F4', 'Fp2', 'F8', 'C4', 'Fz'],
+    ['C4', 'F4', 'T4', 'P4', 'Cz'],
+    ['P4', 'C4', 'T6', 'O2', 'Pz'],
     ['O2', 'P4', 'T6'],
   ],
 } as const
 
-const MONTAGE_OPTIONS = Object.keys(MONTAGES) as Array<keyof typeof MONTAGES>
+const MONTAGE_OPTIONS: MontageName[] = [
+  'promedio',
+  'doble_banana',
+  'transversal',
+  'linked_mastoids',
+  'hjorth',
+]
 
 type Phase =
   | 'key-input'
@@ -576,7 +576,7 @@ export default function EEGViewer() {
   const [notch,           setNotch]           = useState(true)
   const [gainMult,        setGainMult]        = useState(1)
   const [normalizeNonEEG, setNormalizeNonEEG] = useState(false)
-  const [montage,         setMontage]         = useState<MontageName>('doble_banana')
+  const [montage,         setMontage]         = useState<MontageName>('promedio')
 
   const canvasRef  = useRef<HTMLCanvasElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)

@@ -21,7 +21,10 @@ git reset --hard origin/main
 
 # 2. Reconstruir y reiniciar backend
 echo "[2/4] Reconstruyendo backend..."
-docker compose -f docker-compose.prod.yml down
+docker compose -f docker-compose.prod.yml down --remove-orphans 2>/dev/null || true
+# Liberar puerto 4000 si algo lo retiene (proceso zombie, contenedor huérfano, etc.)
+PIDS=$(ss -tlnp | grep ':4000' | grep -oP 'pid=\K[0-9]+' || true)
+[ -n "$PIDS" ] && { echo "  Matando procesos en 4000: $PIDS"; kill -9 $PIDS; sleep 1; }
 docker compose -f docker-compose.prod.yml build backend
 docker compose -f docker-compose.prod.yml up -d
 

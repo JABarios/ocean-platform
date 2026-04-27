@@ -1042,6 +1042,16 @@ export default function EEGViewer() {
     if (e) setEpoch(e)
   }, [])
 
+  // ── Pagination ────────────────────────────────────────────────────────────────
+
+  const goToPage = useCallback((newPage: number) => {
+    const nextRecordOffset = newPage * recordsPerPage
+    const e = kappaRef.current?.readEpoch(nextRecordOffset, recordsPerPage)
+    if (!e) return
+    setEpoch(e)
+    setRecordOffset(nextRecordOffset)
+  }, [recordsPerPage])
+
   const goToDSAEpoch = useCallback((epochIndex: number, epochSec: number) => {
     const targetSec = Math.max(0, epochIndex * epochSec)
     const targetRecordOffset = Math.floor(targetSec / Math.max(recordDurationSec, 1e-9))
@@ -1126,16 +1136,6 @@ export default function EEGViewer() {
       window.clearTimeout(timer)
     }
   }, [phase, dsaChannel, hp, lp, notch])
-
-  // ── Pagination ────────────────────────────────────────────────────────────────
-
-  const goToPage = useCallback((newPage: number) => {
-    const nextRecordOffset = newPage * recordsPerPage
-    const e = kappaRef.current?.readEpoch(nextRecordOffset, recordsPerPage)
-    if (!e) return
-    setEpoch(e)
-    setRecordOffset(nextRecordOffset)
-  }, [recordsPerPage])
 
   // ── Keyboard navigation ───────────────────────────────────────────────────────
 

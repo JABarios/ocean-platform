@@ -28,6 +28,17 @@ interface KappaInstance {
     channelTypes: string[]
     data: Float32Array[]
   } | null
+  computeDSAForChannel: (channelIndex: number) => {
+    channelName: string
+    normPow: Float32Array[]
+    stages: number[]
+    nEpochs: number
+    nFreqs: number
+    freqMin: number
+    freqMax: number
+    freqStep: number
+    epochSec: number
+  } | null
 }
 
 interface KappaModuleInstance {
@@ -162,6 +173,18 @@ interface RenderMeta {
   sbPxH: number
 }
 
+interface DSAData {
+  channelName: string
+  normPow: Float32Array[]
+  stages: number[]
+  nEpochs: number
+  nFreqs: number
+  freqMin: number
+  freqMax: number
+  freqStep: number
+  epochSec: number
+}
+
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
 
 function zscoreNormalize(data: Float32Array): Float32Array {
@@ -214,6 +237,21 @@ function pickScaleBarValue(refRange: number): number {
     if (candidate >= targetMuV) break
   }
   return best
+}
+
+function stageColor(stage: number): string {
+  if (stage === 1) return '#facc15'
+  if (stage === 2) return '#60a5fa'
+  return '#ffffff'
+}
+
+function jetColor(t: number): string {
+  const clamp = (v: number) => Math.max(0, Math.min(1, v))
+  const x = clamp(t)
+  const r = clamp(1.5 - Math.abs(4 * x - 3))
+  const g = clamp(1.5 - Math.abs(4 * x - 2))
+  const b = clamp(1.5 - Math.abs(4 * x - 1))
+  return `rgb(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)})`
 }
 
 function getRecordsPerPage(windowSecs: number, recordDurationSec: number): number {
@@ -553,6 +591,167 @@ function ToolbarSelect({
   )
 }
 
+function DSAHeatmap({
+  data,
+  loading,
+  error,
+  currentStartSec,
+  currentEndSec,
+  onEpochClick,
+}: {
+  data: DSAData | null
+  loading: boolean
+  error: string
+  currentStartSec: number
+  currentEndSec: number
+  onEpochClick: (epochIndex: number) => void
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  const redraw = useCallback(() => {
+    const canvas = canvasRef.current
+    const wrap = wrapRef.current
+    if (!canvas || !wrap) return
+
+    const width = wrap.clientWidth || 1200
+    const height = 178
+    canvas.width = width
+    canvas.height = height
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    ctx.fillStyle = '#fffdf4'
+    ctx.fillRect(0, 0, width, height)
+
+    if (!data) {
+      ctx.fillStyle = '#64748b'
+      ctx.font = '12px monospace'
+      ctx.fillText(loading ? 'Calculando DSA…' : (error || 'DSA desactivado'), 12, 26)
+      return
+    }
+
+    const stageH = 12
+    const axisH = 18
+    const freqW = 34
+    const plotX = freqW
+    const plotY = stageH
+    const plotW = Math.max(1, width - freqW - 2)
+    const plotH = Math.max(1, height - stageH - axisH - 2)
+
+    for (let ep = 0; ep < data.nEpochs; ep++) {
+      const x1 = plotX + Math.floor((ep * plotW) / data.nEpochs)
+      const x2 = plotX + Math.floor(((ep + 1) * plotW) / data.nEpochs)
+      ctx.fillStyle = stageColor(data.stages[ep] ?? 0)
+      ctx.fillRect(x1, 0, Math.max(1, x2 - x1), stageH)
+    }
+    ctx.strokeStyle = '#111827'
+    ctx.strokeRect(plotX, 0, plotW, stageH)
+
+    for (let fi = 0; fi < data.nFreqs; fi++) {
+      const f = data.freqMin + fi * data.freqStep
+      const y2 = plotY + plotH - ((f - data.freqMin) / Math.max(1e-9, data.freqMax - data.freqMin)) * plotH
+      const y1 = plotY + plotH - (((f + data.freqStep) - data.freqMin) / Math.max(1e-9, data.freqMax - data.freqMin)) * plotH
+      for (let ep = 0; ep < data.nEpochs; ep++) {
+        const x1 = plotX + Math.floor((ep * plotW) / data.nEpochs)
+        const x2 = plotX + Math.floor(((ep + 1) * plotW) / data.nEpochs)
+        ctx.fillStyle = jetColor(data.normPow[fi]?.[ep] ?? 0)
+        ctx.fillRect(x1, Math.floor(y1), Math.max(1, x2 - x1), Math.max(1, Math.ceil(y2 - y1)))
+      }
+    }
+
+    const currentX1 = plotX + (currentStartSec / (data.nEpochs * data.epochSec)) * plotW
+    const currentX2 = plotX + (currentEndSec / (data.nEpochs * data.epochSec)) * plotW
+    ctx.strokeStyle = 'rgba(37,99,235,0.85)'
+    ctx.lineWidth = 2
+    ctx.strokeRect(currentX1, plotY, Math.max(2, currentX2 - currentX1), plotH)
+
+    const ticks = [1, 4, 8, 13, 20, 30]
+    ctx.fillStyle = '#475569'
+    ctx.strokeStyle = '#111827'
+    ctx.font = '9px monospace'
+    for (const tick of ticks) {
+      if (tick < data.freqMin || tick > data.freqMax) continue
+      const y = plotY + plotH - ((tick - data.freqMin) / Math.max(1e-9, data.freqMax - data.freqMin)) * plotH
+      ctx.beginPath()
+      ctx.moveTo(freqW - 3, y)
+      ctx.lineTo(freqW, y)
+      ctx.stroke()
+      ctx.fillText(String(tick), 2, y + 3)
+    }
+
+    const totalSec = data.nEpochs * data.epochSec
+    const tickEvery = Math.max(1, Math.ceil(70 / Math.max(1, plotW / data.nEpochs)))
+    const timeY = plotY + plotH
+    ctx.fillStyle = '#e5e7eb'
+    ctx.fillRect(plotX, timeY, plotW, axisH)
+    ctx.strokeStyle = '#111827'
+    ctx.beginPath()
+    ctx.moveTo(plotX, timeY)
+    ctx.lineTo(plotX + plotW, timeY)
+    ctx.stroke()
+    ctx.fillStyle = '#475569'
+    for (let ep = 0; ep < data.nEpochs; ep += tickEvery) {
+      const x = plotX + Math.floor((ep * plotW) / data.nEpochs)
+      ctx.beginPath()
+      ctx.moveTo(x, timeY)
+      ctx.lineTo(x, timeY + 4)
+      ctx.stroke()
+      const tSec = ep * data.epochSec
+      const minutes = Math.floor(tSec / 60)
+      const seconds = Math.floor(tSec % 60)
+      ctx.fillText(`${minutes}:${pad2(seconds)}`, x + 2, timeY + 12)
+    }
+
+    ctx.fillStyle = '#64748b'
+    ctx.font = '11px monospace'
+    ctx.fillText(`${data.channelName} · ${Math.round(totalSec / 60)} min`, plotX + 6, height - 4)
+  }, [currentEndSec, currentStartSec, data, error, loading])
+
+  useEffect(() => {
+    redraw()
+  }, [redraw])
+
+  useEffect(() => {
+    const wrap = wrapRef.current
+    if (!wrap) return
+    const ro = new ResizeObserver(() => redraw())
+    ro.observe(wrap)
+    return () => ro.disconnect()
+  }, [redraw])
+
+  const handleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!data) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = e.clientX - rect.left
+    const freqW = 34
+    const plotW = Math.max(1, (canvasRef.current?.width ?? rect.width) - freqW - 2)
+    const rel = (x - freqW) / plotW
+    const clamped = Math.max(0, Math.min(0.999999, rel))
+    onEpochClick(Math.floor(clamped * data.nEpochs))
+  }, [data, onEpochClick])
+
+  return (
+    <div
+      ref={wrapRef}
+      style={{
+        flexShrink: 0,
+        height: 178,
+        background: '#ffffff',
+        borderTop: '1px solid #e2e8f0',
+        padding: '0.35rem 0.5rem 0.4rem 0.5rem',
+      }}
+    >
+      <canvas
+        ref={canvasRef}
+        onClick={handleClick}
+        style={{ display: 'block', width: '100%', height: '100%', cursor: data ? 'pointer' : 'default' }}
+      />
+    </div>
+  )
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function EEGViewer() {
@@ -577,12 +776,17 @@ export default function EEGViewer() {
   const [gainMult,        setGainMult]        = useState(1)
   const [normalizeNonEEG, setNormalizeNonEEG] = useState(false)
   const [montage,         setMontage]         = useState<MontageName>('promedio')
+  const [dsaChannel,      setDsaChannel]      = useState('off')
+  const [dsaData,         setDsaData]         = useState<DSAData | null>(null)
+  const [dsaLoading,      setDsaLoading]      = useState(false)
+  const [dsaError,        setDsaError]        = useState('')
 
   const canvasRef  = useRef<HTMLCanvasElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)
   const wrapRef    = useRef<HTMLDivElement>(null)    // outer flex container (for height)
   const kappaRef   = useRef<KappaInstance | null>(null)
   const moduleRef  = useRef<KappaModuleInstance | null>(null)
+  const dsaCacheRef = useRef<Map<string, DSAData>>(new Map())
 
   // Imperative overlay refs — no setState on mousemove
   const mousePosRef   = useRef<{ x: number; y: number } | null>(null)
@@ -623,6 +827,17 @@ export default function EEGViewer() {
   const recordsPerPage = getRecordsPerPage(windowSecs, recordDurationSec)
   const currentPage = Math.floor(recordOffset / recordsPerPage)
   const maxPage = Math.max(0, Math.ceil(totalRecords / recordsPerPage) - 1)
+  const dsaChannels = useMemo(() => {
+    if (!epoch) return [] as Array<{ index: number; name: string }>
+    return epoch.channelNames
+      .map((name, index) => ({
+        index,
+        name,
+        type: epoch.channelTypes[index] ?? 'EEG',
+      }))
+      .filter((item) => item.type === 'EEG')
+      .map(({ index, name }) => ({ index, name }))
+  }, [epoch])
 
   // ── Overlay redraw (imperative — reads refs, no React re-render) ─────────────
 
@@ -786,6 +1001,11 @@ export default function EEGViewer() {
       kappa.setFilters(0.5, 45, 50)
       kappaRef.current = kappa
       sbPosRef.current = null
+      dsaCacheRef.current.clear()
+      setDsaChannel('off')
+      setDsaData(null)
+      setDsaLoading(false)
+      setDsaError('')
       setMeta({ subjectId: info.subjectId, recordingDate: info.recordingDate })
       setTotalSeconds(Math.floor(info.numSamples / info.sampleRate))
       const probeEpoch = kappa.readEpoch(0, 1)
@@ -822,6 +1042,13 @@ export default function EEGViewer() {
     if (e) setEpoch(e)
   }, [])
 
+  const goToDSAEpoch = useCallback((epochIndex: number, epochSec: number) => {
+    const targetSec = Math.max(0, epochIndex * epochSec)
+    const targetRecordOffset = Math.floor(targetSec / Math.max(recordDurationSec, 1e-9))
+    const targetPage = Math.max(0, Math.min(maxPage, Math.floor(targetRecordOffset / recordsPerPage)))
+    goToPage(targetPage)
+  }, [goToPage, maxPage, recordDurationSec, recordsPerPage])
+
   const handleHpChange = (val: string) => {
     const v = parseFloat(val); setHp(v)
     kappaRef.current?.setFilters(v, lp, notch ? 50 : 0)
@@ -848,6 +1075,57 @@ export default function EEGViewer() {
     setEpoch(e)
     setRecordOffset(nextRecordOffset)
   }
+
+  useEffect(() => {
+    if (phase !== 'viewing' || dsaChannel === 'off') {
+      setDsaData(null)
+      setDsaLoading(false)
+      setDsaError('')
+      return
+    }
+
+    const channelIndex = parseInt(dsaChannel, 10)
+    if (!Number.isFinite(channelIndex)) {
+      setDsaData(null)
+      setDsaLoading(false)
+      setDsaError('Canal DSA inválido')
+      return
+    }
+
+    const cacheKey = `${channelIndex}|${hp}|${lp}|${notch ? 1 : 0}`
+    const cached = dsaCacheRef.current.get(cacheKey)
+    if (cached) {
+      setDsaData(cached)
+      setDsaLoading(false)
+      setDsaError('')
+      return
+    }
+
+    let cancelled = false
+    setDsaLoading(true)
+    setDsaError('')
+    setDsaData(null)
+
+    const timer = window.setTimeout(() => {
+      try {
+        const result = kappaRef.current?.computeDSAForChannel(channelIndex)
+        if (cancelled) return
+        if (!result) throw new Error('No se pudo calcular el DSA')
+        dsaCacheRef.current.set(cacheKey, result)
+        setDsaData(result)
+        setDsaLoading(false)
+      } catch (err) {
+        if (cancelled) return
+        setDsaError(err instanceof Error ? err.message : 'Error al calcular DSA')
+        setDsaLoading(false)
+      }
+    }, 0)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [phase, dsaChannel, hp, lp, notch])
 
   // ── Pagination ────────────────────────────────────────────────────────────────
 
@@ -1007,6 +1285,10 @@ export default function EEGViewer() {
         <ToolbarSelect label="Montaje" value={montage} onChange={(v) => setMontage(v as MontageName)}>
           {MONTAGE_OPTIONS.map((name) => <option key={name} value={name}>{name}</option>)}
         </ToolbarSelect>
+        <ToolbarSelect label="DSA" value={dsaChannel} onChange={setDsaChannel}>
+          <option value="off">Desactivado</option>
+          {dsaChannels.map((channel) => <option key={channel.index} value={channel.index}>{channel.name}</option>)}
+        </ToolbarSelect>
         <ToolbarSelect label="Ganancia" value={gainMult} onChange={(v) => setGainMult(parseFloat(v))}>
           {GAIN_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </ToolbarSelect>
@@ -1057,6 +1339,20 @@ export default function EEGViewer() {
           <canvas ref={overlayRef} style={{ position: 'absolute', top: 0, left: 0, width: '100%', pointerEvents: 'none' }} />
         </div>
       </div>
+
+      {dsaChannel !== 'off' && (
+        <DSAHeatmap
+          data={dsaData}
+          loading={dsaLoading}
+          error={dsaError}
+          currentStartSec={tStart}
+          currentEndSec={tStart + pageDuration}
+          onEpochClick={(epochIndex) => {
+            if (!dsaData) return
+            goToDSAEpoch(epochIndex, dsaData.epochSec)
+          }}
+        />
+      )}
     </div>
   )
 }

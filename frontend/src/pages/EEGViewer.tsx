@@ -83,6 +83,9 @@ const GAIN_OPTIONS: { label: string; value: number }[] = [
 ]
 
 const SCALE_BAR_VALUES_UV = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000]
+const LEFT_CHANNEL_COLOR = '#1d4ed8'
+const RIGHT_CHANNEL_COLOR = '#b91c1c'
+const CENTER_CHANNEL_COLOR = '#475569'
 
 const MONTAGES = {
   doble_banana: [
@@ -186,6 +189,32 @@ function fmtTimeGrid(sec: number): string {
 }
 
 function pad2(n: number): string { return String(n).padStart(2, '0') }
+
+function getChannelColor(name: string, type: string): string {
+  if (type !== 'EEG') return CHANNEL_COLORS[type] ?? DEFAULT_COLOR
+
+  const lead = name.split(' - ')[0]?.trim() ?? name.trim()
+  if (/Z$/i.test(lead)) return CENTER_CHANNEL_COLOR
+
+  const match = lead.match(/(\d+)(?!.*\d)/)
+  if (!match) return CHANNEL_COLORS[type] ?? DEFAULT_COLOR
+
+  const num = parseInt(match[1], 10)
+  if (Number.isNaN(num)) return CHANNEL_COLORS[type] ?? DEFAULT_COLOR
+  return num % 2 === 1 ? LEFT_CHANNEL_COLOR : RIGHT_CHANNEL_COLOR
+}
+
+function pickScaleBarValue(refRange: number): number {
+  const safeRange = Number.isFinite(refRange) && refRange > 0 ? refRange : 1
+  const targetMuV = Math.max(1, safeRange / 4)
+
+  let best = SCALE_BAR_VALUES_UV[0]
+  for (const candidate of SCALE_BAR_VALUES_UV) {
+    best = candidate
+    if (candidate >= targetMuV) break
+  }
+  return best
+}
 
 function getRecordsPerPage(windowSecs: number, recordDurationSec: number): number {
   if (recordDurationSec <= 0) return Math.max(1, windowSecs)
@@ -322,7 +351,7 @@ function drawEpoch(
   const waveW = W - LABEL_WIDTH
   const rowInfo: Array<{ y0: number; data: Float32Array; type: string; name: string; color: string; p2: number; p98: number }> = []
 
-  ctx.fillStyle = '#ffffff'
+  ctx.fillStyle = '#fffde8'
   ctx.fillRect(0, 0, W, canvas.height)
 
   // ── Channel rows ───────────────────────────────────────────────────────────
@@ -331,16 +360,16 @@ function drawEpoch(
     const data  = epoch.data[c]
     const type  = epoch.channelTypes[c] ?? 'EEG'
     const name  = epoch.channelNames[c]  ?? `Ch${c + 1}`
-    const color = CHANNEL_COLORS[type]   ?? DEFAULT_COLOR
+    const color = getChannelColor(name, type)
     const { p2, p98 } = scales[c] ?? { p2: 0, p98: 1 }
     rowInfo.push({ y0, data, type, name, color, p2, p98 })
 
     if (c % 2 === 1) {
-      ctx.fillStyle = 'rgba(0,0,0,0.018)'
+      ctx.fillStyle = 'rgba(0,0,0,0.03)'
       ctx.fillRect(LABEL_WIDTH, y0, waveW, chanH)
     }
 
-    ctx.fillStyle = '#f8fafc'
+    ctx.fillStyle = '#f7f1c7'
     ctx.fillRect(0, y0, LABEL_WIDTH, chanH)
 
     // Label text — adapt font size to row height
@@ -370,9 +399,9 @@ function drawEpoch(
     const MIN_LBL   = 42
 
     ctx.save()
-    ctx.strokeStyle = 'rgba(37,99,235,0.22)'
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)'
     ctx.lineWidth   = 1
-    ctx.setLineDash([3, 4])
+    ctx.setLineDash([])
     ctx.fillStyle    = '#64748b'
     ctx.font         = '9px monospace'
     ctx.textAlign    = 'center'
@@ -611,13 +640,7 @@ export default function EEGViewer() {
     const safeRange = Number.isFinite(refRange) && refRange > 0 ? refRange : 1
     const pxPerUV = (drawH * gainMult) / safeRange
 
-    let sbMuV = SCALE_BAR_VALUES_UV[0]
-    if (Number.isFinite(pxPerUV) && pxPerUV > 0) {
-      for (const candidate of SCALE_BAR_VALUES_UV) {
-        sbMuV = candidate
-        if (candidate * pxPerUV >= 25) break
-      }
-    }
+    const sbMuV = pickScaleBarValue(safeRange)
 
     const rawPx = Number.isFinite(pxPerUV) && pxPerUV > 0 ? sbMuV * pxPerUV : 0
     const sbPxH = Math.max(20, Math.min(totalH * 0.35, rawPx))

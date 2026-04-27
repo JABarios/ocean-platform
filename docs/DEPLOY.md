@@ -279,6 +279,84 @@ Y añade la configuración SSL a nginx.
 
 ---
 
+## Hardening del servidor (VPS expuesto)
+
+Una IP pública empieza a recibir escaneos automáticos en minutos. Estos pasos son el mínimo recomendable.
+
+### 1. UFW — solo abrir lo necesario
+
+El backend (4000) y el frontend de desarrollo (5173) **no** necesitan estar expuestos: nginx hace el proxy internamente.
+
+```bash
+sudo ufw allow 22/tcp    # SSH (o el puerto que hayas configurado)
+sudo ufw allow 80/tcp    # HTTP → redirige a HTTPS
+sudo ufw allow 443/tcp   # HTTPS
+sudo ufw enable
+sudo ufw status
+```
+
+### 2. Fail2ban — bloqueo automático de IPs abusivas
+
+Monitoriza los logs y banea IPs que acumulan demasiados fallos (SSH, nginx, etc.).
+
+```bash
+sudo apt install fail2ban -y
+sudo systemctl enable --now fail2ban
+
+# Verificar que SSH está protegido:
+sudo fail2ban-client status sshd
+```
+
+La configuración por defecto (5 intentos fallidos → ban 10 min) es suficiente para empezar.
+
+### 3. Rate limiting en nginx — proteger el endpoint de login
+
+Añade esto al config de nginx para limitar intentos de fuerza bruta contra la API:
+
+```bash
+sudo nano /etc/nginx/sites-enabled/ocean
+```
+
+```nginx
+# Antes del bloque server:
+limit_req_zone $binary_remote_addr zone=api:10m rate=10r/m;
+
+# Dentro del location /api/:
+    location /api/ {
+        limit_req zone=api burst=20 nodelay;
+        client_max_body_size 2048m;
+        proxy_pass http://localhost:4000/;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+```
+
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+### 4. Cambiar el puerto SSH (opcional)
+
+Reduce drásticamente el ruido de escaneos automáticos:
+
+```bash
+sudo nano /etc/ssh/sshd_config
+# Cambiar: Port 22  →  Port 2222
+sudo systemctl restart ssh
+
+# Actualizar UFW:
+sudo ufw delete allow 22/tcp
+sudo ufw allow 2222/tcp
+```
+
+> Abre la nueva sesión SSH antes de cerrar la actual para verificar que funciona.
+
+---
+
 ## Troubleshooting
 
 | Problema | Solución |
@@ -287,7 +365,10 @@ Y añade la configuración SSL a nginx.
 | Frontend no conecta al backend | Verifica `VITE_API_URL` y `CORS_ORIGIN`. Deben coincidir con la URL real desde el navegador. |
 | Error de Prisma/migraciones | `docker compose -f docker-compose.prod.yml exec backend npx prisma migrate deploy` |
 | Nginx 404 en rutas del frontend | Asegúrate de que `try_files $uri $uri/ /index.html;` esté configurado |
-| Puerto 4000 no accesible | Verifica firewall (`iptables -L`) y que el backend esté escuchando en `0.0.0.0` |
+| Nginx 405 en POST a `/api/` | Falta el `location /api/` con `proxy_pass` — `try_files` no acepta POST |
+| Nginx 413 al subir paquete | Añadir `client_max_body_size 2048m;` en `location /api/` |
+| Backend no responde en 4000 | Proceso zombie ocupa el puerto: `ss -tlnp \| grep 4000` → `kill -9 <PID>` → `pm2 restart ocean-backend` |
+| PM2 no arranca tras reboot | Ejecutar `pm2 save` y `pm2 startup` (y el comando sudo que imprima) |
 
 ---
 
@@ -295,8 +376,9 @@ Y añade la configuración SSL a nginx.
 
 1. **JWT_SECRET**: Nunca uses el valor por defecto. Genera uno largo y aleatorio:
    ```bash
-   openssl rand -hex 32
+   openssl rand -hex 64
    ```
 2. **Contraseñas de PostgreSQL**: Usa contraseñas fuertes y no las commitees.
 3. **Uploads**: Los archivos `.enc` (EEG cifrados) se guardan en `uploads/cases/`. Asegúrate de que solo el proceso del backend tenga acceso.
-4. **Firewall**: En producción expuesta, solo abre los puertos necesarios (80/443). El puerto 4000 no necesita ser público si usas nginx como reverse proxy.
+4. **Puertos expuestos**: Solo 80 y 443. El 4000 (backend) y 5173 (frontend dev) deben quedar en localhost — nginx hace el proxy internamente.
+5. **CORS_ORIGIN**: En producción debe ser el dominio exacto (`https://app.ocean-eeg.org`), nunca `*`.

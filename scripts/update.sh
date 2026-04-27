@@ -21,8 +21,9 @@ git reset --hard origin/main
 
 # 2. Reconstruir y reiniciar backend
 echo "[2/4] Reconstruyendo backend..."
+docker compose -f docker-compose.prod.yml down
 docker compose -f docker-compose.prod.yml build backend
-docker compose -f docker-compose.prod.yml up -d --no-deps backend
+docker compose -f docker-compose.prod.yml up -d
 
 # 3. Frontend — VITE_API_URL desde .env.production
 echo "[3/4] Compilando frontend..."

@@ -1,218 +1,97 @@
-# Guía de despliegue en Arch Linux (Minerva)
+# Guía de despliegue — Ubuntu 22.04 / 24.04
 
-Esta guía describe cómo instalar la plataforma OCEAN en un servidor Arch Linux. Se ofrecen dos métodos:
+Esta guía describe el setup de producción actual en **Hetzner** (`app.ocean-eeg.org`).
 
-1. **[Docker Compose](#opciÓn-a-docker-compose-recomendada)** — Más fácil, reproducible, todo containerizado.
-2. **[Instalación nativa](#opciÓn-b-instalaciÓn-nativa)** — Sin Docker, más eficiente en recursos, servicios gestionados por systemd.
+Stack:
+- **Docker** gestiona el backend Node.js (con SQLite en bind-mount)
+- **nginx en el host** sirve el frontend estático y hace proxy de `/api/` al backend
+- **Certbot** gestiona el certificado HTTPS
 
 ---
 
-## Prerrequisitos comunes
+## Instalación en máquina nueva
 
 ```bash
-# Instalar git y base-devel (si no los tienes)
-sudo pacman -Syu --needed git base-devel
-
-# Clonar el repositorio
 git clone git@github.com:JABarios/ocean-platform.git
-cd ocean-platform
+sudo bash ocean-platform/scripts/install-new-machine.sh
 ```
+
+El script instala Node 20, Docker, nginx, fail2ban, UFW y Certbot, y configura todo automáticamente.
 
 ---
 
-## Opción A: Docker Compose (recomendada)
+## Setup manual paso a paso (Ubuntu 22.04/24.04)
 
 ### 1. Instalar Docker
 
 ```bash
-sudo pacman -Syu docker docker-compose
+sudo apt update && sudo apt install -y docker.io docker-compose-plugin
 sudo systemctl enable --now docker
 sudo usermod -aG docker $USER
 # Cierra sesión y vuelve a entrar para que el grupo docker aplique
 ```
 
-### 2. Configurar variables de entorno
+### 2. Clonar el repositorio
 
 ```bash
-cp .env.prod.example .env
-nano .env
+git clone git@github.com:JABarios/ocean-platform.git
+cd ocean-platform
 ```
 
-Edita al menos estos valores:
+### 3. Configurar variables de entorno
 
-```env
-POSTGRES_PASSWORD=una-contraseña-muy-segura
-JWT_SECRET=una-cadena-larga-y-aleatoria-de-al-menos-64-caracteres
-CORS_ORIGIN=http://minerva.local,http://192.168.1.XXX
-VITE_API_URL=http://minerva.local:4000
+```bash
+cat > .env << EOF
+JWT_SECRET=$(openssl rand -hex 64)
+CORS_ORIGIN=https://tu-dominio.com
+EOF
 ```
 
-- `CORS_ORIGIN`: Lista separada por comas de los orígenes desde los que se accederá al frontend (IPs o dominios de los navegadores de los usuarios).
-- `VITE_API_URL`: URL pública completa del backend. Debe ser accesible desde los navegadores de los usuarios.
-
-### 3. Levantar la plataforma
+### 4. Levantar el backend con Docker
 
 ```bash
 docker compose -f docker-compose.prod.yml up --build -d
 ```
 
 Esto construye y arranca:
-- **PostgreSQL** 16 (datos persistentes en volumen Docker)
-- **Backend** Node.js (puerto 4000)
-- **Frontend** Nginx sirviendo estáticos (puerto 80)
+- **Backend** Node.js en `127.0.0.1:4000` (solo accesible desde el host)
+- **SQLite** en `backend/data/prod.db` (bind-mount, persiste entre rebuilds)
+- Las migraciones se aplican automáticamente al arrancar
 
-### 4. Crear schema y datos iniciales
-
-```bash
-# Ejecutar migraciones
-docker compose -f docker-compose.prod.yml exec backend npx prisma migrate deploy
-
-# (Opcional) Sembrar usuarios de prueba
-docker compose -f docker-compose.prod.yml exec backend npx prisma db seed
-```
-
-### 5. Verificar estado
+### 5. Compilar el frontend
 
 ```bash
-# Ver logs
-docker compose -f docker-compose.prod.yml logs -f
-
-# Health check
-curl http://localhost:4000/health
+cd frontend
+echo "VITE_API_URL=https://tu-dominio.com/api" > .env.production
+npm install && npm run build
 ```
 
-### 6. Acceso
-
-Abre un navegador en otra máquina de la red y ve a:
-- Frontend: `http://minerva.local` (o la IP de Minerva)
-- Backend API: `http://minerva.local:4000`
-
-Credenciales de prueba (si ejecutaste seed):
-- `clinician@ocean.local` / `ocean123`
-- `reviewer@ocean.local` / `ocean123`
-- `curator@ocean.local` / `ocean123`
-- `admin@ocean.local` / `ocean123`
-
-### 7. Actualizar tras cambios en código
-
-```bash
-git pull
-docker compose -f docker-compose.prod.yml up --build -d
-```
-
-### 8. Backup de la base de datos
-
-```bash
-docker compose -f docker-compose.prod.yml exec postgres pg_dump -U ocean ocean_db > ocean_backup_$(date +%F).sql
-```
-
----
-
-## Opción B: Instalación nativa
-
-Si prefieres no usar Docker, instala los componentes directamente en Arch Linux.
-
-### 1. Instalar dependencias del sistema
-
-```bash
-sudo pacman -Syu nodejs npm postgresql nginx
-sudo systemctl enable --now postgresql
-```
-
-### 2. Configurar PostgreSQL
-
-```bash
-# Crear usuario y base de datos
-sudo -u postgres initdb --locale=es_ES.UTF-8 -E UTF8 -D /var/lib/postgres/data
-sudo systemctl restart postgresql
-
-sudo -u postgres psql -c "CREATE USER ocean WITH PASSWORD 'tu-contraseña';"
-sudo -u postgres psql -c "CREATE DATABASE ocean_db OWNER ocean;"
-```
-
-### 3. Configurar backend
-
-```bash
-cd backend
-
-# Instalar dependencias
-npm ci
-
-# Crear .env de producción
-cat > .env << 'EOF'
-DATABASE_URL=postgresql://ocean:tu-contraseña@localhost:5432/ocean_db
-JWT_SECRET=cambia-esto-por-una-cadena-larga-y-aleatoria
-PORT=4000
-NODE_ENV=production
-STORAGE_TYPE=filesystem
-UPLOAD_DIR=./uploads/cases
-CORS_ORIGIN=http://minerva.local
-EOF
-
-# Generar cliente Prisma y migrar
-npx prisma generate
-npx prisma migrate deploy
-
-# Compilar TypeScript
-npm run build
-```
-
-### 4. Servicio systemd para el backend
-
-```bash
-sudo tee /etc/systemd/system/ocean-backend.service << 'EOF'
-[Unit]
-Description=OCEAN Backend API
-After=network.target postgresql.service
-
-[Service]
-Type=simple
-User=ocean
-WorkingDirectory=/opt/ocean-platform/backend
-ExecStart=/usr/bin/node dist/index.js
-Restart=on-failure
-Environment=NODE_ENV=production
-EnvironmentFile=/opt/ocean-platform/backend/.env
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Crear usuario y copiar código
-sudo useradd -r -s /bin/false ocean
-sudo mkdir -p /opt/ocean-platform
-sudo cp -r . /opt/ocean-platform/
-sudo chown -R ocean:ocean /opt/ocean-platform
-
-sudo systemctl daemon-reload
-sudo systemctl enable --now ocean-backend
-```
-
-### 5. Compilar y servir frontend
-
-```bash
-cd ../frontend
-
-# Instalar y build
-npm ci
-VITE_API_URL=http://minerva.local:4000 npm run build
-
-# El build queda en dist/
-# Nginx lo servirá
-```
-
-### 6. Configurar Nginx
+### 6. Configurar nginx
 
 ```bash
 sudo tee /etc/nginx/sites-available/ocean << 'EOF'
+limit_req_zone $binary_remote_addr zone=api:10m rate=10r/m;
+
 server {
     listen 80;
-    server_name minerva.local;
-    root /opt/ocean-platform/frontend/dist;
+    server_name tu-dominio.com;
+    root /ruta/a/ocean-platform/frontend/dist;
     index index.html;
 
     gzip on;
     gzip_types text/plain text/css application/json application/javascript;
+
+    location /api/ {
+        limit_req zone=api burst=20 nodelay;
+        client_max_body_size 2048m;
+        proxy_pass http://localhost:4000/;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
 
     location / {
         try_files $uri $uri/ /index.html;
@@ -220,61 +99,93 @@ server {
 }
 EOF
 
-# En Arch, nginx usa /etc/nginx/conf.d/ o /etc/nginx/sites-enabled/
-sudo mkdir -p /etc/nginx/sites-enabled
 sudo ln -sf /etc/nginx/sites-available/ocean /etc/nginx/sites-enabled/ocean
-
-# Añadir include en nginx.conf si no existe
-sudo sed -i '/http {/a\    include /etc/nginx/sites-enabled/*;' /etc/nginx/nginx.conf
-
-sudo nginx -t
-sudo systemctl enable --now nginx
+sudo nginx -t && sudo systemctl reload nginx
 ```
 
-### 7. Firewall (opcional)
+### 7. Certificado HTTPS (Certbot)
 
 ```bash
-# Si usas ufw o iptables, abre puertos 80 y 4000
-sudo iptables -A INPUT -p tcp --dport 80 -j ACCEPT
-sudo iptables -A INPUT -p tcp --dport 4000 -j ACCEPT
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d tu-dominio.com
+```
+
+### 8. Verificar estado
+
+```bash
+curl http://localhost:4000/health
+curl https://tu-dominio.com/api/health
+docker compose -f docker-compose.prod.yml ps
+```
+
+### 9. Sembrar datos de prueba (opcional)
+
+```bash
+docker compose -f docker-compose.prod.yml exec -T backend npx prisma db seed
+```
+
+Credenciales (password: `ocean123`):
+- `clinician@ocean.local`
+- `reviewer@ocean.local`
+- `curator@ocean.local`
+- `admin@ocean.local`
+
+### 10. Autostart tras reboot
+
+```bash
+sudo systemctl enable docker
+docker update --restart unless-stopped ocean-backend
+```
+
+### 11. Actualizar tras cambios en código
+
+```bash
+./scripts/update.sh
+```
+
+### 12. Backup de la base de datos
+
+```bash
+cp backend/data/prod.db "ocean_backup_$(date +%F).db"
 ```
 
 ---
 
-## SSL/TLS (recomendado para producción real)
+## Solución de problemas frecuentes
 
-Si Minerva tiene acceso a Internet o usas un dominio propio, configura HTTPS con Let's Encrypt:
+### Error P3005 al arrancar (DB ya existe sin historial de migraciones)
 
-```bash
-sudo pacman -S certbot certbot-nginx
-sudo certbot --nginx -d minerva.tu-dominio.com
-```
-
-Si es solo intranet local, puedes usar un certificado autofirmado:
+Ocurre al migrar una DB existente de SQLite a Docker por primera vez:
 
 ```bash
-sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-  -keyout /etc/nginx/ocean.key -out /etc/nginx/ocean.crt \
-  -subj "/CN=minerva.local"
+docker compose -f docker-compose.prod.yml run --rm --no-deps backend \
+  npx prisma migrate resolve --applied 20260423194258_init
+docker compose -f docker-compose.prod.yml restart backend
 ```
 
-Y añade la configuración SSL a nginx.
+### Puerto 4000 ocupado
+
+```bash
+ss -tlnp | grep 4000    # identificar el proceso
+pm2 delete ocean-backend 2>/dev/null || kill -9 <PID>
+docker compose -f docker-compose.prod.yml restart backend
+```
 
 ---
 
 ## Estructura de archivos en el servidor
 
 ```
-/opt/ocean-platform/           (o ~/ocean-platform si usas Docker)
+~/ocean-platform/
+├── .env                       # JWT_SECRET + CORS_ORIGIN (nunca commitear)
 ├── backend/
-│   ├── .env
-│   ├── dist/
-│   ├── uploads/cases/         # Bloques cifrados de EEG
+│   ├── data/prod.db           # SQLite de producción (bind-mount Docker)
+│   ├── uploads/cases/         # Bloques cifrados de EEG (bind-mount Docker)
 │   └── prisma/
 ├── frontend/
+│   ├── .env.production        # VITE_API_URL (nunca commitear)
 │   └── dist/                  # Build estático servido por nginx
-├── docker-compose.prod.yml    # (solo si usas Docker)
-└── docs/
+└── docker-compose.prod.yml
 ```
 
 ---
@@ -363,12 +274,13 @@ sudo ufw allow 2222/tcp
 |---|---|
 | `docker: permission denied` | `sudo usermod -aG docker $USER` y reiniciar sesión |
 | Frontend no conecta al backend | Verifica `VITE_API_URL` y `CORS_ORIGIN`. Deben coincidir con la URL real desde el navegador. |
-| Error de Prisma/migraciones | `docker compose -f docker-compose.prod.yml exec backend npx prisma migrate deploy` |
+| Error P3005 (DB schema not empty) | Ver sección "Solución de problemas frecuentes" arriba — baseline de migraciones |
 | Nginx 404 en rutas del frontend | Asegúrate de que `try_files $uri $uri/ /index.html;` esté configurado |
 | Nginx 405 en POST a `/api/` | Falta el `location /api/` con `proxy_pass` — `try_files` no acepta POST |
 | Nginx 413 al subir paquete | Añadir `client_max_body_size 2048m;` en `location /api/` |
-| Backend no responde en 4000 | Proceso zombie ocupa el puerto: `ss -tlnp \| grep 4000` → `kill -9 <PID>` → `pm2 restart ocean-backend` |
-| PM2 no arranca tras reboot | Ejecutar `pm2 save` y `pm2 startup` (y el comando sudo que imprima) |
+| Backend no responde en 4000 | Puerto ocupado: `ss -tlnp \| grep 4000` → `kill -9 <PID>` → `docker compose ... restart backend` |
+| Contenedor sin red ni puertos | `docker compose down && docker compose up -d` (recrear en vez de restart) |
+| 502 Bad Gateway tras reboot | Docker no arrancó: `sudo systemctl start docker && docker compose -f ~/ocean-platform/docker-compose.prod.yml up -d` |
 
 ---
 
@@ -378,7 +290,7 @@ sudo ufw allow 2222/tcp
    ```bash
    openssl rand -hex 64
    ```
-2. **Contraseñas de PostgreSQL**: Usa contraseñas fuertes y no las commitees.
-3. **Uploads**: Los archivos `.enc` (EEG cifrados) se guardan en `uploads/cases/`. Asegúrate de que solo el proceso del backend tenga acceso.
-4. **Puertos expuestos**: Solo 80 y 443. El 4000 (backend) y 5173 (frontend dev) deben quedar en localhost — nginx hace el proxy internamente.
+2. **`.env` y `.env.production`**: Nunca los commitees. Están en `.gitignore`.
+3. **Uploads**: Los archivos `.enc` (EEG cifrados) se guardan en `backend/uploads/cases/`. Solo el contenedor Docker tiene acceso.
+4. **Puertos expuestos**: Solo 22, 80 y 443 (UFW). El 4000 (backend Docker) está en `127.0.0.1` — solo accesible desde el host, nginx hace el proxy.
 5. **CORS_ORIGIN**: En producción debe ser el dominio exacto (`https://app.ocean-eeg.org`), nunca `*`.

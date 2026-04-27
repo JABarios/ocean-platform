@@ -135,15 +135,33 @@ npm run build               # tsc && vite build → dist/
 npm test                    # Vitest — 34 tests
 ```
 
-### Control rápido en Minerva (o máquina con ocean.sh)
+### Producción (servidor Hetzner — app.ocean-eeg.org)
+
+Stack: **Docker** (backend) + **nginx en host** (HTTPS + frontend estático + proxy /api/).
 
 ```bash
-source ~/.bashrc            # carga ocean_up y ocean_down
-ocean_up                    # Arranca backend + frontend
-ocean_down                  # Mata todo limpiamente
+# Requisito: crear ~/ocean-platform/.env con:
+# JWT_SECRET=<openssl rand -hex 64>
+# CORS_ORIGIN=https://app.ocean-eeg.org
+
+# Primera vez
+docker compose -f docker-compose.prod.yml up --build -d
+
+# Actualizar tras cambios
+./scripts/update.sh
+
+# Logs y estado
+docker compose -f docker-compose.prod.yml logs backend --tail=30
+docker compose -f docker-compose.prod.yml ps
+curl http://localhost:4000/health
 ```
 
-Ver `docs/MINERVA.md` para la guía completa de uso en el servidor.
+La DB SQLite de producción vive en `backend/data/prod.db` (bind-mount, persiste entre rebuilds).
+Si al arrancar aparece error P3005 (DB ya existe sin historial de migraciones):
+```bash
+docker compose -f docker-compose.prod.yml run --rm --no-deps backend \
+  npx prisma migrate resolve --applied 20260423194258_init
+```
 
 ---
 
@@ -151,26 +169,23 @@ Ver `docs/MINERVA.md` para la guía completa de uso en el servidor.
 
 | Tag | Descripción |
 |---|---|
+| `v0.4.0-stable` | Producción con Docker (backend) + nginx host (frontend/HTTPS). SQLite en bind-mount. update.sh usa docker compose. |
 | `v0.3.2-stable` | Visor EEG con tema claro, filtros HP/LP/notch, ganancia relativa auto, ventana temporal, navegación por teclado |
 | `v0.3.1-stable` | Visor EEG integrado con módulo WASM, SPA fallback, flujo de clave automático, 82 tests backend, 34 frontend |
 | `v0.3.0-stable` | DB re-validation, máquina de estados, diskStorage, 65 tests backend, 34 frontend |
-| `v0.1.0-dev` | Primera versión funcional (solo localhost, sin control scripts) |
 
 Scripts principales:
 | Script | Uso |
 |---|---|
-| `ocean.sh` | `ocean_up` / `ocean_down` — arrancar/parar servicios |
-| `update.sh` | Actualización en caliente (pull + build + restart) |
-| `serve-spa.py` | Servidor estático con SPA fallback (React Router) |
-| `install-new-machine.sh` | Instalación limpia desde cero |
+| `update.sh` | Actualización en caliente: git pull + docker build + frontend build + nginx reload |
+| `install-new-machine.sh` | Instalación completa en Ubuntu 22.04/24.04 nuevo (Node, Docker, nginx, Certbot, UFW) |
+| `ocean.sh` | `ocean_up` / `ocean_down` — arrancar/parar (entorno de desarrollo local) |
 | `run-dev.sh` | Modo desarrollo con `--network` para acceso LAN |
 
 Para instalar en máquina nueva:
 ```bash
 git clone git@github.com:JABarios/ocean-platform.git
-cd ocean-platform
-git checkout v0.3.1-stable
-./scripts/install-new-machine.sh
+sudo bash ocean-platform/scripts/install-new-machine.sh
 ```
 
 ---
@@ -308,6 +323,6 @@ k.readEpoch(offsetRecords, numRecords)   // → { nChannels, nSamples, sfreq, ch
 
 ## 11. Documentación adicional
 
-- `docs/DEPLOY.md` — Guía de despliegue en Arch Linux (Docker y nativo)
+- `docs/DEPLOY.md` — Guía de despliegue en Ubuntu (Docker + nginx host, setup actual en Hetzner)
 - `docs/MINERVA.md` — Guía rápida para uso en el servidor Minerva
 - `OCEAN_Especificaciones_Fusion.md` — Especificación funcional completa

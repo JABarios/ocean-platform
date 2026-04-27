@@ -50,9 +50,11 @@ const CHANNEL_COLORS: Record<string, string> = {
   EMG:  '#b45309',
   RESP: '#7c3aed',
 }
-const DEFAULT_COLOR = '#475569'
-const LABEL_WIDTH   = 76
+const DEFAULT_COLOR  = '#475569'
+const LABEL_WIDTH    = 76
 const CHANNEL_HEIGHT = 80
+const SB_BAR_W       = 12
+const SB_TARGET_PX   = Math.round(CHANNEL_HEIGHT * 0.75)
 
 const HP_OPTIONS: { label: string; value: number }[] = [
   { label: 'Ninguno', value: 0 },
@@ -69,7 +71,7 @@ const LP_OPTIONS: { label: string; value: number }[] = [
   { label: '70 Hz', value: 70 },
 ]
 
-const WINDOW_OPTIONS = [10, 20, 30]
+const WINDOW_OPTIONS = [10, 20, 30, 150]
 
 const GAIN_OPTIONS: { label: string; value: number }[] = [
   { label: '0.1×', value: 0.1 },
@@ -98,11 +100,61 @@ interface EpochData {
   data: Float32Array[]
 }
 
+interface RenderMeta {
+  tStart: number
+  windowSecs: number
+  W: number
+  H: number
+  sbHalfMuV: number
+  sbPxH: number
+}
+
+// ─── Pure helpers ─────────────────────────────────────────────────────────────
+
+function zscoreNormalize(data: Float32Array): Float32Array {
+  const n = data.length
+  let sum = 0
+  for (let i = 0; i < n; i++) sum += data[i]
+  const mean = sum / n
+  let sq = 0
+  for (let i = 0; i < n; i++) { const d = data[i] - mean; sq += d * d }
+  const std = Math.max(Math.sqrt(sq / n), 0.1)
+  const out = new Float32Array(n)
+  for (let i = 0; i < n; i++) out[i] = (data[i] - mean) / std
+  return out
+}
+
+function niceRound(v: number): number {
+  if (v <= 0) return 1
+  const mag = Math.pow(10, Math.floor(Math.log10(v)))
+  const n = v / mag
+  if (n < 1.5) return mag
+  if (n < 3.5) return 2 * mag
+  if (n < 7.5) return 5 * mag
+  return 10 * mag
+}
+
+function fmtTimeGrid(sec: number): string {
+  if (sec >= 3600) {
+    const h = Math.floor(sec / 3600)
+    const m = Math.floor((sec % 3600) / 60)
+    const s = sec % 60
+    return s > 0 ? `${h}:${pad2(m)}:${pad2(s)}` : `${h}:${pad2(m)}`
+  }
+  if (sec >= 60) return `${Math.floor(sec / 60)}:${pad2(sec % 60)}`
+  return `${sec}`
+}
+
+function pad2(n: number): string { return String(n).padStart(2, '0') }
+
 // ─── Canvas helpers ───────────────────────────────────────────────────────────
 
-function computeScales(epoch: EpochData, gainMult: number): { p2: number; p98: number }[] {
-  // Step 1: per-channel auto range (p2–p98) and median center
-  const perChannel = epoch.data.map((d) => {
+function computeScales(
+  epoch: EpochData,
+  gainMult: number,
+  normalizeNonEEG: boolean,
+): { scales: { p2: number; p98: number }[]; refRange: number } {
+  const perCh = epoch.data.map((d) => {
     const sorted = Float32Array.from(d).sort()
     return {
       p2:     sorted[Math.floor(sorted.length * 0.02)] ?? 0,
@@ -111,62 +163,103 @@ function computeScales(epoch: EpochData, gainMult: number): { p2: number; p98: n
     }
   })
 
-  // Step 2: shared reference = median of all per-channel ranges
-  const ranges = perChannel.map(s => s.p98 - s.p2).filter(r => r > 0).sort((a, b) => a - b)
-  const refRange = ranges.length > 0
-    ? ranges[Math.floor(ranges.length * 0.5)]  // median — robust against ECG/EMG outliers
-    : 1
+  // Shared reference from EEG channels only when normalizing (avoids z-scored channels skewing it)
+  const refIdxs = normalizeNonEEG
+    ? epoch.channelTypes.map((t, i) => (t === 'EEG' ? i : -1)).filter((i) => i >= 0)
+    : perCh.map((_, i) => i)
 
-  // Step 3: apply multiplier — each channel centered on its own median, shared range
-  const halfRange = (refRange / gainMult) / 2
-  return perChannel.map(s => ({ p2: s.center - halfRange, p98: s.center + halfRange }))
+  const refRanges = (refIdxs.length > 0 ? refIdxs : perCh.map((_, i) => i))
+    .map((i) => perCh[i].p98 - perCh[i].p2)
+    .filter((r) => r > 0)
+    .sort((a, b) => a - b)
+
+  const refRange = refRanges.length > 0 ? refRanges[Math.floor(refRanges.length * 0.5)] : 1
+  const halfRange = refRange / gainMult / 2
+
+  const scales = perCh.map((s, i) => {
+    const type = epoch.channelTypes[i] ?? 'EEG'
+    // z-scored non-EEG channels get per-channel scaling so they fill their row
+    if (normalizeNonEEG && type !== 'EEG') return { p2: s.p2, p98: s.p98 }
+    return { p2: s.center - halfRange, p98: s.center + halfRange }
+  })
+
+  return { scales, refRange }
 }
 
 function drawEpoch(
   canvas: HTMLCanvasElement,
   epoch: EpochData,
   scales: { p2: number; p98: number }[],
-) {
+  tStart: number,
+  windowSecs: number,
+): void {
   canvas.width  = canvas.offsetWidth || 1200
   canvas.height = epoch.nChannels * CHANNEL_HEIGHT
 
   const ctx = canvas.getContext('2d')
   if (!ctx) return
 
-  const waveWidth = canvas.width - LABEL_WIDTH
+  const W = canvas.width
+  const waveW = W - LABEL_WIDTH
 
-  // White background
   ctx.fillStyle = '#ffffff'
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.fillRect(0, 0, W, canvas.height)
 
+  // ── Time grid ──────────────────────────────────────────────────────────────
+  {
+    const tEnd      = tStart + windowSecs
+    const firstTick = Math.ceil(tStart + 1e-9)
+    const MIN_LBL   = 42
+
+    ctx.save()
+    ctx.strokeStyle = 'rgba(0,0,0,0.09)'
+    ctx.lineWidth   = 1
+    ctx.setLineDash([2, 4])
+    ctx.fillStyle    = '#94a3b8'
+    ctx.font         = '9px monospace'
+    ctx.textAlign    = 'center'
+    ctx.textBaseline = 'top'
+
+    let prevLblX = -Infinity
+    for (let t = firstTick; t < tEnd; t++) {
+      const x = LABEL_WIDTH + ((t - tStart) / windowSecs) * waveW
+      if (x <= LABEL_WIDTH + 1 || x >= W - 1) continue
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke()
+      if (x - prevLblX >= MIN_LBL) {
+        ctx.fillText(fmtTimeGrid(t), x, 3)
+        prevLblX = x
+      }
+    }
+    ctx.restore()
+  }
+
+  // ── Channel rows ───────────────────────────────────────────────────────────
   for (let c = 0; c < epoch.nChannels; c++) {
     const y0    = c * CHANNEL_HEIGHT
     const data  = epoch.data[c]
     const type  = epoch.channelTypes[c] ?? 'EEG'
-    const name  = epoch.channelNames[c] ?? `Ch${c + 1}`
-    const color = CHANNEL_COLORS[type] ?? DEFAULT_COLOR
+    const name  = epoch.channelNames[c]  ?? `Ch${c + 1}`
+    const color = CHANNEL_COLORS[type]   ?? DEFAULT_COLOR
     const { p2, p98 } = scales[c] ?? { p2: 0, p98: 1 }
     const range = p98 - p2 || 1
 
-    // Alternating row
     if (c % 2 === 1) {
       ctx.fillStyle = 'rgba(0,0,0,0.018)'
-      ctx.fillRect(LABEL_WIDTH, y0, waveWidth, CHANNEL_HEIGHT)
+      ctx.fillRect(LABEL_WIDTH, y0, waveW, CHANNEL_HEIGHT)
     }
 
-    // Label column
     ctx.fillStyle = '#f8fafc'
     ctx.fillRect(0, y0, LABEL_WIDTH, CHANNEL_HEIGHT)
 
     ctx.fillStyle = color
-    ctx.font = 'bold 11px monospace'
+    ctx.font      = 'bold 11px monospace'
+    ctx.textAlign = 'left'
     ctx.fillText(name.slice(0, 9), 4, y0 + 24)
 
     ctx.fillStyle = '#64748b'
-    ctx.font = '9px monospace'
+    ctx.font      = '9px monospace'
     ctx.fillText(type.slice(0, 6), 4, y0 + 38)
 
-    // Waveform
     if (data.length < 2) continue
 
     const margin = CHANNEL_HEIGHT * 0.1
@@ -178,7 +271,7 @@ function drawEpoch(
     ctx.globalAlpha = 0.85
 
     for (let i = 0; i < data.length; i++) {
-      const x    = LABEL_WIDTH + (i / (data.length - 1)) * waveWidth
+      const x    = LABEL_WIDTH + (i / (data.length - 1)) * waveW
       const norm = (data[i] - p2) / range
       const y    = y0 + margin + drawH * (1 - norm)
       if (i === 0) ctx.moveTo(x, y)
@@ -187,21 +280,86 @@ function drawEpoch(
     ctx.stroke()
     ctx.globalAlpha = 1
 
-    // Row separator
     ctx.strokeStyle = 'rgba(0,0,0,0.08)'
     ctx.lineWidth   = 1
-    ctx.beginPath()
-    ctx.moveTo(0, y0 + CHANNEL_HEIGHT)
-    ctx.lineTo(canvas.width, y0 + CHANNEL_HEIGHT)
-    ctx.stroke()
+    ctx.beginPath(); ctx.moveTo(0, y0 + CHANNEL_HEIGHT); ctx.lineTo(W, y0 + CHANNEL_HEIGHT); ctx.stroke()
 
-    // Label / waveform border
     ctx.strokeStyle = '#cbd5e1'
-    ctx.beginPath()
-    ctx.moveTo(LABEL_WIDTH, y0)
-    ctx.lineTo(LABEL_WIDTH, y0 + CHANNEL_HEIGHT)
-    ctx.stroke()
+    ctx.beginPath(); ctx.moveTo(LABEL_WIDTH, y0); ctx.lineTo(LABEL_WIDTH, y0 + CHANNEL_HEIGHT); ctx.stroke()
   }
+}
+
+function drawOverlay(
+  overlay: HTMLCanvasElement,
+  meta: RenderMeta,
+  mousePos: { x: number; y: number } | null,
+  mouseOn: boolean,
+  sbPos: { x: number; y: number } | null,
+): void {
+  const { tStart, windowSecs, W, H, sbHalfMuV, sbPxH } = meta
+  overlay.width  = W
+  overlay.height = H
+
+  const octx = overlay.getContext('2d')
+  if (!octx) return
+
+  const waveW = W - LABEL_WIDTH
+
+  // ── Scale bar ──────────────────────────────────────────────────────────────
+  const sbX    = sbPos ? sbPos.x : W - SB_BAR_W - 18
+  const sbY    = sbPos ? sbPos.y : H - sbPxH - 22
+  const sbMidX = sbX + SB_BAR_W / 2
+
+  octx.save()
+  octx.strokeStyle = '#64748b'
+  octx.lineWidth   = 2
+  octx.setLineDash([])
+
+  octx.beginPath(); octx.moveTo(sbMidX, sbY); octx.lineTo(sbMidX, sbY + sbPxH); octx.stroke()
+  octx.beginPath(); octx.moveTo(sbX, sbY); octx.lineTo(sbX + SB_BAR_W, sbY); octx.stroke()
+  octx.beginPath(); octx.moveTo(sbX, sbY + sbPxH); octx.lineTo(sbX + SB_BAR_W, sbY + sbPxH); octx.stroke()
+
+  octx.fillStyle    = '#64748b'
+  octx.font         = '9px monospace'
+  octx.textBaseline = 'middle'
+  const lY = sbY + sbPxH / 2
+  if (sbX - LABEL_WIDTH > 44) {
+    octx.textAlign = 'right'
+    octx.fillText(`±${sbHalfMuV} µV`, sbX - 4, lY)
+  } else {
+    octx.textAlign = 'left'
+    octx.fillText(`±${sbHalfMuV} µV`, sbX + SB_BAR_W + 4, lY)
+  }
+  octx.restore()
+
+  // ── Cursor + tooltip ───────────────────────────────────────────────────────
+  if (!mouseOn || !mousePos || mousePos.x < LABEL_WIDTH || mousePos.x > W) return
+
+  const { x } = mousePos
+  octx.save()
+  octx.strokeStyle = 'rgba(37,99,235,0.45)'
+  octx.lineWidth   = 1
+  octx.setLineDash([])
+  octx.beginPath(); octx.moveTo(x, 0); octx.lineTo(x, H); octx.stroke()
+
+  const t     = tStart + ((x - LABEL_WIDTH) / waveW) * windowSecs
+  const label = `${t.toFixed(2)} s`
+  octx.font = '10px monospace'
+  const tw   = octx.measureText(label).width
+  const tpW  = tw + 10, tpH = 18
+  let tpX = x + 8, tpY = 6
+  if (tpX + tpW > W - 4) tpX = x - tpW - 8
+
+  octx.fillStyle   = 'rgba(248,250,252,0.95)'
+  octx.strokeStyle = '#cbd5e1'
+  octx.lineWidth   = 1
+  octx.beginPath(); octx.rect(tpX, tpY, tpW, tpH); octx.fill(); octx.stroke()
+
+  octx.fillStyle    = '#1d4ed8'
+  octx.textAlign    = 'left'
+  octx.textBaseline = 'middle'
+  octx.fillText(label, tpX + 5, tpY + tpH / 2)
+  octx.restore()
 }
 
 // ─── Loading screen ───────────────────────────────────────────────────────────
@@ -257,8 +415,8 @@ function ToolbarSelect({
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function EEGViewer() {
-  const { id }       = useParams<{ id: string }>()
-  const token        = useAuthStore((s) => s.token)
+  const { id }          = useParams<{ id: string }>()
+  const token           = useAuthStore((s) => s.token)
   const { decryptFile } = useCrypto()
 
   const [phase,    setPhase]    = useState<Phase>('key-input')
@@ -270,23 +428,147 @@ export default function EEGViewer() {
   const [totalSeconds, setTotalSeconds] = useState(0)
   const [meta,         setMeta]         = useState<{ subjectId: string; recordingDate: string } | null>(null)
 
-  // Filter, window & gain state
-  const [windowSecs, setWindowSecs] = useState(10)
-  const [hp,         setHp]         = useState(0.5)
-  const [lp,         setLp]         = useState(45)
-  const [notch,      setNotch]      = useState(true)
-  const [gainMult,   setGainMult]   = useState(1)   // multiplier over shared auto reference
+  const [windowSecs,      setWindowSecs]      = useState(10)
+  const [hp,              setHp]              = useState(0.5)
+  const [lp,              setLp]              = useState(45)
+  const [notch,           setNotch]           = useState(true)
+  const [gainMult,        setGainMult]        = useState(1)
+  const [normalizeNonEEG, setNormalizeNonEEG] = useState(false)
 
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const kappaRef  = useRef<KappaInstance | null>(null)
-  const moduleRef = useRef<KappaModuleInstance | null>(null)
+  const canvasRef  = useRef<HTMLCanvasElement>(null)
+  const overlayRef = useRef<HTMLCanvasElement>(null)
+  const kappaRef   = useRef<KappaInstance | null>(null)
+  const moduleRef  = useRef<KappaModuleInstance | null>(null)
 
-  const scales = useMemo(() => epoch ? computeScales(epoch, gainMult) : [], [epoch, gainMult])
+  // Refs for imperative overlay (avoids re-renders on every mousemove)
+  const mousePosRef    = useRef<{ x: number; y: number } | null>(null)
+  const mouseOnRef     = useRef(false)
+  const sbPosRef       = useRef<{ x: number; y: number } | null>(null)
+  const sbDragRef      = useRef<{ startMX: number; startMY: number; startSBX: number; startSBY: number } | null>(null)
+  const renderMetaRef  = useRef<RenderMeta | null>(null)
 
-  // ── Load WASM module (singleton) ─────────────────────────────────────────────
+  // ── Derived data ─────────────────────────────────────────────────────────────
+
+  const processedEpoch = useMemo(() => {
+    if (!epoch) return null
+    if (!normalizeNonEEG) return epoch
+    return {
+      ...epoch,
+      data: epoch.data.map((d, i) =>
+        (epoch.channelTypes[i] ?? 'EEG') !== 'EEG' ? zscoreNormalize(d) : d
+      ),
+    }
+  }, [epoch, normalizeNonEEG])
+
+  const { scales, refRange } = useMemo(() => {
+    if (!processedEpoch) return { scales: [] as { p2: number; p98: number }[], refRange: 1 }
+    return computeScales(processedEpoch, gainMult, normalizeNonEEG)
+  }, [processedEpoch, gainMult, normalizeNonEEG])
+
+  // ── Overlay redraw (reads from refs — no state, no re-render) ────────────────
+
+  const refreshOverlay = useCallback(() => {
+    const overlay = overlayRef.current
+    const meta    = renderMetaRef.current
+    if (!overlay || !meta) return
+    drawOverlay(overlay, meta, mousePosRef.current, mouseOnRef.current, sbPosRef.current)
+  }, [])
+
+  // ── Scale bar size (computed after knowing refRange + gainMult) ───────────────
+
+  function computeSBSize(canvasH: number): { sbHalfMuV: number; sbPxH: number } {
+    const drawH      = CHANNEL_HEIGHT * 0.8
+    const pxPerUV    = (drawH * gainMult) / refRange
+    const sbHalfMuV  = niceRound(SB_TARGET_PX / (2 * pxPerUV))
+    const sbPxH      = Math.max(20, Math.min(canvasH * 0.35, sbHalfMuV * 2 * pxPerUV))
+    return { sbHalfMuV, sbPxH }
+  }
+
+  // ── Main draw effect ──────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (phase !== 'viewing' || !processedEpoch || !canvasRef.current) return
+    const canvas = canvasRef.current
+    const tStart = page * windowSecs
+    drawEpoch(canvas, processedEpoch, scales, tStart, windowSecs)
+    const { sbHalfMuV, sbPxH } = computeSBSize(canvas.height)
+    renderMetaRef.current = { tStart, windowSecs, W: canvas.width, H: canvas.height, sbHalfMuV, sbPxH }
+    refreshOverlay()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, processedEpoch, scales, refRange, gainMult, page, windowSecs, refreshOverlay])
+
+  // ── Resize observer ───────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (phase !== 'viewing' || !processedEpoch || !canvasRef.current) return
+    const canvas = canvasRef.current
+    const ro = new ResizeObserver(() => {
+      const tStart = page * windowSecs
+      drawEpoch(canvas, processedEpoch, scales, tStart, windowSecs)
+      const { sbHalfMuV, sbPxH } = computeSBSize(canvas.height)
+      renderMetaRef.current = { tStart, windowSecs, W: canvas.width, H: canvas.height, sbHalfMuV, sbPxH }
+      refreshOverlay()
+    })
+    ro.observe(canvas)
+    return () => ro.disconnect()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, processedEpoch, scales, refRange, gainMult, page, windowSecs, refreshOverlay])
+
+  // ── Mouse handlers (on wrapper div; overlay has pointer-events:none) ──────────
+
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    const x    = e.clientX - rect.left
+    const y    = e.clientY - rect.top
+    mousePosRef.current = { x, y }
+    mouseOnRef.current  = true
+
+    if (sbDragRef.current) {
+      const { startMX, startMY, startSBX, startSBY } = sbDragRef.current
+      const rm = renderMetaRef.current
+      if (rm) {
+        const nx = Math.max(LABEL_WIDTH + 4, Math.min(rm.W - SB_BAR_W - 4, startSBX + x - startMX))
+        const ny = Math.max(4, Math.min(rm.H - rm.sbPxH - 4, startSBY + y - startMY))
+        sbPosRef.current = { x: nx, y: ny }
+      }
+    }
+    refreshOverlay()
+  }, [refreshOverlay])
+
+  const handleMouseLeave = useCallback(() => {
+    mouseOnRef.current  = false
+    sbDragRef.current   = null
+    refreshOverlay()
+  }, [refreshOverlay])
+
+  const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const canvas = canvasRef.current
+    const rm     = renderMetaRef.current
+    if (!canvas || !rm) return
+    const rect = canvas.getBoundingClientRect()
+    const x    = e.clientX - rect.left
+    const y    = e.clientY - rect.top
+    const sbX  = sbPosRef.current ? sbPosRef.current.x : rm.W - SB_BAR_W - 18
+    const sbY  = sbPosRef.current ? sbPosRef.current.y : rm.H - rm.sbPxH - 22
+    const pad  = 8
+    if (x >= sbX - pad && x <= sbX + SB_BAR_W + pad && y >= sbY - pad && y <= sbY + rm.sbPxH + pad) {
+      sbDragRef.current = { startMX: x, startMY: y, startSBX: sbX, startSBY: sbY }
+      e.preventDefault()
+    }
+  }, [])
+
+  useEffect(() => {
+    const onUp = () => { sbDragRef.current = null }
+    window.addEventListener('mouseup', onUp)
+    return () => window.removeEventListener('mouseup', onUp)
+  }, [])
+
+  // ── Load WASM module ──────────────────────────────────────────────────────────
+
   const loadModule = useCallback((): Promise<KappaModuleInstance> => {
     if (moduleRef.current) return Promise.resolve(moduleRef.current)
-
     return new Promise((resolve, reject) => {
       if (window.KappaModule) {
         window.KappaModule().then((m) => { moduleRef.current = m; resolve(m) }).catch(reject)
@@ -308,7 +590,8 @@ export default function EEGViewer() {
     })
   }, [])
 
-  // ── Full pipeline ────────────────────────────────────────────────────────────
+  // ── Full pipeline ─────────────────────────────────────────────────────────────
+
   const startViewer = useCallback(async (key: string) => {
     if (!id) return
     try {
@@ -331,8 +614,9 @@ export default function EEGViewer() {
       if (!kappa.openEDF('/tmp/file.edf')) throw new Error('openEDF devolvió false — archivo inválido')
 
       const info = kappa.getMeta()
-      kappa.setFilters(0.5, 45, 50)   // defaults: HP 0.5, LP 45, notch 50
+      kappa.setFilters(0.5, 45, 50)
       kappaRef.current = kappa
+      sbPosRef.current = null  // reset scale bar position
       setMeta({ subjectId: info.subjectId, recordingDate: info.recordingDate })
       setTotalSeconds(Math.floor(info.numSamples / info.sampleRate))
 
@@ -351,13 +635,15 @@ export default function EEGViewer() {
   }, [id, token, decryptFile, loadModule])
 
   // ── Auto-start from sessionStorage ───────────────────────────────────────────
+
   useEffect(() => {
     if (!id || phase !== 'key-input') return
     const saved = sessionStorage.getItem(`ocean_eeg_key_${id}`)
     if (saved) { setKeyInput(saved); startViewer(saved) }
   }, [id, phase, startViewer])
 
-  // ── Filter & window handlers ─────────────────────────────────────────────────
+  // ── Filter & window handlers ──────────────────────────────────────────────────
+
   const refreshEpoch = useCallback((offsetPage: number, winSecs: number) => {
     const kappa = kappaRef.current
     if (!kappa) return
@@ -366,73 +652,56 @@ export default function EEGViewer() {
   }, [])
 
   const handleHpChange = (val: string) => {
-    const v = parseFloat(val)
-    setHp(v)
-    const kappa = kappaRef.current
-    if (!kappa) return
-    kappa.setFilters(v, lp, notch ? 50 : 0)
+    const v = parseFloat(val); setHp(v)
+    kappaRef.current?.setFilters(v, lp, notch ? 50 : 0)
     refreshEpoch(page, windowSecs)
   }
-
   const handleLpChange = (val: string) => {
-    const v = parseFloat(val)
-    setLp(v)
-    const kappa = kappaRef.current
-    if (!kappa) return
-    kappa.setFilters(hp, v, notch ? 50 : 0)
+    const v = parseFloat(val); setLp(v)
+    kappaRef.current?.setFilters(hp, v, notch ? 50 : 0)
     refreshEpoch(page, windowSecs)
   }
-
   const handleNotchChange = (val: string) => {
-    const on = val === '1'
-    setNotch(on)
-    const kappa = kappaRef.current
-    if (!kappa) return
-    kappa.setFilters(hp, lp, on ? 50 : 0)
+    const on = val === '1'; setNotch(on)
+    kappaRef.current?.setFilters(hp, lp, on ? 50 : 0)
     refreshEpoch(page, windowSecs)
   }
-
   const handleWindowChange = (val: string) => {
-    const newWin = parseInt(val)
-    const currentTime = page * windowSecs
-    const newPage = Math.floor(currentTime / newWin)
-    setWindowSecs(newWin)
-    setPage(newPage)
-    const kappa = kappaRef.current
-    if (!kappa) return
-    const e = kappa.readEpoch(newPage * newWin, newWin)
+    const newWin  = parseInt(val)
+    const newPage = Math.floor((page * windowSecs) / newWin)
+    setWindowSecs(newWin); setPage(newPage)
+    const e = kappaRef.current?.readEpoch(newPage * newWin, newWin)
     if (e) setEpoch(e)
   }
 
   // ── Pagination ────────────────────────────────────────────────────────────────
+
   const maxPage = Math.max(0, Math.ceil(totalSeconds / windowSecs) - 1)
 
   const goToPage = useCallback((newPage: number) => {
-    const kappa = kappaRef.current
-    if (!kappa) return
-    const e = kappa.readEpoch(newPage * windowSecs, windowSecs)
+    const e = kappaRef.current?.readEpoch(newPage * windowSecs, windowSecs)
     if (!e) return
-    setEpoch(e)
-    setPage(newPage)
+    setEpoch(e); setPage(newPage)
   }, [windowSecs])
 
   // ── Keyboard navigation ───────────────────────────────────────────────────────
+
   useEffect(() => {
     if (phase !== 'viewing') return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft'  && page > 0)       goToPage(page - 1)
-      if (e.key === 'ArrowRight' && page < maxPage)  goToPage(page + 1)
+      if (e.key === 'ArrowLeft'  && page > 0)      goToPage(page - 1)
+      if (e.key === 'ArrowRight' && page < maxPage) goToPage(page + 1)
       if (e.key === 'ArrowUp') {
         e.preventDefault()
         setGainMult((prev) => {
-          const idx = GAIN_OPTIONS.findIndex(o => o.value === prev)
+          const idx = GAIN_OPTIONS.findIndex((o) => o.value === prev)
           return GAIN_OPTIONS[Math.min(idx + 1, GAIN_OPTIONS.length - 1)].value
         })
       }
       if (e.key === 'ArrowDown') {
         e.preventDefault()
         setGainMult((prev) => {
-          const idx = GAIN_OPTIONS.findIndex(o => o.value === prev)
+          const idx = GAIN_OPTIONS.findIndex((o) => o.value === prev)
           return GAIN_OPTIONS[Math.max(idx - 1, 0)].value
         })
       }
@@ -441,34 +710,15 @@ export default function EEGViewer() {
     return () => window.removeEventListener('keydown', onKey)
   }, [phase, page, maxPage, goToPage])
 
-  // ── Canvas draw ───────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (phase !== 'viewing' || !epoch || !canvasRef.current) return
-    drawEpoch(canvasRef.current, epoch, scales)
-  }, [phase, epoch, scales])
-
-  useEffect(() => {
-    if (phase !== 'viewing' || !epoch || !canvasRef.current) return
-    const canvas = canvasRef.current
-    const ro = new ResizeObserver(() => drawEpoch(canvas, epoch, scales))
-    ro.observe(canvas)
-    return () => ro.disconnect()
-  }, [phase, epoch, scales])
-
   // ── Cleanup MEMFS on unmount ──────────────────────────────────────────────────
+
   useEffect(() => {
     return () => {
       try { moduleRef.current?.FS.unlink('/tmp/file.edf') } catch { /* already gone */ }
     }
   }, [])
 
-  // ── Submit key form ───────────────────────────────────────────────────────────
-  const handleSubmitKey = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (keyInput.trim()) startViewer(keyInput.trim())
-  }
-
-  // ── Render: key input / error ─────────────────────────────────────────────────
+  // ── Key input / error screen ──────────────────────────────────────────────────
 
   if (phase === 'key-input' || phase === 'error') {
     return (
@@ -484,9 +734,7 @@ export default function EEGViewer() {
           boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
         }}>
           <div>
-            <div style={{ color: '#2563eb', fontWeight: 700, fontSize: '1.1rem', marginBottom: 4 }}>
-              Visor EEG
-            </div>
+            <div style={{ color: '#2563eb', fontWeight: 700, fontSize: '1.1rem', marginBottom: 4 }}>Visor EEG</div>
             <div style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Caso {id}</div>
           </div>
 
@@ -506,11 +754,13 @@ export default function EEGViewer() {
             <strong>Clave requerida</strong>
             <p style={{ margin: '0.4rem 0 0 0' }}>
               OCEAN no almacena la clave de descifrado. Se mostró una sola vez al crear el caso.
-              Si eres el creador, recarga — se intentará automáticamente durante esta sesión.
             </p>
           </div>
 
-          <form onSubmit={handleSubmitKey} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          <form
+            onSubmit={(e) => { e.preventDefault(); if (keyInput.trim()) startViewer(keyInput.trim()) }}
+            style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}
+          >
             <label style={{ color: '#475569', fontSize: '0.85rem' }}>
               Clave de descifrado
               <input
@@ -547,36 +797,30 @@ export default function EEGViewer() {
     )
   }
 
-  // ── Render: loading phases ────────────────────────────────────────────────────
+  // ── Loading phases ────────────────────────────────────────────────────────────
 
   if (phase !== 'viewing') {
     const messages: Record<Phase, string> = {
-      'key-input':      '',
-      'downloading':    'Descargando paquete…',
-      'decrypting':     'Descifrando…',
-      'loading-module': 'Cargando módulo EEG…',
-      'opening':        'Abriendo archivo…',
-      'viewing':        '',
-      'error':          '',
+      'key-input': '', 'downloading': 'Descargando paquete…',
+      'decrypting': 'Descifrando…', 'loading-module': 'Cargando módulo EEG…',
+      'opening': 'Abriendo archivo…', 'viewing': '', 'error': '',
     }
     return <StatusScreen message={messages[phase]} />
   }
 
-  // ── Render: viewer ────────────────────────────────────────────────────────────
+  // ── Viewer ────────────────────────────────────────────────────────────────────
 
   const totalPages    = maxPage + 1
   const timeOffsetSec = page * windowSecs
 
   return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', height: '100vh',
-      background: '#f1f5f9', overflow: 'hidden',
-    }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#f1f5f9', overflow: 'hidden' }}>
+
       {/* Toolbar */}
       <div style={{
-        display: 'flex', alignItems: 'flex-end', gap: '1rem',
+        display: 'flex', alignItems: 'flex-end', gap: '1rem', flexWrap: 'wrap',
         padding: '0.5rem 1rem', background: '#ffffff',
-        borderBottom: '1px solid #e2e8f0', flexShrink: 0, flexWrap: 'wrap',
+        borderBottom: '1px solid #e2e8f0', flexShrink: 0,
       }}>
         {/* Identity */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginRight: 4 }}>
@@ -592,19 +836,13 @@ export default function EEGViewer() {
 
         <div style={{ width: 1, height: 36, background: '#e2e8f0', flexShrink: 0 }} />
 
-        {/* Filter controls */}
+        {/* Filters */}
         <ToolbarSelect label="F. Baja (HP)" value={hp} onChange={handleHpChange}>
-          {HP_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
+          {HP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </ToolbarSelect>
-
         <ToolbarSelect label="F. Alta (LP)" value={lp} onChange={handleLpChange}>
-          {LP_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
+          {LP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </ToolbarSelect>
-
         <ToolbarSelect label="Notch" value={notch ? '1' : '0'} onChange={handleNotchChange}>
           <option value="1">50 Hz</option>
           <option value="0">Off</option>
@@ -613,16 +851,36 @@ export default function EEGViewer() {
         <div style={{ width: 1, height: 36, background: '#e2e8f0', flexShrink: 0 }} />
 
         <ToolbarSelect label="Ventana" value={windowSecs} onChange={handleWindowChange}>
-          {WINDOW_OPTIONS.map((s) => (
-            <option key={s} value={s}>{s}s</option>
-          ))}
+          {WINDOW_OPTIONS.map((s) => <option key={s} value={s}>{s}s</option>)}
+        </ToolbarSelect>
+        <ToolbarSelect label="Ganancia" value={gainMult} onChange={(v) => setGainMult(parseFloat(v))}>
+          {GAIN_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </ToolbarSelect>
 
-        <ToolbarSelect label="Ganancia" value={gainMult} onChange={(v) => setGainMult(parseFloat(v))}>
-          {GAIN_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </ToolbarSelect>
+        <div style={{ width: 1, height: 36, background: '#e2e8f0', flexShrink: 0 }} />
+
+        {/* Normalize non-EEG toggle */}
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 2, cursor: 'pointer' }}>
+          <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+            Norm. no-EEG
+          </span>
+          <button
+            onClick={() => setNormalizeNonEEG((v) => !v)}
+            title="Normalizar canales no-EEG a z-score (media=0, σ=1)"
+            style={{
+              background:   normalizeNonEEG ? '#dbeafe' : '#f8fafc',
+              border:       `1px solid ${normalizeNonEEG ? '#93c5fd' : '#cbd5e1'}`,
+              borderRadius: 4,
+              color:        normalizeNonEEG ? '#1d4ed8' : '#475569',
+              fontSize:     '0.8rem',
+              padding:      '0.2rem 0.6rem',
+              cursor:       'pointer',
+              fontWeight:   normalizeNonEEG ? 600 : 400,
+            }}
+          >
+            {normalizeNonEEG ? 'z-score ✓' : 'z-score'}
+          </button>
+        </label>
 
         <div style={{ flex: 1 }} />
 
@@ -631,31 +889,28 @@ export default function EEGViewer() {
           <span style={{ color: '#94a3b8', fontSize: '0.75rem', fontFamily: 'monospace' }}>
             t = {timeOffsetSec}s
           </span>
-          <button
-            onClick={() => goToPage(page - 1)}
-            disabled={page === 0}
-            title="Anterior (←)"
-            style={navBtnStyle(page === 0)}
-          >
-            ←
-          </button>
+          <button onClick={() => goToPage(page - 1)} disabled={page === 0} title="Anterior (←)" style={navBtnStyle(page === 0)}>←</button>
           <span style={{ color: '#475569', fontSize: '0.8rem', fontFamily: 'monospace', minWidth: 64, textAlign: 'center' }}>
             {page + 1} / {totalPages}
           </span>
-          <button
-            onClick={() => goToPage(page + 1)}
-            disabled={page >= maxPage}
-            title="Siguiente (→)"
-            style={navBtnStyle(page >= maxPage)}
-          >
-            →
-          </button>
+          <button onClick={() => goToPage(page + 1)} disabled={page >= maxPage} title="Siguiente (→)" style={navBtnStyle(page >= maxPage)}>→</button>
         </div>
       </div>
 
       {/* Canvas area */}
       <div style={{ flex: 1, overflow: 'auto', background: '#f1f5f9' }}>
-        <canvas ref={canvasRef} style={{ display: 'block', width: '100%' }} />
+        <div
+          style={{ position: 'relative', lineHeight: 0 }}
+          onMouseMove={handleMouseMove}
+          onMouseLeave={handleMouseLeave}
+          onMouseDown={handleMouseDown}
+        >
+          <canvas ref={canvasRef} style={{ display: 'block', width: '100%' }} />
+          <canvas
+            ref={overlayRef}
+            style={{ position: 'absolute', top: 0, left: 0, width: '100%', pointerEvents: 'none' }}
+          />
+        </div>
       </div>
     </div>
   )
@@ -666,10 +921,8 @@ function navBtnStyle(disabled: boolean): React.CSSProperties {
     background:   disabled ? '#f1f5f9' : '#ffffff',
     color:        disabled ? '#cbd5e1' : '#1e293b',
     border:       `1px solid ${disabled ? '#e2e8f0' : '#cbd5e1'}`,
-    borderRadius: 4,
-    padding:      '0.3rem 0.65rem',
+    borderRadius: 4, padding: '0.3rem 0.65rem',
     cursor:       disabled ? 'not-allowed' : 'pointer',
-    fontSize:     '0.9rem',
-    fontWeight:   700,
+    fontSize: '0.9rem', fontWeight: 700,
   }
 }

@@ -67,14 +67,38 @@ router.post('/upload', authMiddleware, upload.single('blob'), async (req: Authen
     return
   }
 
+  const existingRecord = await prisma.eegRecord.findUnique({
+    where: { blobHash: hash },
+  })
+
   const key = `${caseId}/${hash}.enc`
   let blobLocation: string
-  try {
-    blobLocation = await uploadBlob(key, createReadStream(tmpPath))
-  } catch {
-    await fsPromises.unlink(tmpPath).catch(() => {})
-    res.status(500).json({ error: 'Error al almacenar el archivo' })
-    return
+  let eegRecordId: string
+  let reusedExisting = false
+
+  if (existingRecord) {
+    blobLocation = existingRecord.blobLocation
+    eegRecordId = existingRecord.id
+    reusedExisting = true
+  } else {
+    try {
+      blobLocation = await uploadBlob(key, createReadStream(tmpPath))
+    } catch {
+      await fsPromises.unlink(tmpPath).catch(() => {})
+      res.status(500).json({ error: 'Error al almacenar el archivo' })
+      return
+    }
+
+    const eegRecord = await prisma.eegRecord.create({
+      data: {
+        blobHash: hash,
+        blobLocation,
+        sizeBytes,
+        encryptionMode: 'AES256-GCM',
+        uploadedBy: req.user!.id,
+      },
+    })
+    eegRecordId = eegRecord.id
   }
 
   await fsPromises.unlink(tmpPath).catch(() => {})
@@ -87,6 +111,7 @@ router.post('/upload', authMiddleware, upload.single('blob'), async (req: Authen
       blobLocation,
       blobHash: hash,
       sizeBytes,
+      eegRecordId,
       uploadStatus: 'Ready',
       retentionPolicy,
       expiresAt: retentionPolicy === 'Teaching' ? null : expiresAt,
@@ -96,6 +121,7 @@ router.post('/upload', authMiddleware, upload.single('blob'), async (req: Authen
       blobLocation,
       blobHash: hash,
       sizeBytes,
+      eegRecordId,
       uploadStatus: 'Ready',
       retentionPolicy,
       expiresAt: retentionPolicy === 'Teaching' ? null : expiresAt,
@@ -108,6 +134,8 @@ router.post('/upload', authMiddleware, upload.single('blob'), async (req: Authen
     hash,
     sizeBytes,
     blobLocation,
+    eegRecordId,
+    reusedExisting,
   })
 })
 
@@ -276,6 +304,72 @@ router.get('/download/:caseId', authMiddleware, async (req: AuthenticatedRequest
   } catch {
     res.status(500).json({ error: 'Error al leer el paquete' })
   }
+})
+
+// Listar EEGs reutilizables visibles para el usuario
+router.get('/eegs', authMiddleware, async (req: AuthenticatedRequest, res) => {
+  const eegRecords = await prisma.eegRecord.findMany({
+    where: {
+      packages: {
+        some: {
+          case: {
+            OR: [
+              { ownerId: req.user!.id },
+              {
+                reviewRequests: {
+                  some: {
+                    OR: [
+                      { targetUserId: req.user!.id },
+                      { requestedBy: req.user!.id },
+                    ],
+                  },
+                },
+              },
+            ],
+          },
+        },
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+    include: {
+      uploader: { select: { id: true, displayName: true, email: true } },
+      packages: {
+        include: {
+          case: {
+            select: {
+              id: true,
+              title: true,
+              statusClinical: true,
+              owner: { select: { id: true, displayName: true } },
+            },
+          },
+        },
+      },
+    },
+  })
+
+  const response = eegRecords.map((record: any) => ({
+    id: record.id,
+    blobHash: record.blobHash,
+    blobLocation: record.blobLocation,
+    sizeBytes: record.sizeBytes,
+    encryptionMode: record.encryptionMode,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    uploader: record.uploader,
+    usageCount: record.packages.length,
+    cases: record.packages.map((pkg: any) => ({
+      caseId: pkg.caseId,
+      packageId: pkg.id,
+      title: pkg.case?.title,
+      status: pkg.case?.statusClinical,
+      owner: pkg.case?.owner,
+      retentionPolicy: pkg.retentionPolicy,
+      createdAt: pkg.createdAt,
+    })),
+  }))
+
+  res.json(response)
 })
 
 export default router

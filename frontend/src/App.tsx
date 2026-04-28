@@ -12,6 +12,7 @@ import TeachingQueue from './pages/TeachingQueue'
 import UserAdmin from './pages/UserAdmin'
 import CleanupAdmin from './pages/CleanupAdmin'
 import CaseOperations from './pages/CaseOperations'
+import EegRecords from './pages/EegRecords'
 
 export default function App() {
   return (
@@ -44,6 +45,16 @@ export default function App() {
           <ProtectedRoute>
             <Layout>
               <CaseOperations />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/eegs"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <EegRecords />
             </Layout>
           </ProtectedRoute>
         }

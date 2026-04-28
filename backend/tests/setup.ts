@@ -64,9 +64,23 @@ CREATE TABLE "cases" (
     CONSTRAINT "cases_owner_id_fkey" FOREIGN KEY ("owner_id") REFERENCES "users" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
+CREATE TABLE "eeg_records" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "blob_hash" TEXT NOT NULL,
+    "blob_location" TEXT NOT NULL,
+    "size_bytes" INTEGER,
+    "encryption_mode" TEXT NOT NULL DEFAULT 'AES256-GCM',
+    "uploaded_by" TEXT,
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" DATETIME NOT NULL,
+    CONSTRAINT "eeg_records_uploaded_by_fkey" FOREIGN KEY ("uploaded_by") REFERENCES "users" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+CREATE UNIQUE INDEX "eeg_records_blob_hash_key" ON "eeg_records"("blob_hash");
+
 CREATE TABLE "case_packages" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "case_id" TEXT NOT NULL,
+    "eeg_record_id" TEXT,
     "package_format_version" TEXT NOT NULL DEFAULT '1.0',
     "encryption_mode" TEXT NOT NULL DEFAULT 'AES256-GCM',
     "blob_location" TEXT NOT NULL,
@@ -77,7 +91,8 @@ CREATE TABLE "case_packages" (
     "expires_at" DATETIME,
     "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" DATETIME NOT NULL,
-    CONSTRAINT "case_packages_case_id_fkey" FOREIGN KEY ("case_id") REFERENCES "cases" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    CONSTRAINT "case_packages_case_id_fkey" FOREIGN KEY ("case_id") REFERENCES "cases" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "case_packages_eeg_record_id_fkey" FOREIGN KEY ("eeg_record_id") REFERENCES "eeg_records" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 CREATE UNIQUE INDEX "case_packages_case_id_key" ON "case_packages"("case_id");
 
@@ -202,6 +217,7 @@ beforeAll(async () => {
     'DROP TABLE IF EXISTS "comments"',
     'DROP TABLE IF EXISTS "review_requests"',
     'DROP TABLE IF EXISTS "case_packages"',
+    'DROP TABLE IF EXISTS "eeg_records"',
     'DROP TABLE IF EXISTS "cases"',
     'DROP TABLE IF EXISTS "viewer_states"',
     'DROP TABLE IF EXISTS "group_members"',
@@ -230,6 +246,7 @@ afterEach(async () => {
     'comments',
     'review_requests',
     'case_packages',
+    'eeg_records',
     'cases',
     'group_members',
     'groups',

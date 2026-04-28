@@ -32,6 +32,7 @@ model User {
   recommendations    TeachingRecommendation[]
   viewerStates       ViewerState[]
   createdSecrets     EegAccessSecret[] @relation("CreatedSecrets")
+  uploadedEegRecords EegRecord[]       @relation("UploadedEegRecords")
 
   @@map("users")
 }
@@ -97,6 +98,7 @@ model Case {
 model CasePackage {
   id                   String    @id @default(uuid())
   caseId               String    @unique @map("case_id")
+  eegRecordId          String?   @map("eeg_record_id")
   packageFormatVersion String    @default("1.0") @map("package_format_version")
   encryptionMode       String    @default("AES256-GCM") @map("encryption_mode")
   blobLocation         String    @map("blob_location")
@@ -108,9 +110,26 @@ model CasePackage {
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  case Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  case      Case      @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  eegRecord EegRecord? @relation(fields: [eegRecordId], references: [id], onDelete: SetNull)
 
   @@map("case_packages")
+}
+
+model EegRecord {
+  id             String        @id @default(uuid())
+  blobHash       String        @unique @map("blob_hash")
+  blobLocation   String        @map("blob_location")
+  sizeBytes      Int?          @map("size_bytes")
+  encryptionMode String        @default("AES256-GCM") @map("encryption_mode")
+  uploadedBy     String?       @map("uploaded_by")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  uploader User?         @relation("UploadedEegRecords", fields: [uploadedBy], references: [id])
+  packages CasePackage[]
+
+  @@map("eeg_records")
 }
 
 model ReviewRequest {

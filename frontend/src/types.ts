@@ -21,12 +21,34 @@ export interface User {
 export interface CasePackage {
   id: string
   caseId: string
+  eegRecordId?: string
   blobHash?: string
   sizeBytes?: number
   uploadStatus: string
   retentionPolicy: string
   expiresAt?: string
   createdAt: string
+}
+
+export interface EegRecord {
+  id: string
+  blobHash: string
+  blobLocation: string
+  sizeBytes?: number
+  encryptionMode: string
+  createdAt: string
+  updatedAt: string
+  usageCount: number
+  uploader?: Pick<User, 'id' | 'displayName' | 'email'>
+  cases: Array<{
+    caseId: string
+    packageId: string
+    title?: string
+    status?: string
+    owner?: Pick<User, 'id' | 'displayName'>
+    retentionPolicy: string
+    createdAt: string
+  }>
 }
 
 export interface CaseItem {

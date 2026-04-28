@@ -78,6 +78,10 @@ export default function CaseNew() {
           const errText = await uploadRes.text()
           throw new Error(`Error al subir el paquete: ${errText || uploadRes.status}`)
         }
+        const uploadPayload = await uploadRes.json() as { reusedExisting?: boolean }
+        if (uploadPayload.reusedExisting) {
+          alert('Este EEG ya existía en OCEAN y se ha reutilizado en vez de subir una copia nueva.')
+        }
 
         if (decryptionKey) {
           try {

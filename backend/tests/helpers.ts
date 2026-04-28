@@ -61,6 +61,7 @@ export async function createReviewRequest(data: {
 }
 
 export async function createCasePackage(caseId: string, blobHash = 'hash-shared-edf', overrides?: {
+  eegRecordId?: string
   blobLocation?: string
   sizeBytes?: number
   uploadStatus?: string
@@ -70,12 +71,29 @@ export async function createCasePackage(caseId: string, blobHash = 'hash-shared-
   return prisma.casePackage.create({
     data: {
       caseId,
+      eegRecordId: overrides?.eegRecordId,
       blobLocation: overrides?.blobLocation || `${caseId}/${blobHash}.enc`,
       blobHash,
       sizeBytes: overrides?.sizeBytes,
       uploadStatus: overrides?.uploadStatus || 'Ready',
       retentionPolicy: overrides?.retentionPolicy || 'Temporal72h',
       expiresAt: overrides?.expiresAt,
+    },
+  })
+}
+
+export async function createEegRecord(data?: {
+  blobHash?: string
+  blobLocation?: string
+  sizeBytes?: number
+  uploadedBy?: string
+}) {
+  return prisma.eegRecord.create({
+    data: {
+      blobHash: data?.blobHash || `hash-${Math.random().toString(36).slice(2)}`,
+      blobLocation: data?.blobLocation || `shared/${Math.random().toString(36).slice(2)}.enc`,
+      sizeBytes: data?.sizeBytes,
+      uploadedBy: data?.uploadedBy,
     },
   })
 }

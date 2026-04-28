@@ -1,6 +1,6 @@
 import request from 'supertest'
 import app from '../src/index'
-import { createCase, createCasePackage, createReviewRequest, createUser, generateToken, prisma } from './helpers'
+import { createCase, createCasePackage, createEegRecord, createReviewRequest, createUser, generateToken, prisma } from './helpers'
 
 describe('EEG key custody', () => {
   it('owner can store an EEG decryption key in OCEAN', async () => {
@@ -90,5 +90,32 @@ describe('EEG key custody', () => {
       .send({ password: 'outsider123' })
 
     expect(res.status).toBe(404)
+  })
+})
+
+describe('EEG records', () => {
+  it('lista un EEG compartido y sus casos vinculados', async () => {
+    const owner = await createUser({ email: 'eeg-owner@ocean.local', displayName: 'EEG Owner', password: 'pass123' })
+    const caseA = await createCase(owner.id, { title: 'Caso A' })
+    const caseB = await createCase(owner.id, { title: 'Caso B' })
+    const eegRecord = await createEegRecord({
+      blobHash: 'shared-hash-123',
+      blobLocation: 'shared/shared-hash-123.enc',
+      sizeBytes: 4096,
+      uploadedBy: owner.id,
+    })
+    await createCasePackage(caseA.id, 'shared-hash-123', { eegRecordId: eegRecord.id, blobLocation: eegRecord.blobLocation })
+    await createCasePackage(caseB.id, 'shared-hash-123', { eegRecordId: eegRecord.id, blobLocation: eegRecord.blobLocation })
+    const token = generateToken(owner.id, owner.email, owner.role)
+
+    const res = await request(app)
+      .get('/packages/eegs')
+      .set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body).toHaveLength(1)
+    expect(res.body[0].blobHash).toBe('shared-hash-123')
+    expect(res.body[0].usageCount).toBe(2)
+    expect(res.body[0].cases.map((item: { title: string }) => item.title).sort()).toEqual(['Caso A', 'Caso B'])
   })
 })

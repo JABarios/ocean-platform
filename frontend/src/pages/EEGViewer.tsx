@@ -18,6 +18,7 @@ import {
   shouldShowMetadataForPointer,
 } from './eegViewerUtils'
 import type { EpochData, MontageName, PersistedViewerState } from './eegViewerUtils'
+import type { CaseItem } from '../types'
 
 // ─── WASM types ───────────────────────────────────────────────────────────────
 
@@ -27,7 +28,6 @@ interface KappaInstance {
     numChannels: number
     sampleRate: number
     numSamples: number
-    subjectId: string
     recordingDate: string
     channelLabels: string[]
   }
@@ -660,7 +660,8 @@ export default function EEGViewer() {
   const [recordOffset, setRecordOffset] = useState(0)
   const [totalSeconds, setTotalSeconds] = useState(0)
   const [recordDurationSec, setRecordDurationSec] = useState(1)
-  const [meta,         setMeta]         = useState<{ subjectId: string; recordingDate: string } | null>(null)
+  const [meta,         setMeta]         = useState<{ recordingDate: string } | null>(null)
+  const [caseHoverMeta, setCaseHoverMeta] = useState<{ blobHash?: string; ageRange?: string } | null>(null)
   const [showMeta,     setShowMeta]     = useState(false)
 
   const [windowSecs,      setWindowSecs]      = useState(10)
@@ -833,6 +834,27 @@ export default function EEGViewer() {
   const currentPage = Math.floor(recordOffset / recordsPerPage)
   const maxPage = Math.max(0, Math.ceil(totalRecords / recordsPerPage) - 1)
   const dsaChannels = useMemo(() => getDsaChannels(epoch), [epoch])
+
+  useEffect(() => {
+    if (!id) return
+    let cancelled = false
+
+    api.get<CaseItem>(`/cases/${id}`)
+      .then((caseItem) => {
+        if (cancelled) return
+        setCaseHoverMeta({
+          blobHash: caseItem.package?.blobHash,
+          ageRange: caseItem.ageRange || undefined,
+        })
+      })
+      .catch((err) => {
+        console.warn('[OCEAN EEG] No se pudo cargar la metadata del caso para el hover', err)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [id])
 
   // ── Overlay redraw (imperative — reads refs, no React re-render) ─────────────
 
@@ -1039,7 +1061,7 @@ export default function EEGViewer() {
       setDsaData(null)
       setDsaLoading(false)
       setDsaError('')
-      setMeta({ subjectId: info.subjectId, recordingDate: info.recordingDate })
+      setMeta({ recordingDate: info.recordingDate })
       const totalDurationSec = Math.floor(info.numSamples / info.sampleRate)
       setTotalSeconds(totalDurationSec)
       const probeEpoch = kappa.readEpoch(0, 1)
@@ -1698,7 +1720,12 @@ export default function EEGViewer() {
               pointerEvents: 'none',
               backdropFilter: 'blur(2px)',
             }}>
-              <div>{meta.subjectId.trim() || `Caso ${id}`}</div>
+              <div>
+                Hash: {caseHoverMeta?.blobHash?.trim() || `caso-${id}`}
+              </div>
+              {caseHoverMeta?.ageRange && (
+                <div>Edad: {caseHoverMeta.ageRange}</div>
+              )}
               <div>{meta.recordingDate}</div>
             </div>
           )}

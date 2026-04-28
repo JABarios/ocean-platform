@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../utils/prisma'
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth'
+import { deleteBlob } from '../utils/storage'
 
 const router = Router()
 
@@ -46,6 +47,15 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   InReview: ['Resolved', 'Archived'],
   Resolved: ['Archived'],
   Archived: [],
+}
+
+async function safeDeleteBlob(blobLocation: string) {
+  try {
+    await deleteBlob(blobLocation)
+  } catch (err: any) {
+    if (err?.code === 'ENOENT' || err?.name === 'NoSuchKey') return
+    throw err
+  }
 }
 
 // Listar casos del usuario autenticado
@@ -206,6 +216,61 @@ router.patch('/:id/status', async (req: AuthenticatedRequest, res) => {
   })
 
   res.json(toCaseResponse(updated))
+})
+
+// Borrar caso del propietario
+router.delete('/:id', async (req: AuthenticatedRequest, res) => {
+  const caseItem = await prisma.case.findFirst({
+    where: { id: req.params.id, ownerId: req.user!.id },
+    include: {
+      package: {
+        select: {
+          id: true,
+          eegRecordId: true,
+          blobLocation: true,
+        },
+      },
+    },
+  })
+
+  if (!caseItem) {
+    res.status(404).json({ error: 'Caso no encontrado' })
+    return
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.comment.deleteMany({ where: { caseId: caseItem.id } })
+    await tx.reviewRequest.deleteMany({ where: { caseId: caseItem.id } })
+    await tx.teachingProposal.deleteMany({ where: { caseId: caseItem.id } })
+    await tx.auditEvent.deleteMany({ where: { caseId: caseItem.id } })
+    await tx.eegAccessSecret.deleteMany({ where: { caseId: caseItem.id } })
+    await tx.casePackage.deleteMany({ where: { caseId: caseItem.id } })
+    await tx.case.delete({ where: { id: caseItem.id } })
+    await tx.auditEvent.create({
+      data: {
+        actorId: req.user!.id,
+        action: 'CaseDeleted',
+        target: caseItem.id,
+        metadata: JSON.stringify({
+          title: caseItem.title,
+          eegRecordId: caseItem.package?.eegRecordId ?? null,
+        }),
+      },
+    })
+  })
+
+  if (caseItem.package?.eegRecordId) {
+    const remainingUsages = await prisma.casePackage.count({
+      where: { eegRecordId: caseItem.package.eegRecordId },
+    })
+
+    if (remainingUsages === 0) {
+      await safeDeleteBlob(caseItem.package.blobLocation)
+      await prisma.eegRecord.deleteMany({ where: { id: caseItem.package.eegRecordId } })
+    }
+  }
+
+  res.json({ deleted: true, caseId: caseItem.id })
 })
 
 export default router

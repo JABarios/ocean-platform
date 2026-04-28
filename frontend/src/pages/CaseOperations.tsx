@@ -205,6 +205,35 @@ export default function CaseOperations() {
     }
   }
 
+  const deleteCase = async (caseId: string, title?: string) => {
+    const confirmed = window.confirm(
+      `Se borrará el caso${title ? ` "${title}"` : ''} con sus comentarios, invitaciones y paquete EEG asociado si queda huérfano.`
+    )
+    if (!confirmed) return
+
+    setBusyCaseId(caseId)
+    setError('')
+    try {
+      await api.del(`/cases/${caseId}`)
+      setCases((prev) => prev.filter((item) => item.id !== caseId))
+      if (inviteCaseId === caseId) {
+        setInviteCaseId(null)
+        setTargetUserId('')
+        setMessage('')
+      }
+      if (proposalCaseId === caseId) {
+        setProposalCaseId(null)
+        setProposalSummary('')
+        setProposalDifficulty('Intermediate')
+        setProposalTags('')
+      }
+    } catch (err) {
+      setError(friendlyError(err))
+    } finally {
+      setBusyCaseId(null)
+    }
+  }
+
   if (loading) return <div style={{ color: 'var(--text-secondary)', padding: '2rem 0' }}>Cargando…</div>
 
   return (
@@ -352,6 +381,14 @@ export default function CaseOperations() {
                     Proponer docencia
                   </button>
                 )}
+                <button
+                  type="button"
+                  className="btn-danger"
+                  onClick={() => deleteCase(item.id, item.title)}
+                  disabled={busyCaseId === item.id}
+                >
+                  Borrar caso
+                </button>
               </div>
 
               {inviteCaseId === item.id && (
@@ -471,6 +508,14 @@ export default function CaseOperations() {
           font-size: 0.78rem;
           text-transform: uppercase;
           letter-spacing: 0.04em;
+        }
+        .btn-danger {
+          background: #fef2f2;
+          color: #b91c1c;
+          border: 1px solid #fca5a5;
+        }
+        .btn-danger:hover {
+          background: #fee2e2;
         }
         .filters {
           display: grid;

@@ -266,3 +266,75 @@ describe('PATCH /cases/:id/status', () => {
     expect(res.status).toBe(404)
   })
 })
+
+describe('DELETE /cases/:id', () => {
+  it('permite al owner borrar un caso y limpia EEG huérfano', async () => {
+    const owner = await createUser({ email: 'delete-owner@ocean.local', displayName: 'Delete Owner', password: 'pass' })
+    const c = await createCase(owner.id, { title: 'Caso a borrar' })
+    const eegRecord = await prisma.eegRecord.create({
+      data: {
+        blobHash: 'hash-delete-case',
+        blobLocation: '/tmp/ocean-delete-case.enc',
+        uploadedBy: owner.id,
+      },
+    })
+    await prisma.casePackage.create({
+      data: {
+        caseId: c.id,
+        eegRecordId: eegRecord.id,
+        blobLocation: eegRecord.blobLocation,
+        blobHash: eegRecord.blobHash,
+        uploadStatus: 'Ready',
+      },
+    })
+    const reviewer = await createUser({ email: 'delete-reviewer@ocean.local', displayName: 'Delete Reviewer', password: 'pass' })
+    const reviewRequest = await createReviewRequest({ caseId: c.id, requestedBy: owner.id, targetUserId: reviewer.id })
+    await prisma.comment.create({
+      data: {
+        caseId: c.id,
+        authorId: owner.id,
+        requestId: reviewRequest.id,
+        body: 'Comentario asociado',
+      },
+    })
+    await prisma.eegAccessSecret.create({
+      data: {
+        caseId: c.id,
+        wrappedKey: 'wrapped-key',
+        createdBy: owner.id,
+      },
+    })
+    const token = generateToken(owner.id, owner.email, owner.role)
+
+    const res = await request(app)
+      .delete(`/cases/${c.id}`)
+      .set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ deleted: true, caseId: c.id })
+    expect(await prisma.case.findUnique({ where: { id: c.id } })).toBeNull()
+    expect(await prisma.casePackage.findFirst({ where: { caseId: c.id } })).toBeNull()
+    expect(await prisma.reviewRequest.findFirst({ where: { caseId: c.id } })).toBeNull()
+    expect(await prisma.comment.findFirst({ where: { caseId: c.id } })).toBeNull()
+    expect(await prisma.eegAccessSecret.findFirst({ where: { caseId: c.id } })).toBeNull()
+    expect(await prisma.eegRecord.findUnique({ where: { id: eegRecord.id } })).toBeNull()
+    const deletionAudit = await prisma.auditEvent.findFirst({
+      where: { actorId: owner.id, action: 'CaseDeleted', target: c.id },
+    })
+    expect(deletionAudit).not.toBeNull()
+  })
+
+  it('no permite borrar un caso ajeno', async () => {
+    const owner = await createUser({ email: 'delete-foreign-owner@ocean.local', displayName: 'Delete Foreign Owner', password: 'pass' })
+    const intruder = await createUser({ email: 'delete-intruder@ocean.local', displayName: 'Delete Intruder', password: 'pass' })
+    const c = await createCase(owner.id, { title: 'Caso protegido' })
+    const token = generateToken(intruder.id, intruder.email, intruder.role)
+
+    const res = await request(app)
+      .delete(`/cases/${c.id}`)
+      .set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(404)
+    expect(await prisma.case.findUnique({ where: { id: c.id } })).not.toBeNull()
+  })
+})

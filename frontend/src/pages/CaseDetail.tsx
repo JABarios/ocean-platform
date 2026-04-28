@@ -51,8 +51,12 @@ export default function CaseDetail() {
   const [statusBusy, setStatusBusy] = useState(false)
 
   const [decryptKey, setDecryptKey] = useState('')
+  const [storedDecryptKey, setStoredDecryptKey] = useState('')
   const [decrypting, setDecrypting] = useState(false)
   const [decryptedUrl, setDecryptedUrl] = useState('')
+  const [showPasswordModal, setShowPasswordModal] = useState(false)
+  const [passwordConfirm, setPasswordConfirm] = useState('')
+  const [recoveringKey, setRecoveringKey] = useState(false)
 
   const { decryptFile } = useCrypto()
 
@@ -81,6 +85,15 @@ export default function CaseDetail() {
       }
     }
     fetchAll()
+  }, [id])
+
+  useEffect(() => {
+    if (!id) return
+    const saved = sessionStorage.getItem(`ocean_eeg_key_${id}`)
+    if (saved) {
+      setStoredDecryptKey(saved)
+      setDecryptKey('')
+    }
   }, [id])
 
   const isOwner = caseItem ? caseItem.ownerId === user?.id : false
@@ -181,9 +194,11 @@ export default function CaseDetail() {
   }
 
   const handleDecrypt = async () => {
-    if (!id || !decryptKey) return
+    const effectiveKey = decryptKey.trim() || storedDecryptKey
+    if (!id || !effectiveKey) return
     setDecrypting(true)
     try {
+      sessionStorage.setItem(`ocean_eeg_key_${id}`, effectiveKey)
       const base = import.meta.env.VITE_API_URL || 'http://localhost:4000'
       const response = await fetch(`${base}/packages/download/${id}`, {
         headers: { Authorization: `Bearer ${token || ''}` },
@@ -191,7 +206,7 @@ export default function CaseDetail() {
       if (!response.ok) throw new Error('Error al descargar')
 
       const encryptedBuffer = await response.arrayBuffer()
-      const decryptedBuffer = await decryptFile(encryptedBuffer, decryptKey)
+      const decryptedBuffer = await decryptFile(encryptedBuffer, effectiveKey)
 
       const blob = new Blob([decryptedBuffer], { type: 'application/octet-stream' })
       const url = URL.createObjectURL(blob)
@@ -204,6 +219,24 @@ export default function CaseDetail() {
       }
     } finally {
       setDecrypting(false)
+    }
+  }
+
+  const recoverStoredKey = async () => {
+    if (!id || !passwordConfirm.trim()) return
+    setRecoveringKey(true)
+    try {
+      const res = await api.post<{ keyBase64: string }>(`/packages/secret/${id}/recover`, {
+        password: passwordConfirm,
+      })
+      setStoredDecryptKey(res.keyBase64)
+      sessionStorage.setItem(`ocean_eeg_key_${id}`, res.keyBase64)
+      setPasswordConfirm('')
+      setShowPasswordModal(false)
+    } catch (err) {
+      alert(friendlyError(err))
+    } finally {
+      setRecoveringKey(false)
     }
   }
 
@@ -359,16 +392,31 @@ export default function CaseDetail() {
               type="text"
               placeholder="Pega la clave de descifrado…"
               value={decryptKey}
-              onChange={(e) => setDecryptKey(e.target.value)}
+              onChange={(e) => {
+                setDecryptKey(e.target.value)
+                if (e.target.value) setStoredDecryptKey('')
+              }}
             />
             <button
               className="btn-primary"
               onClick={handleDecrypt}
-              disabled={decrypting || !decryptKey}
+              disabled={decrypting || (!decryptKey.trim() && !storedDecryptKey)}
             >
               {decrypting ? 'Descifrando…' : 'Descifrar y descargar .edf'}
             </button>
+            {caseItem.storedKeyAvailable && (
+              <button
+                className="btn-secondary"
+                type="button"
+                onClick={() => setShowPasswordModal(true)}
+              >
+                Usar clave guardada en OCEAN
+              </button>
+            )}
           </div>
+          {storedDecryptKey && (
+            <div className="stored-key-banner">Clave recuperada desde OCEAN y lista para usar en este caso.</div>
+          )}
           {decryptedUrl && (
             <a
               className="btn-primary"
@@ -481,6 +529,44 @@ export default function CaseDetail() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {showPasswordModal && (
+        <div className="modal-overlay" onClick={() => setShowPasswordModal(false)}>
+          <div className="modal card" onClick={(e) => e.stopPropagation()}>
+            <h3>Recuperar acceso EEG</h3>
+            <p className="modal-copy">Confirma tu contraseña de OCEAN para usar la clave custodiada del caso.</p>
+            <div className="modal-form">
+              <label>
+                Contraseña
+                <input
+                  type="password"
+                  value={passwordConfirm}
+                  onChange={(e) => setPasswordConfirm(e.target.value)}
+                  placeholder="Tu contraseña de OCEAN"
+                  autoFocus
+                />
+              </label>
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setShowPasswordModal(false)}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={recoverStoredKey}
+                  disabled={recoveringKey || !passwordConfirm.trim()}
+                >
+                  {recoveringKey ? 'Validando…' : 'Usar clave guardada'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -599,6 +685,15 @@ export default function CaseDetail() {
           align-items: center;
           flex-wrap: wrap;
         }
+        .stored-key-banner {
+          margin-top: 0.75rem;
+          padding: 0.65rem 0.8rem;
+          border-radius: 0.6rem;
+          background: #ecfdf5;
+          border: 1px solid #bbf7d0;
+          color: #166534;
+          font-size: 0.9rem;
+        }
         .decrypt-box input {
           flex: 1;
           min-width: 200px;
@@ -622,6 +717,12 @@ export default function CaseDetail() {
         .modal h3 {
           font-size: 1.1rem;
           margin-bottom: 1rem;
+        }
+        .modal-copy {
+          color: var(--text-secondary);
+          font-size: 0.92rem;
+          line-height: 1.5;
+          margin-bottom: 0.2rem;
         }
         .modal-form {
           display: flex;

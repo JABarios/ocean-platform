@@ -46,6 +46,7 @@ export interface CaseItem {
   resolvedAt?: string
   package?: CasePackage
   reviewRequests?: ReviewRequest[]
+  storedKeyAvailable?: boolean
 }
 
 export interface ReviewRequest {

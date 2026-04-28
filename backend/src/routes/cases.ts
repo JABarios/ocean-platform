@@ -35,6 +35,8 @@ function toCaseResponse(caseObj: any) {
   plain.teachingStatus = plain.statusTeaching
   plain.tags = safeParseJson(plain.tags) ?? []
   plain.summaryMetrics = safeParseJson(plain.summaryMetrics)
+  plain.storedKeyAvailable = !!plain.accessSecret
+  delete plain.accessSecret
   return plain
 }
 
@@ -65,6 +67,7 @@ router.get('/managed', async (req: AuthenticatedRequest, res) => {
     orderBy: { createdAt: 'desc' },
     include: {
       package: true,
+      accessSecret: { select: { id: true } },
       reviewRequests: {
         orderBy: { createdAt: 'desc' },
         include: {
@@ -136,6 +139,7 @@ router.get('/:id', async (req: AuthenticatedRequest, res) => {
     include: {
       owner: { select: { id: true, displayName: true, email: true } },
       package: true,
+      accessSecret: { select: { id: true } },
       reviewRequests: {
         include: {
           requester: { select: { id: true, displayName: true } },

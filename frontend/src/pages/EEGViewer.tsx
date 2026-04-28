@@ -660,13 +660,16 @@ export default function EEGViewer() {
   const [phase,    setPhase]    = useState<Phase>('key-input')
   const [errorMsg, setErrorMsg] = useState('')
   const [keyInput, setKeyInput] = useState('')
+  const [storedPassword, setStoredPassword] = useState('')
+  const [showStoredKeyModal, setShowStoredKeyModal] = useState(false)
+  const [recoveringStoredKey, setRecoveringStoredKey] = useState(false)
 
   const [epoch,        setEpoch]        = useState<EpochData | null>(null)
   const [recordOffset, setRecordOffset] = useState(0)
   const [totalSeconds, setTotalSeconds] = useState(0)
   const [recordDurationSec, setRecordDurationSec] = useState(1)
   const [meta,         setMeta]         = useState<{ recordingDate: string } | null>(null)
-  const [caseHoverMeta, setCaseHoverMeta] = useState<{ blobHash?: string; ageRange?: string; sizeBytes?: number } | null>(null)
+  const [caseHoverMeta, setCaseHoverMeta] = useState<{ blobHash?: string; ageRange?: string; sizeBytes?: number; storedKeyAvailable?: boolean } | null>(null)
   const [showMeta,     setShowMeta]     = useState(false)
 
   const [windowSecs,      setWindowSecs]      = useState(10)
@@ -854,6 +857,7 @@ export default function EEGViewer() {
           blobHash: caseItem.package?.blobHash,
           ageRange: caseItem.ageRange || undefined,
           sizeBytes: caseItem.package?.sizeBytes,
+          storedKeyAvailable: !!caseItem.storedKeyAvailable,
         })
       })
       .catch((err) => {
@@ -1197,6 +1201,27 @@ export default function EEGViewer() {
     if (saved) { setKeyInput(saved); startViewer(saved) }
   }, [id, phase, startViewer])
 
+  const recoverStoredKey = useCallback(async () => {
+    if (!id || !storedPassword.trim()) return
+    setRecoveringStoredKey(true)
+    try {
+      const res = await api.post<{ keyBase64: string }>(`/packages/secret/${id}/recover`, {
+        password: storedPassword,
+      })
+      sessionStorage.setItem(`ocean_eeg_key_${id}`, res.keyBase64)
+      setKeyInput(res.keyBase64)
+      setStoredPassword('')
+      setShowStoredKeyModal(false)
+      startViewer(res.keyBase64)
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'No se pudo recuperar la clave custodiada')
+      setPhase('error')
+      setShowStoredKeyModal(false)
+    } finally {
+      setRecoveringStoredKey(false)
+    }
+  }, [id, startViewer, storedPassword])
+
   // ── Filter & window handlers ──────────────────────────────────────────────────
 
   const refreshEpoch = useCallback((nextRecordOffset: number, nextRecordsPerPage: number) => {
@@ -1437,7 +1462,9 @@ export default function EEGViewer() {
           )}
           <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '0.75rem', color: '#92400e', fontSize: '0.8rem', lineHeight: 1.5 }}>
             <strong>Clave requerida</strong>
-            <p style={{ margin: '0.4rem 0 0 0' }}>OCEAN no almacena la clave de descifrado. Se mostró una sola vez al crear el caso.</p>
+            <p style={{ margin: '0.4rem 0 0 0' }}>
+              Si ya tienes la clave, pégala aquí. Si eres un usuario invitado de confianza, puedes recuperarla con tu contraseña de OCEAN.
+            </p>
           </div>
           <form
             onSubmit={(e) => { e.preventDefault(); if (keyInput.trim()) startViewer(keyInput.trim()) }}
@@ -1468,8 +1495,120 @@ export default function EEGViewer() {
             >
               {phase === 'error' ? 'Reintentar' : 'Abrir EEG'}
             </button>
+            {caseHoverMeta?.storedKeyAvailable && (
+              <button
+                type="button"
+                onClick={() => setShowStoredKeyModal(true)}
+                style={{
+                  background: '#ffffff',
+                  color: '#2563eb',
+                  border: '1px solid #93c5fd',
+                  borderRadius: 6,
+                  padding: '0.65rem',
+                  fontWeight: 600,
+                  fontSize: '0.9rem',
+                  cursor: 'pointer',
+                }}
+              >
+                Usar clave guardada en OCEAN
+              </button>
+            )}
           </form>
         </div>
+        {showStoredKeyModal && (
+          <div
+            onClick={() => {
+              if (recoveringStoredKey) return
+              setShowStoredKeyModal(false)
+            }}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(15, 23, 42, 0.35)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '1rem',
+              zIndex: 30,
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: '100%',
+                maxWidth: 420,
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: 10,
+                padding: '1rem',
+                boxShadow: '0 10px 30px rgba(15,23,42,0.18)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.8rem',
+              }}
+            >
+              <div style={{ color: '#0f172a', fontWeight: 700, fontSize: '1rem' }}>Recuperar acceso EEG</div>
+              <div style={{ color: '#64748b', fontSize: '0.9rem', lineHeight: 1.5 }}>
+                Confirma tu contraseña de OCEAN y la plataforma aplicará la clave custodiada sin mostrarla en pantalla.
+              </div>
+              <label style={{ color: '#475569', fontSize: '0.85rem' }}>
+                Contraseña
+                <input
+                  type="password"
+                  value={storedPassword}
+                  onChange={(e) => setStoredPassword(e.target.value)}
+                  placeholder="Tu contraseña de OCEAN"
+                  autoFocus
+                  style={{
+                    display: 'block',
+                    marginTop: 6,
+                    width: '100%',
+                    background: '#f8fafc',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: 6,
+                    padding: '0.6rem 0.75rem',
+                    color: '#1e293b',
+                    boxSizing: 'border-box',
+                    outline: 'none',
+                  }}
+                />
+              </label>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowStoredKeyModal(false)}
+                  style={{
+                    background: '#ffffff',
+                    color: '#475569',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: 6,
+                    padding: '0.6rem 0.85rem',
+                    fontWeight: 600,
+                    cursor: recoveringStoredKey ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={recoverStoredKey}
+                  disabled={recoveringStoredKey || !storedPassword.trim()}
+                  style={{
+                    background: recoveringStoredKey || !storedPassword.trim() ? '#bfdbfe' : '#2563eb',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: 6,
+                    padding: '0.6rem 0.85rem',
+                    fontWeight: 600,
+                    cursor: recoveringStoredKey || !storedPassword.trim() ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {recoveringStoredKey ? 'Validando…' : 'Usar clave guardada'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     )
   }

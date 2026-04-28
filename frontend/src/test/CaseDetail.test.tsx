@@ -335,6 +335,7 @@ describe('CaseDetail — sección de paquete EEG', () => {
   it('muestra sección de paquete si existe', async () => {
     mockLoad({
       ...BASE_CASE,
+      storedKeyAvailable: true,
       package: {
         id: 'pkg-1', caseId: 'case-1', sizeBytes: 2097152,
         blobHash: 'abc123def456', uploadStatus: 'Ready',
@@ -344,6 +345,7 @@ describe('CaseDetail — sección de paquete EEG', () => {
     renderDetail()
     expect(await screen.findByRole('button', { name: /Descargar .enc/i })).toBeInTheDocument()
     expect(screen.getByPlaceholderText(/Pega la clave de descifrado/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Usar clave guardada en OCEAN/i })).toBeInTheDocument()
   })
 
   it('botón "Descifrar" está deshabilitado si no hay clave', async () => {
@@ -358,5 +360,42 @@ describe('CaseDetail — sección de paquete EEG', () => {
     renderDetail()
     const btn = await screen.findByRole('button', { name: /Descifrar/i })
     expect(btn).toBeDisabled()
+  })
+
+  it('permite recuperar la clave custodiada con la contraseña de OCEAN', async () => {
+    const fetchMock = mockFetchSequence([
+      {
+        data: {
+          ...BASE_CASE,
+          storedKeyAvailable: true,
+          package: {
+            id: 'pkg-1', caseId: 'case-1', sizeBytes: 1024,
+            blobHash: 'abc123', uploadStatus: 'Ready',
+            retentionPolicy: 'Temporal72h', createdAt: '2026-01-15T10:00:00.000Z',
+          },
+        },
+      },
+      { data: [] },
+      { data: [OTHER_USER] },
+      { data: { keyBase64: 'stored-base64-key' } },
+    ])
+
+    renderDetail()
+    fireEvent.click(await screen.findByRole('button', { name: /Usar clave guardada en OCEAN/i }))
+    fireEvent.change(screen.getByPlaceholderText(/Tu contraseña de OCEAN/i), {
+      target: { value: 'ocean123' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Usar clave guardada$/i }))
+
+    await waitFor(() => {
+      const postCall = fetchMock.mock.calls.find(([url, opts]) =>
+        url.includes('/packages/secret/case-1/recover') && opts?.method === 'POST'
+      )
+      expect(postCall).toBeDefined()
+      expect(JSON.parse(postCall![1].body as string)).toEqual({ password: 'ocean123' })
+    })
+
+    expect(await screen.findByText(/Clave recuperada desde OCEAN/i)).toBeInTheDocument()
+    expect(sessionStorage.getItem('ocean_eeg_key_case-1')).toBe('stored-base64-key')
   })
 })

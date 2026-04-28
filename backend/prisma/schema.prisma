@@ -31,6 +31,7 @@ model User {
   groupMemberships   GroupMember[]
   recommendations    TeachingRecommendation[]
   viewerStates       ViewerState[]
+  createdSecrets     EegAccessSecret[] @relation("CreatedSecrets")
 
   @@map("users")
 }
@@ -88,6 +89,7 @@ model Case {
   comments          Comment[]
   teachingProposals TeachingProposal[]
   auditEvents       AuditEvent[]
+  accessSecret      EegAccessSecret?
 
   @@map("cases")
 }
@@ -226,4 +228,19 @@ model ViewerState {
 
   @@unique([userId, packageHash])
   @@map("viewer_states")
+}
+
+model EegAccessSecret {
+  id              String    @id @default(uuid())
+  caseId          String    @unique @map("case_id")
+  wrappedKey      String    @map("wrapped_key")
+  createdBy       String    @map("created_by")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  lastRecoveredAt DateTime? @map("last_recovered_at")
+
+  case    Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  creator User @relation("CreatedSecrets", fields: [createdBy], references: [id])
+
+  @@map("eeg_access_secrets")
 }

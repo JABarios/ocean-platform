@@ -18,6 +18,7 @@ export default function CaseNew() {
   const [encrypting, setEncrypting] = useState(false)
   const [encryptedBlob, setEncryptedBlob] = useState<Blob | null>(null)
   const [decryptionKey, setDecryptionKey] = useState('')
+  const [storedKeyInOcean, setStoredKeyInOcean] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const token = useAuthStore((s) => s.token)
@@ -78,8 +79,18 @@ export default function CaseNew() {
           throw new Error(`Error al subir el paquete: ${errText || uploadRes.status}`)
         }
 
-        // Guardar clave en sessionStorage para que el creador pueda ver el EEG sin pegarla
         if (decryptionKey) {
+          try {
+            const custodyRes = await api.post<{ stored: boolean }>(`/packages/secret/${created.id}`, {
+              keyBase64: decryptionKey,
+            })
+            setStoredKeyInOcean(!!custodyRes.stored)
+          } catch (err) {
+            console.warn('[OCEAN] No se pudo custodiar la clave del EEG', err)
+            alert('Caso creado, pero no se pudo guardar la clave en OCEAN. Guárdala manualmente antes de salir.')
+          }
+
+          // Guardar clave en sessionStorage para que el creador pueda ver el EEG sin pegarla
           sessionStorage.setItem(`ocean_eeg_key_${created.id}`, decryptionKey)
         }
       }
@@ -185,9 +196,14 @@ export default function CaseNew() {
             <div className="key-label">Clave de descifrado</div>
             <div className="key-value">{decryptionKey}</div>
             <p className="key-hint">
-              Guarda esta clave. El revisor la necesitará para abrir el EEG.
-              <strong> OCEAN no almacena esta clave.</strong>
+              Guarda esta clave si vas a compartir el acceso fuera de OCEAN.
+              <strong> Los usuarios invitados podrán recuperarla con su contraseña de OCEAN.</strong>
             </p>
+            {storedKeyInOcean && (
+              <p className="key-hint">
+                Clave custodiada en OCEAN: el propietario y revisores invitados podrán usarla sin verla en pantalla.
+              </p>
+            )}
           </div>
         )}
 

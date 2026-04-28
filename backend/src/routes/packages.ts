@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import crypto from 'crypto'
+import bcrypt from 'bcryptjs'
 import multer from 'multer'
 import { promises as fsPromises } from 'fs'
 import { createReadStream } from 'fs'
@@ -7,6 +8,7 @@ import path from 'path'
 import { prisma } from '../utils/prisma'
 import { uploadBlob, getBlobStream } from '../utils/storage'
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth'
+import { wrapCaseKey, unwrapCaseKey } from '../utils/keyCustody'
 
 const router = Router()
 
@@ -107,6 +109,123 @@ router.post('/upload', authMiddleware, upload.single('blob'), async (req: Authen
     sizeBytes,
     blobLocation,
   })
+})
+
+router.post('/secret/:caseId', authMiddleware, async (req: AuthenticatedRequest, res) => {
+  const caseId = req.params.caseId
+  const keyBase64 = typeof req.body?.keyBase64 === 'string' ? req.body.keyBase64.trim() : ''
+
+  if (!keyBase64) {
+    res.status(400).json({ error: 'Clave de descifrado requerida' })
+    return
+  }
+
+  const caseItem = await prisma.case.findFirst({
+    where: { id: caseId, ownerId: req.user!.id },
+    include: { package: true },
+  })
+  if (!caseItem || !caseItem.package) {
+    res.status(404).json({ error: 'Caso o paquete no encontrado' })
+    return
+  }
+
+  const wrappedKey = wrapCaseKey(keyBase64)
+  await prisma.eegAccessSecret.upsert({
+    where: { caseId },
+    update: {
+      wrappedKey,
+      createdBy: req.user!.id,
+    },
+    create: {
+      caseId,
+      wrappedKey,
+      createdBy: req.user!.id,
+    },
+  })
+
+  await prisma.auditEvent.create({
+    data: {
+      actorId: req.user!.id,
+      caseId,
+      action: 'PackageKeyStored',
+      target: caseItem.package.id,
+    },
+  })
+
+  res.status(201).json({ stored: true })
+})
+
+router.post('/secret/:caseId/recover', authMiddleware, async (req: AuthenticatedRequest, res) => {
+  const caseId = req.params.caseId
+  const password = typeof req.body?.password === 'string' ? req.body.password : ''
+
+  if (!password) {
+    res.status(400).json({ error: 'Contraseña requerida' })
+    return
+  }
+
+  const caseItem = await prisma.case.findFirst({
+    where: {
+      id: caseId,
+      OR: [
+        { ownerId: req.user!.id },
+        {
+          reviewRequests: {
+            some: {
+              OR: [
+                { targetUserId: req.user!.id, status: 'Accepted' },
+                { requestedBy: req.user!.id },
+              ],
+            },
+          },
+        },
+      ],
+    },
+    include: {
+      package: true,
+      accessSecret: true,
+    },
+  })
+
+  if (!caseItem || !caseItem.package || !caseItem.accessSecret) {
+    res.status(404).json({ error: 'Clave custodiada no disponible para este caso' })
+    return
+  }
+
+  const dbUser = await prisma.user.findUnique({
+    where: { id: req.user!.id },
+    select: { id: true, passwordHash: true },
+  })
+
+  if (!dbUser?.passwordHash) {
+    res.status(401).json({ error: 'No se pudo validar la contraseña' })
+    return
+  }
+
+  const valid = await bcrypt.compare(password, dbUser.passwordHash)
+  if (!valid) {
+    res.status(401).json({ error: 'Contraseña incorrecta' })
+    return
+  }
+
+  const keyBase64 = unwrapCaseKey(caseItem.accessSecret.wrappedKey)
+
+  await prisma.$transaction([
+    prisma.eegAccessSecret.update({
+      where: { caseId },
+      data: { lastRecoveredAt: new Date() },
+    }),
+    prisma.auditEvent.create({
+      data: {
+        actorId: req.user!.id,
+        caseId,
+        action: 'PackageKeyRecovered',
+        target: caseItem.package.id,
+      },
+    }),
+  ])
+
+  res.json({ keyBase64 })
 })
 
 // Descargar paquete cifrado (solo revisor autorizado)

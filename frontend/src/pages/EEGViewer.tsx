@@ -682,6 +682,8 @@ export default function EEGViewer() {
   const [dsaData,         setDsaData]         = useState<DSAData | null>(null)
   const [dsaLoading,      setDsaLoading]      = useState(false)
   const [dsaError,        setDsaError]        = useState('')
+  const [compactToolbar,  setCompactToolbar]  = useState(false)
+  const [mobileControlsOpen, setMobileControlsOpen] = useState(false)
 
   const canvasRef  = useRef<HTMLCanvasElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)
@@ -855,6 +857,26 @@ export default function EEGViewer() {
       cancelled = true
     }
   }, [id])
+
+  useEffect(() => {
+    const mediaNarrow = window.matchMedia('(max-width: 900px)')
+    const mediaTouch = window.matchMedia('(pointer: coarse)')
+    const updateCompactToolbar = () => {
+      setCompactToolbar(mediaNarrow.matches || mediaTouch.matches)
+    }
+
+    updateCompactToolbar()
+    mediaNarrow.addEventListener('change', updateCompactToolbar)
+    mediaTouch.addEventListener('change', updateCompactToolbar)
+    return () => {
+      mediaNarrow.removeEventListener('change', updateCompactToolbar)
+      mediaTouch.removeEventListener('change', updateCompactToolbar)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!compactToolbar) setMobileControlsOpen(false)
+  }, [compactToolbar])
 
   // ── Overlay redraw (imperative — reads refs, no React re-render) ─────────────
 
@@ -1403,37 +1425,44 @@ export default function EEGViewer() {
   const tStart        = recordOffset * recordDurationSec
   const totalPages    = maxPage + 1
   const timeOffsetSec = tStart.toFixed(1)
+  const showAvgRefControl = montage === 'promedio' && averageReferenceCandidates.length > 0
+  const showExtrasControl = montage !== 'raw' && hiddenMontageCandidates.length > 0
+  const showArtifactControl = dsaChannel !== 'off'
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#f1f5f9', overflow: 'hidden' }}>
 
       {/* Toolbar */}
       <div style={{
-        display: 'flex', alignItems: 'flex-end', gap: '0.65rem', flexWrap: 'nowrap',
-        overflowX: 'auto',
+        display: 'flex', alignItems: 'flex-end', gap: compactToolbar ? '0.45rem' : '0.65rem', flexWrap: 'nowrap',
+        overflowX: compactToolbar ? 'hidden' : 'auto',
         padding: '0.35rem 0.6rem', background: '#ffffff',
         borderBottom: '1px solid #e2e8f0', flexShrink: 0,
       }}>
-        <ToolbarSelect label="HP" value={hp} onChange={handleHpChange}>
-          {HP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </ToolbarSelect>
-        <ToolbarSelect label="LP" value={lp} onChange={handleLpChange}>
-          {LP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </ToolbarSelect>
-        <ToolbarSelect label="Notch" value={notch ? '1' : '0'} onChange={handleNotchChange}>
-          <option value="1">50 Hz</option>
-          <option value="0">Off</option>
-        </ToolbarSelect>
+        {!compactToolbar && (
+          <>
+            <ToolbarSelect label="HP" value={hp} onChange={handleHpChange}>
+              {HP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </ToolbarSelect>
+            <ToolbarSelect label="LP" value={lp} onChange={handleLpChange}>
+              {LP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </ToolbarSelect>
+            <ToolbarSelect label="Notch" value={notch ? '1' : '0'} onChange={handleNotchChange}>
+              <option value="1">50 Hz</option>
+              <option value="0">Off</option>
+            </ToolbarSelect>
 
-        <div style={{ width: 1, height: 36, background: '#e2e8f0', flexShrink: 0 }} />
+            <div style={{ width: 1, height: 36, background: '#e2e8f0', flexShrink: 0 }} />
+          </>
+        )}
 
-        <ToolbarSelect label="Ventana" value={windowSecs} onChange={handleWindowChange}>
+        <ToolbarSelect label="Vent" value={windowSecs} onChange={handleWindowChange} width={compactToolbar ? 74 : undefined}>
           {WINDOW_OPTIONS.map((s) => <option key={s} value={s}>{s}s</option>)}
         </ToolbarSelect>
-        <ToolbarSelect label="Mont" value={montage} onChange={(v) => setMontage(v as MontageName)} width={108}>
+        <ToolbarSelect label="Mont" value={montage} onChange={(v) => setMontage(v as MontageName)} width={compactToolbar ? 92 : 108}>
           {MONTAGE_OPTIONS.map((name) => <option key={name} value={name}>{name}</option>)}
         </ToolbarSelect>
-        {montage === 'promedio' && averageReferenceCandidates.length > 0 && (
+        {!compactToolbar && showAvgRefControl && (
           <div>
             <button
               ref={avgRefButtonRef}
@@ -1486,7 +1515,7 @@ export default function EEGViewer() {
             </button>
           </div>
         )}
-        {montage !== 'raw' && hiddenMontageCandidates.length > 0 && (
+        {!compactToolbar && showExtrasControl && (
           <div>
             <button
               ref={extrasButtonRef}
@@ -1539,66 +1568,265 @@ export default function EEGViewer() {
             </button>
           </div>
         )}
-        <ToolbarSelect label="DSA" value={dsaChannel} onChange={handleDsaChannelChange} width={112}>
+        <ToolbarSelect label="DSA" value={dsaChannel} onChange={handleDsaChannelChange} width={compactToolbar ? 96 : 112}>
           <option value="off">Desactivado</option>
           {dsaChannels.map((channel) => <option key={channel.index} value={channel.index}>{channel.name}</option>)}
         </ToolbarSelect>
 
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 2, cursor: dsaChannel === 'off' ? 'not-allowed' : 'pointer' }}>
-          <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>Artefactos</span>
+        {!compactToolbar && (
+          <>
+            {showArtifactControl && (
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 2, cursor: dsaChannel === 'off' ? 'not-allowed' : 'pointer' }}>
+                <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>Artefactos</span>
+                <button
+                  onClick={() => { if (dsaChannel !== 'off') setArtifactReject((v) => !v) }}
+                  disabled={dsaChannel === 'off'}
+                  title="Excluir épocas con artefacto del DSA y mostrar barra de artefactos"
+                  style={{
+                    background: artifactReject ? '#dcfce7' : '#f8fafc',
+                    border: `1px solid ${artifactReject ? '#86efac' : '#cbd5e1'}`,
+                    borderRadius: 4, color: artifactReject ? '#166534' : '#475569',
+                    fontSize: '0.75rem', padding: '0.16rem 0.45rem',
+                    cursor: dsaChannel === 'off' ? 'not-allowed' : 'pointer',
+                    fontWeight: artifactReject ? 600 : 400,
+                    opacity: dsaChannel === 'off' ? 0.6 : 1,
+                  }}
+                >
+                  {artifactReject ? 'on ✓' : 'off'}
+                </button>
+              </label>
+            )}
+
+            <ToolbarSelect label="Ganancia" value={gainMult} onChange={(v) => setGainMult(parseFloat(v))}>
+              {GAIN_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </ToolbarSelect>
+
+            <div style={{ width: 1, height: 32, background: '#e2e8f0', flexShrink: 0 }} />
+
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 2, cursor: 'pointer' }}>
+              <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>Norm</span>
+              <button
+                onClick={() => setNormalizeNonEEG((v) => !v)}
+                title="Normalizar canales no-EEG a z-score (media=0, σ=1)"
+                style={{
+                  background: normalizeNonEEG ? '#dbeafe' : '#f8fafc',
+                  border: `1px solid ${normalizeNonEEG ? '#93c5fd' : '#cbd5e1'}`,
+                  borderRadius: 4, color: normalizeNonEEG ? '#1d4ed8' : '#475569',
+                  fontSize: '0.75rem', padding: '0.16rem 0.38rem',
+                  cursor: 'pointer', fontWeight: normalizeNonEEG ? 600 : 400,
+                  minWidth: 66,
+                }}
+              >
+                {normalizeNonEEG ? 'z ✓' : 'z'}
+              </button>
+            </label>
+          </>
+        )}
+
+        {compactToolbar && (
           <button
-            onClick={() => { if (dsaChannel !== 'off') setArtifactReject((v) => !v) }}
-            disabled={dsaChannel === 'off'}
-            title="Excluir épocas con artefacto del DSA y mostrar barra de artefactos"
+            type="button"
+            onClick={() => setMobileControlsOpen((open) => !open)}
             style={{
-              background: artifactReject ? '#dcfce7' : '#f8fafc',
-              border: `1px solid ${artifactReject ? '#86efac' : '#cbd5e1'}`,
-              borderRadius: 4, color: artifactReject ? '#166534' : '#475569',
-              fontSize: '0.75rem', padding: '0.16rem 0.45rem',
-              cursor: dsaChannel === 'off' ? 'not-allowed' : 'pointer',
-              fontWeight: artifactReject ? 600 : 400,
-              opacity: dsaChannel === 'off' ? 0.6 : 1,
+              background: mobileControlsOpen ? '#dbeafe' : '#f8fafc',
+              border: `1px solid ${mobileControlsOpen ? '#93c5fd' : '#cbd5e1'}`,
+              borderRadius: 4,
+              color: mobileControlsOpen ? '#1d4ed8' : '#334155',
+              fontSize: '0.76rem',
+              padding: '0.28rem 0.5rem',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              fontWeight: mobileControlsOpen ? 600 : 500,
             }}
           >
-            {artifactReject ? 'on ✓' : 'off'}
+            Controles {mobileControlsOpen ? '▴' : '▾'}
           </button>
-        </label>
-
-        <ToolbarSelect label="Ganancia" value={gainMult} onChange={(v) => setGainMult(parseFloat(v))}>
-          {GAIN_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </ToolbarSelect>
-
-        <div style={{ width: 1, height: 32, background: '#e2e8f0', flexShrink: 0 }} />
-
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 2, cursor: 'pointer' }}>
-          <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>Norm</span>
-          <button
-            onClick={() => setNormalizeNonEEG((v) => !v)}
-            title="Normalizar canales no-EEG a z-score (media=0, σ=1)"
-            style={{
-              background: normalizeNonEEG ? '#dbeafe' : '#f8fafc',
-              border: `1px solid ${normalizeNonEEG ? '#93c5fd' : '#cbd5e1'}`,
-              borderRadius: 4, color: normalizeNonEEG ? '#1d4ed8' : '#475569',
-              fontSize: '0.75rem', padding: '0.16rem 0.38rem',
-              cursor: 'pointer', fontWeight: normalizeNonEEG ? 600 : 400,
-              minWidth: 66,
-            }}
-          >
-            {normalizeNonEEG ? 'z ✓' : 'z'}
-          </button>
-        </label>
+        )}
 
         <div style={{ flex: 1, minWidth: 8 }} />
 
-        <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center', flexShrink: 0 }}>
-          <span style={{ color: '#94a3b8', fontSize: '0.7rem', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>t={timeOffsetSec}s</span>
+        <div style={{ display: 'flex', gap: compactToolbar ? '0.2rem' : '0.3rem', alignItems: 'center', flexShrink: 0 }}>
+          <span style={{ color: '#94a3b8', fontSize: compactToolbar ? '0.64rem' : '0.7rem', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>t={timeOffsetSec}s</span>
           <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 0} title="Anterior (←)" style={navBtnStyle(currentPage === 0)}>←</button>
-          <span style={{ color: '#475569', fontSize: '0.75rem', fontFamily: 'monospace', minWidth: 54, textAlign: 'center', whiteSpace: 'nowrap' }}>
+          <span style={{ color: '#475569', fontSize: compactToolbar ? '0.7rem' : '0.75rem', fontFamily: 'monospace', minWidth: compactToolbar ? 44 : 54, textAlign: 'center', whiteSpace: 'nowrap' }}>
             {currentPage + 1} / {totalPages}
           </span>
           <button onClick={() => goToPage(currentPage + 1)} disabled={currentPage >= maxPage} title="Siguiente (→)" style={navBtnStyle(currentPage >= maxPage)}>→</button>
         </div>
       </div>
+
+      {compactToolbar && mobileControlsOpen && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'flex-end',
+          gap: '0.55rem',
+          flexWrap: 'wrap',
+          padding: '0.35rem 0.6rem 0.5rem 0.6rem',
+          background: '#fffaf0',
+          borderBottom: '1px solid #e2e8f0',
+          flexShrink: 0,
+        }}>
+          <ToolbarSelect label="HP" value={hp} onChange={handleHpChange}>
+            {HP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </ToolbarSelect>
+          <ToolbarSelect label="LP" value={lp} onChange={handleLpChange}>
+            {LP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </ToolbarSelect>
+          <ToolbarSelect label="Notch" value={notch ? '1' : '0'} onChange={handleNotchChange}>
+            <option value="1">50 Hz</option>
+            <option value="0">Off</option>
+          </ToolbarSelect>
+          <ToolbarSelect label="Gan" value={gainMult} onChange={(v) => setGainMult(parseFloat(v))}>
+            {GAIN_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </ToolbarSelect>
+
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 2, cursor: 'pointer' }}>
+            <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>Norm</span>
+            <button
+              onClick={() => setNormalizeNonEEG((v) => !v)}
+              title="Normalizar canales no-EEG a z-score (media=0, σ=1)"
+              style={{
+                background: normalizeNonEEG ? '#dbeafe' : '#f8fafc',
+                border: `1px solid ${normalizeNonEEG ? '#93c5fd' : '#cbd5e1'}`,
+                borderRadius: 4, color: normalizeNonEEG ? '#1d4ed8' : '#475569',
+                fontSize: '0.75rem', padding: '0.16rem 0.38rem',
+                cursor: 'pointer', fontWeight: normalizeNonEEG ? 600 : 400,
+                minWidth: 58,
+              }}
+            >
+              {normalizeNonEEG ? 'z ✓' : 'z'}
+            </button>
+          </label>
+
+          {showArtifactControl && (
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 2, cursor: 'pointer' }}>
+              <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>Artef</span>
+              <button
+                onClick={() => setArtifactReject((v) => !v)}
+                title="Excluir épocas con artefacto del DSA y mostrar barra de artefactos"
+                style={{
+                  background: artifactReject ? '#dcfce7' : '#f8fafc',
+                  border: `1px solid ${artifactReject ? '#86efac' : '#cbd5e1'}`,
+                  borderRadius: 4, color: artifactReject ? '#166534' : '#475569',
+                  fontSize: '0.75rem', padding: '0.16rem 0.45rem',
+                  cursor: 'pointer',
+                  fontWeight: artifactReject ? 600 : 400,
+                }}
+              >
+                {artifactReject ? 'on ✓' : 'off'}
+              </button>
+            </label>
+          )}
+
+          {showAvgRefControl && (
+            <div>
+              <button
+                ref={avgRefButtonRef}
+                type="button"
+                onClick={() => setAvgRefOpen((open) => !open)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  padding: 0,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 2,
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                  alignItems: 'flex-start',
+                }}
+              >
+                <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>
+                  Ref AVG
+                </span>
+                <span style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}>
+                  <span style={{
+                    color: '#64748b',
+                    fontSize: '0.68rem',
+                    lineHeight: 1.1,
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {averageReferenceCandidates.length - excludedAverageReferenceChannels.length}/{averageReferenceCandidates.length}
+                  </span>
+                  <span style={{
+                    background: '#f8fafc',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: 4,
+                    color: '#1e293b',
+                    fontSize: '0.75rem',
+                    padding: '0.16rem 0.42rem',
+                    whiteSpace: 'nowrap',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}>
+                    <span>Canales AVG</span>
+                    <span style={{ color: '#64748b' }}>{avgRefOpen ? '▴' : '▾'}</span>
+                  </span>
+                </span>
+              </button>
+            </div>
+          )}
+
+          {showExtrasControl && (
+            <div>
+              <button
+                ref={extrasButtonRef}
+                type="button"
+                onClick={() => setExtrasOpen((open) => !open)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  padding: 0,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 2,
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                  alignItems: 'flex-start',
+                }}
+              >
+                <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>
+                  Extras
+                </span>
+                <span style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}>
+                  <span style={{
+                    color: '#64748b',
+                    fontSize: '0.68rem',
+                    lineHeight: 1.1,
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {includedHiddenChannels.length}/{hiddenMontageCandidates.length}
+                  </span>
+                  <span style={{
+                    background: '#f8fafc',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: 4,
+                    color: '#1e293b',
+                    fontSize: '0.75rem',
+                    padding: '0.16rem 0.42rem',
+                    whiteSpace: 'nowrap',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}>
+                    <span>Canales</span>
+                    <span style={{ color: '#64748b' }}>{extrasOpen ? '▴' : '▾'}</span>
+                  </span>
+                </span>
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {avgRefOpen && avgRefMenuPos && (
         <div

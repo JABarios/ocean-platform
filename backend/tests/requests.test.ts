@@ -200,3 +200,41 @@ describe('GET /requests/active', () => {
     expect(res.body.some((r: { id: string }) => r.id === req.id)).toBe(true)
   })
 })
+
+describe('request owner operations', () => {
+  it('el solicitante puede reenviar una solicitud rechazada', async () => {
+    const owner = await createUser({ email: 'resend-own@ocean.local', displayName: 'ResendOwn', password: 'pass' })
+    const reviewer = await createUser({ email: 'resend-rev@ocean.local', displayName: 'ResendRev', password: 'pass' })
+    const c = await createCase(owner.id)
+    const req = await createReviewRequest({ caseId: c.id, requestedBy: owner.id, targetUserId: reviewer.id, status: 'Rejected' })
+    const token = generateToken(owner.id, owner.email, owner.role)
+
+    const res = await request(app)
+      .post(`/requests/${req.id}/resend`)
+      .set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.status).toBe('Pending')
+    expect(res.body.expiresAt).toBeTruthy()
+  })
+
+  it('el solicitante puede retirar una solicitud pendiente', async () => {
+    const owner = await createUser({ email: 'withdraw-own@ocean.local', displayName: 'WithdrawOwn', password: 'pass' })
+    const reviewer = await createUser({ email: 'withdraw-rev@ocean.local', displayName: 'WithdrawRev', password: 'pass' })
+    const c = await createCase(owner.id)
+    const req = await createReviewRequest({ caseId: c.id, requestedBy: owner.id, targetUserId: reviewer.id, status: 'Pending' })
+    const token = generateToken(owner.id, owner.email, owner.role)
+
+    const res = await request(app)
+      .delete(`/requests/${req.id}`)
+      .set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(204)
+
+    const stillThere = await request(app)
+      .get('/requests/active')
+      .set('Authorization', `Bearer ${token}`)
+
+    expect(stillThere.body.some((item: { id: string }) => item.id === req.id)).toBe(false)
+  })
+})

@@ -41,6 +41,7 @@ export default function CaseOperations() {
   const [proposalDifficulty, setProposalDifficulty] = useState('Intermediate')
   const [proposalTags, setProposalTags] = useState('')
   const [busyCaseId, setBusyCaseId] = useState<string | null>(null)
+  const [busyRequestId, setBusyRequestId] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -162,6 +163,48 @@ export default function CaseOperations() {
     }
   }
 
+  const resendRequest = async (caseId: string, requestId: string) => {
+    setBusyRequestId(requestId)
+    setError('')
+    try {
+      const updated = await api.post<ReviewRequest>(`/requests/${requestId}/resend`)
+      setCases((prev) => prev.map((item) => (
+        item.id === caseId
+          ? {
+              ...item,
+              reviewRequests: (item.reviewRequests || []).map((request) => (
+                request.id === requestId ? { ...request, ...updated } : request
+              )),
+            }
+          : item
+      )))
+    } catch (err) {
+      setError(friendlyError(err))
+    } finally {
+      setBusyRequestId(null)
+    }
+  }
+
+  const withdrawRequest = async (caseId: string, requestId: string) => {
+    setBusyRequestId(requestId)
+    setError('')
+    try {
+      await api.del(`/requests/${requestId}`)
+      setCases((prev) => prev.map((item) => (
+        item.id === caseId
+          ? {
+              ...item,
+              reviewRequests: (item.reviewRequests || []).filter((request) => request.id !== requestId),
+            }
+          : item
+      )))
+    } catch (err) {
+      setError(friendlyError(err))
+    } finally {
+      setBusyRequestId(null)
+    }
+  }
+
   if (loading) return <div style={{ color: 'var(--text-secondary)', padding: '2rem 0' }}>Cargando…</div>
 
   return (
@@ -230,13 +273,43 @@ export default function CaseOperations() {
               </div>
 
               {requests.length > 0 && (
-                <div className="request-chip-row">
-                  {requests.slice(0, 4).map((request) => (
-                    <span key={request.id} className={`request-chip request-${request.status.toLowerCase()}`}>
-                      {(request.targetUser?.displayName || request.targetGroup?.name || 'Destino')} · {request.status}
-                    </span>
-                  ))}
-                  {requests.length > 4 && <span className="request-chip more-chip">+{requests.length - 4}</span>}
+                <div className="request-list">
+                  {requests.map((request) => {
+                    const canOwnerManageRequest = request.status === 'Pending' || request.status === 'Rejected' || request.status === 'Expired'
+                    return (
+                      <div key={request.id} className="request-row">
+                        <div className="request-main">
+                          <span className={`request-chip request-${request.status.toLowerCase()}`}>
+                            {(request.targetUser?.displayName || request.targetGroup?.name || 'Destino')} · {request.status}
+                          </span>
+                          <span className="request-date">
+                            {request.acceptedAt ? `Aceptada ${formatDate(request.acceptedAt)}` : `Creada ${formatDate(request.createdAt)}`}
+                          </span>
+                        </div>
+                        {request.message && <div className="request-message">{request.message}</div>}
+                        {canOwnerManageRequest && (
+                          <div className="request-actions">
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              onClick={() => resendRequest(item.id, request.id)}
+                              disabled={busyRequestId === request.id}
+                            >
+                              Reenviar
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              onClick={() => withdrawRequest(item.id, request.id)}
+                              disabled={busyRequestId === request.id}
+                            >
+                              Retirar
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               )}
 
@@ -479,10 +552,35 @@ export default function CaseOperations() {
           grid-template-columns: repeat(5, minmax(100px, 1fr));
           gap: 0.65rem;
         }
-        .request-chip-row {
+        .request-list {
           display: flex;
-          gap: 0.5rem;
+          flex-direction: column;
+          gap: 0.55rem;
+        }
+        .request-row {
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          background: #fcfcfd;
+          padding: 0.7rem 0.85rem;
+          display: flex;
+          flex-direction: column;
+          gap: 0.45rem;
+        }
+        .request-main {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.75rem;
           flex-wrap: wrap;
+        }
+        .request-date {
+          color: var(--text-secondary);
+          font-size: 0.8rem;
+        }
+        .request-message {
+          color: var(--text-primary);
+          font-size: 0.88rem;
+          line-height: 1.45;
         }
         .request-chip {
           border-radius: 999px;
@@ -496,6 +594,11 @@ export default function CaseOperations() {
         .request-expired { background: #f3f4f6; color: #4b5563; }
         .request-completed { background: #eef2ff; color: #4338ca; }
         .more-chip { background: #f8fafc; color: #475569; }
+        .request-actions {
+          display: flex;
+          gap: 0.55rem;
+          flex-wrap: wrap;
+        }
         .actions-row, .invite-actions {
           display: flex;
           gap: 0.65rem;

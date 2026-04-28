@@ -223,4 +223,72 @@ router.post('/:id/reject', async (req: AuthenticatedRequest, res) => {
   res.json(updated)
 })
 
+// Reenviar solicitud del propietario
+router.post('/:id/resend', async (req: AuthenticatedRequest, res) => {
+  const existing = await prisma.reviewRequest.findFirst({
+    where: {
+      id: req.params.id,
+      requestedBy: req.user!.id,
+      status: { in: ['Pending', 'Rejected', 'Expired'] },
+    },
+  })
+
+  if (!existing) {
+    res.status(404).json({ error: 'Solicitud no encontrada o no reenviable' })
+    return
+  }
+
+  const updated = await prisma.reviewRequest.update({
+    where: { id: req.params.id },
+    data: {
+      status: 'Pending',
+      acceptedAt: null,
+      completedAt: null,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    },
+  })
+
+  await prisma.auditEvent.create({
+    data: {
+      actorId: req.user!.id,
+      caseId: existing.caseId,
+      action: 'RequestResent',
+      target: existing.id,
+    },
+  })
+
+  res.json(updated)
+})
+
+// Retirar solicitud del propietario
+router.delete('/:id', async (req: AuthenticatedRequest, res) => {
+  const existing = await prisma.reviewRequest.findFirst({
+    where: {
+      id: req.params.id,
+      requestedBy: req.user!.id,
+      status: { in: ['Pending', 'Rejected', 'Expired'] },
+    },
+  })
+
+  if (!existing) {
+    res.status(404).json({ error: 'Solicitud no encontrada o no retirable' })
+    return
+  }
+
+  await prisma.reviewRequest.delete({
+    where: { id: req.params.id },
+  })
+
+  await prisma.auditEvent.create({
+    data: {
+      actorId: req.user!.id,
+      caseId: existing.caseId,
+      action: 'RequestWithdrawn',
+      target: existing.id,
+    },
+  })
+
+  res.status(204).send()
+})
+
 export default router

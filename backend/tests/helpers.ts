@@ -48,13 +48,14 @@ export async function createReviewRequest(data: {
   caseId: string
   requestedBy: string
   targetUserId: string
+  status?: string
 }) {
   return prisma.reviewRequest.create({
     data: {
       caseId: data.caseId,
       requestedBy: data.requestedBy,
       targetUserId: data.targetUserId,
-      status: 'Pending',
+      status: data.status || 'Pending',
     },
   })
 }

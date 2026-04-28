@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
+import './Auth.css'
 
 export default function Register() {
   const [email, setEmail] = useState('')
@@ -80,7 +81,7 @@ export default function Register() {
               onChange={(e) => setSpecialty(e.target.value)}
             />
           </label>
-          {error && <div className="error">{error}</div>}
+          {error && <div className="auth-error">{error}</div>}
           <button type="submit" className="btn-primary" disabled={isLoading}>
             {isLoading ? 'Creando cuenta…' : 'Registrarse'}
           </button>
@@ -90,51 +91,6 @@ export default function Register() {
           <Link to="/login">Inicia sesión</Link>
         </div>
       </div>
-      <style>{`
-        .auth-page {
-          min-height: 100%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          padding: 2rem 1rem;
-        }
-        .auth-card {
-          width: 100%;
-          max-width: 420px;
-        }
-        .auth-card h1 {
-          font-size: 1.25rem;
-          margin-bottom: 0.25rem;
-        }
-        .subtitle {
-          color: var(--text-secondary);
-          font-size: 0.9rem;
-          margin-bottom: 1.25rem;
-        }
-        .auth-form {
-          display: flex;
-          flex-direction: column;
-          gap: 0.75rem;
-        }
-        .auth-form label {
-          display: flex;
-          flex-direction: column;
-          gap: 0.35rem;
-          font-size: 0.85rem;
-          font-weight: 500;
-          color: var(--text-secondary);
-        }
-        .error {
-          color: var(--danger);
-          font-size: 0.85rem;
-        }
-        .auth-footer {
-          margin-top: 1rem;
-          font-size: 0.85rem;
-          text-align: center;
-          color: var(--text-secondary);
-        }
-      `}</style>
     </div>
   )
 }

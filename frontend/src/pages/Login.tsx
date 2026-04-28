@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { API_BASE } from '../api/client'
+import './Auth.css'
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -58,9 +59,9 @@ export default function Login() {
             />
           </label>
           {error && (
-            <div className="error">
+            <div className="auth-error">
               <div>{error}</div>
-              {debugInfo && <div className="debug">{debugInfo}</div>}
+              {debugInfo && <div className="auth-debug">{debugInfo}</div>}
             </div>
           )}
           <button type="submit" className="btn-primary" disabled={isLoading}>
@@ -72,57 +73,6 @@ export default function Login() {
           <Link to="/register">Regístrate</Link>
         </div>
       </div>
-      <style>{`
-        .auth-page {
-          min-height: 100%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          padding: 2rem 1rem;
-        }
-        .auth-card {
-          width: 100%;
-          max-width: 400px;
-        }
-        .auth-card h1 {
-          font-size: 1.25rem;
-          margin-bottom: 0.25rem;
-        }
-        .subtitle {
-          color: var(--text-secondary);
-          font-size: 0.9rem;
-          margin-bottom: 1.25rem;
-        }
-        .auth-form {
-          display: flex;
-          flex-direction: column;
-          gap: 0.75rem;
-        }
-        .auth-form label {
-          display: flex;
-          flex-direction: column;
-          gap: 0.35rem;
-          font-size: 0.85rem;
-          font-weight: 500;
-          color: var(--text-secondary);
-        }
-        .error {
-          color: var(--danger);
-          font-size: 0.85rem;
-        }
-        .error .debug {
-          color: var(--text-secondary);
-          font-size: 0.75rem;
-          margin-top: 0.25rem;
-          font-family: ui-monospace, monospace;
-        }
-        .auth-footer {
-          margin-top: 1rem;
-          font-size: 0.85rem;
-          text-align: center;
-          color: var(--text-secondary);
-        }
-      `}</style>
     </div>
   )
 }

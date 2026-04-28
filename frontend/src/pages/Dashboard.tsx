@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api, friendlyError } from '../api/client'
 import type { CaseItem, ReviewRequest } from '../types'
+import './Dashboard.css'
 
 function statusBadgeClass(status: CaseItem['status']) {
   switch (status) {
@@ -180,96 +181,6 @@ export default function Dashboard() {
         </section>
       )}
 
-      <style>{`
-        .dashboard {
-          display: flex;
-          flex-direction: column;
-          gap: 1.5rem;
-        }
-        .dashboard-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 1rem;
-        }
-        .dashboard-header h2 {
-          font-size: 1.2rem;
-          font-weight: 600;
-        }
-        .dashboard-section h3 {
-          font-size: 1rem;
-          font-weight: 600;
-          margin-bottom: 0.75rem;
-          color: var(--text-secondary);
-          text-transform: uppercase;
-          letter-spacing: 0.04em;
-        }
-        .empty {
-          color: var(--text-secondary);
-          font-size: 0.9rem;
-        }
-        .case-list,
-        .request-list {
-          list-style: none;
-          display: flex;
-          flex-direction: column;
-          gap: 0.5rem;
-        }
-        .case-row {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 1rem;
-          padding: 0.75rem 1rem;
-        }
-        .case-meta {
-          display: flex;
-          align-items: center;
-          gap: 0.75rem;
-        }
-        .case-title {
-          font-weight: 500;
-        }
-        .case-date {
-          font-size: 0.85rem;
-          color: var(--text-secondary);
-        }
-        .request-row {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 1rem;
-          padding: 0.75rem 1rem;
-        }
-        .request-info {
-          display: flex;
-          flex-direction: column;
-          gap: 0.25rem;
-        }
-        .request-case {
-          font-weight: 500;
-        }
-        .request-message {
-          font-size: 0.85rem;
-          color: var(--text-secondary);
-        }
-        .request-actions {
-          display: flex;
-          gap: 0.5rem;
-        }
-        .expired-title {
-          color: var(--text-secondary);
-          opacity: 0.7;
-        }
-        .expired-row {
-          opacity: 0.6;
-          border-left: 3px solid #d97706;
-        }
-        .expired-label {
-          font-size: 0.8rem;
-          color: #92400e;
-        }
-      `}</style>
     </div>
   )
 }

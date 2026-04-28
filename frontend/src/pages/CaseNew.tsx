@@ -4,6 +4,7 @@ import { api, API_BASE, friendlyError } from '../api/client'
 import { useAuthStore } from '../store/authStore'
 import { useCrypto, isCryptoAvailable } from '../hooks/useCrypto'
 import type { CaseItem } from '../types'
+import './CaseNew.css'
 
 export default function CaseNew() {
   const [title, setTitle] = useState('')
@@ -211,7 +212,7 @@ export default function CaseNew() {
           </div>
         )}
 
-        {error && <div className="error">{error}</div>}
+        {error && <div className="auth-error">{error}</div>}
 
         <div className="form-actions">
           <button
@@ -227,86 +228,6 @@ export default function CaseNew() {
         </div>
       </form>
 
-      <style>{`
-        .case-new {
-          display: flex;
-          flex-direction: column;
-          gap: 1rem;
-        }
-        .case-new h2 {
-          font-size: 1.2rem;
-          font-weight: 600;
-        }
-        .case-form {
-          display: flex;
-          flex-direction: column;
-          gap: 0.85rem;
-          max-width: 700px;
-        }
-        .case-form label {
-          display: flex;
-          flex-direction: column;
-          gap: 0.35rem;
-          font-size: 0.85rem;
-          font-weight: 500;
-          color: var(--text-secondary);
-        }
-        .error {
-          color: var(--danger);
-          font-size: 0.85rem;
-        }
-        .file-hint {
-          font-size: 0.8rem;
-          color: var(--text-secondary);
-          font-weight: 400;
-        }
-        .key-box {
-          background: #f0fdf4;
-          border: 1px solid #86efac;
-          padding: 0.75rem 1rem;
-        }
-        .key-label {
-          font-size: 0.75rem;
-          font-weight: 600;
-          color: #15803d;
-          text-transform: uppercase;
-          letter-spacing: 0.03em;
-        }
-        .key-value {
-          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-          font-size: 0.8rem;
-          word-break: break-all;
-          color: #14532d;
-          margin-top: 0.25rem;
-        }
-        .key-hint {
-          font-size: 0.8rem;
-          color: #166534;
-          margin-top: 0.35rem;
-        }
-        .form-actions {
-          display: flex;
-          justify-content: flex-end;
-          gap: 0.5rem;
-          margin-top: 0.5rem;
-        }
-        .crypto-badge {
-          font-size: 0.8rem;
-          padding: 0.4rem 0.75rem;
-          border-radius: 6px;
-          font-weight: 500;
-        }
-        .crypto-native {
-          background: #f0fdf4;
-          color: #15803d;
-          border: 1px solid #86efac;
-        }
-        .crypto-fallback {
-          background: #fffbeb;
-          color: #92400e;
-          border: 1px solid #fcd34d;
-        }
-      `}</style>
     </div>
   )
 }

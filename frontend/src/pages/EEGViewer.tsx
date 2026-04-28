@@ -19,6 +19,7 @@ import {
 } from './eegViewerUtils'
 import type { EpochData, MontageName, PersistedViewerState } from './eegViewerUtils'
 import type { CaseItem } from '../types'
+import { getEncryptedPackageFromCache, saveEncryptedPackageToCache } from './encryptedPackageCache'
 
 // ─── WASM types ───────────────────────────────────────────────────────────────
 
@@ -665,7 +666,7 @@ export default function EEGViewer() {
   const [totalSeconds, setTotalSeconds] = useState(0)
   const [recordDurationSec, setRecordDurationSec] = useState(1)
   const [meta,         setMeta]         = useState<{ recordingDate: string } | null>(null)
-  const [caseHoverMeta, setCaseHoverMeta] = useState<{ blobHash?: string; ageRange?: string } | null>(null)
+  const [caseHoverMeta, setCaseHoverMeta] = useState<{ blobHash?: string; ageRange?: string; sizeBytes?: number } | null>(null)
   const [showMeta,     setShowMeta]     = useState(false)
 
   const [windowSecs,      setWindowSecs]      = useState(10)
@@ -852,6 +853,7 @@ export default function EEGViewer() {
         setCaseHoverMeta({
           blobHash: caseItem.package?.blobHash,
           ageRange: caseItem.ageRange || undefined,
+          sizeBytes: caseItem.package?.sizeBytes,
         })
       })
       .catch((err) => {
@@ -1061,12 +1063,44 @@ export default function EEGViewer() {
         window.clearTimeout(persistTimerRef.current)
         persistTimerRef.current = null
       }
-      setPhase('downloading')
-      const res = await fetch(`${API_BASE}/packages/download/${id}`, {
-        headers: { Authorization: `Bearer ${token ?? ''}` },
-      })
-      if (!res.ok) throw new Error(`Error al descargar (${res.status})`)
-      const encryptedBuffer = await res.arrayBuffer()
+      let packageMeta = caseHoverMeta
+      if (!packageMeta?.blobHash) {
+        try {
+          const caseItem = await api.get<CaseItem>(`/cases/${id}`)
+          packageMeta = {
+            blobHash: caseItem.package?.blobHash,
+            ageRange: caseItem.ageRange || undefined,
+            sizeBytes: caseItem.package?.sizeBytes,
+          }
+          setCaseHoverMeta(packageMeta)
+        } catch (err) {
+          console.warn('[OCEAN EEG] No se pudo refrescar la metadata del caso antes de abrir el visor', err)
+        }
+      }
+
+      let encryptedBuffer = packageMeta?.blobHash
+        ? await getEncryptedPackageFromCache(packageMeta.blobHash)
+        : null
+
+      if (!encryptedBuffer) {
+        setPhase('downloading')
+        const res = await fetch(`${API_BASE}/packages/download/${id}`, {
+          headers: { Authorization: `Bearer ${token ?? ''}` },
+        })
+        if (!res.ok) throw new Error(`Error al descargar (${res.status})`)
+        encryptedBuffer = await res.arrayBuffer()
+
+        if (packageMeta?.blobHash) {
+          saveEncryptedPackageToCache({
+            blobHash: packageMeta.blobHash,
+            caseId: id,
+            sizeBytes: packageMeta.sizeBytes,
+            payload: encryptedBuffer,
+          }).catch((err) => {
+            console.warn('[OCEAN EEG] No se pudo guardar el paquete cifrado en caché local', err)
+          })
+        }
+      }
 
       setPhase('decrypting')
       const decryptedBuffer = await decryptFile(encryptedBuffer, key)
@@ -1153,7 +1187,7 @@ export default function EEGViewer() {
       setErrorMsg(isBadKey ? 'Clave incorrecta — el archivo no se pudo descifrar.' : msg)
       setPhase('error')
     }
-  }, [id, token, decryptFile, loadModule])
+  }, [id, token, decryptFile, loadModule, caseHoverMeta])
 
   // ── Auto-start from sessionStorage ───────────────────────────────────────────
 

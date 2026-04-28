@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   MONTAGE_OPTIONS,
   applyMontage,
+  getAverageReferenceCandidates,
   getChannelColor,
   getNextArtifactRejectState,
   getRecordsPerPage,
@@ -30,6 +31,7 @@ describe('EEG viewer utils', () => {
     expect(MONTAGE_OPTIONS).toEqual([
       'promedio',
       'doble_banana',
+      'raw',
       'transversal',
       'linked_mastoids',
       'hjorth',
@@ -85,6 +87,62 @@ describe('EEG viewer utils', () => {
     expect(asArray(result.data[0])).toEqual([10 - avg0, 20 - avg1])
     expect(asArray(result.data[10])).toEqual([110 - avg0, 120 - avg1])
     expect(asArray(result.data[result.data.length - 1])).toEqual([190 - avg0, 200 - avg1])
+  })
+
+  it('expone un montaje raw que preserva el orden y los datos originales', () => {
+    const epoch = makeEpoch({
+      Fp1: [1, 2],
+      EOG1: [3, 4],
+      Cz: [5, 6],
+    }, {
+      Fp1: 'EEG',
+      EOG1: 'EOG',
+      Cz: 'EEG',
+    })
+
+    const result = applyMontage(epoch, 'raw')
+
+    expect(result).toBe(epoch)
+    expect(result.channelNames).toEqual(['Fp1', 'EOG1', 'Cz'])
+    expect(asArray(result.data[1])).toEqual([3, 4])
+  })
+
+  it('permite excluir canales concretos de la referencia promedio', () => {
+    const epoch = makeEpoch({
+      Fp1: [10, 20],
+      F7: [20, 30],
+      F3: [30, 40],
+      T3: [40, 50],
+      C3: [50, 60],
+      T5: [60, 70],
+      P3: [70, 80],
+      O1: [80, 90],
+      Fz: [90, 100],
+      Cz: [100, 110],
+      Pz: [110, 120],
+      Fp2: [120, 130],
+      F4: [130, 140],
+      F8: [140, 150],
+      C4: [150, 160],
+      T4: [160, 170],
+      P4: [170, 180],
+      T6: [180, 190],
+      O2: [190, 200],
+      EOG1: [999, 999],
+    }, {
+      EOG1: 'EOG',
+    })
+
+    const candidates = getAverageReferenceCandidates(epoch)
+    expect(candidates).not.toContain('EOG1')
+
+    const fullAverage = applyMontage(epoch, 'promedio')
+    const excluded = applyMontage(epoch, 'promedio', {
+      excludedAverageReferenceChannels: new Set(['O2']),
+    })
+
+    expect(asArray(fullAverage.data[0])).toEqual([-90, -90])
+    expect(asArray(excluded.data[0])).toEqual([-85, -85])
   })
 
   it('aplica linked mastoids usando la media de A1 y A2 como referencia común', () => {

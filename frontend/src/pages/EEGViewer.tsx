@@ -7,6 +7,7 @@ import {
   LABEL_WIDTH,
   MONTAGE_OPTIONS,
   applyMontage,
+  getAverageReferenceCandidates,
   getChannelColor,
   getNextArtifactRejectState,
   getRecordsPerPage,
@@ -664,6 +665,7 @@ export default function EEGViewer() {
   const [gainMult,        setGainMult]        = useState(1)
   const [normalizeNonEEG, setNormalizeNonEEG] = useState(false)
   const [montage,         setMontage]         = useState<MontageName>('promedio')
+  const [excludedAverageReferenceChannels, setExcludedAverageReferenceChannels] = useState<string[]>([])
   const [dsaChannel,      setDsaChannel]      = useState('off')
   const [artifactReject,  setArtifactReject]  = useState(false)
   const [dsaData,         setDsaData]         = useState<DSAData | null>(null)
@@ -689,8 +691,18 @@ export default function EEGViewer() {
 
   const montagedEpoch = useMemo(() => {
     if (!epoch) return null
-    return applyMontage(epoch, montage)
-  }, [epoch, montage])
+    return applyMontage(epoch, montage, {
+      excludedAverageReferenceChannels: new Set(excludedAverageReferenceChannels),
+    })
+  }, [epoch, montage, excludedAverageReferenceChannels])
+
+  const averageReferenceCandidates = useMemo(() => getAverageReferenceCandidates(epoch), [epoch])
+
+  useEffect(() => {
+    setExcludedAverageReferenceChannels((current) =>
+      current.filter((name) => averageReferenceCandidates.includes(name)),
+    )
+  }, [averageReferenceCandidates])
 
   const processedEpoch = useMemo(() => {
     if (!montagedEpoch) return null
@@ -832,6 +844,14 @@ export default function EEGViewer() {
     setDsaChannel(value)
     setArtifactReject((current) => getNextArtifactRejectState(dsaChannel, value, current))
   }, [dsaChannel])
+
+  const toggleAverageReferenceChannel = useCallback((name: string) => {
+    setExcludedAverageReferenceChannels((current) =>
+      current.includes(name)
+        ? current.filter((item) => item !== name)
+        : [...current, name],
+    )
+  }, [])
 
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const canvas = canvasRef.current
@@ -1186,6 +1206,74 @@ export default function EEGViewer() {
         <ToolbarSelect label="Montaje" value={montage} onChange={(v) => setMontage(v as MontageName)}>
           {MONTAGE_OPTIONS.map((name) => <option key={name} value={name}>{name}</option>)}
         </ToolbarSelect>
+        {montage === 'promedio' && averageReferenceCandidates.length > 0 && (
+          <details style={{ position: 'relative' }}>
+            <summary style={{
+              listStyle: 'none',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 2,
+              cursor: 'pointer',
+              userSelect: 'none',
+            }}>
+              <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>
+                Ref AVG
+              </span>
+              <span style={{
+                background: '#f8fafc',
+                border: '1px solid #cbd5e1',
+                borderRadius: 4,
+                color: '#1e293b',
+                fontSize: '0.75rem',
+                padding: '0.16rem 0.35rem',
+                whiteSpace: 'nowrap',
+              }}>
+                {averageReferenceCandidates.length - excludedAverageReferenceChannels.length}/{averageReferenceCandidates.length}
+              </span>
+            </summary>
+            <div style={{
+              position: 'absolute',
+              top: '100%',
+              left: 0,
+              marginTop: 6,
+              zIndex: 4,
+              background: 'rgba(255,255,255,0.98)',
+              border: '1px solid #cbd5e1',
+              borderRadius: 8,
+              boxShadow: '0 10px 24px rgba(15,23,42,0.12)',
+              padding: '0.45rem',
+              minWidth: 176,
+              maxHeight: 240,
+              overflowY: 'auto',
+            }}>
+              <div style={{ fontSize: '0.68rem', color: '#64748b', marginBottom: 6 }}>
+                Desmarca canales ruidosos de la referencia media.
+              </div>
+              {averageReferenceCandidates.map((name) => {
+                const checked = !excludedAverageReferenceChannels.includes(name)
+                return (
+                  <label key={name} style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    fontSize: '0.75rem',
+                    color: '#334155',
+                    padding: '0.14rem 0',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleAverageReferenceChannel(name)}
+                    />
+                    <span>{name}</span>
+                  </label>
+                )
+              })}
+            </div>
+          </details>
+        )}
         <ToolbarSelect label="DSA" value={dsaChannel} onChange={handleDsaChannelChange}>
           <option value="off">Desactivado</option>
           {dsaChannels.map((channel) => <option key={channel.index} value={channel.index}>{channel.name}</option>)}

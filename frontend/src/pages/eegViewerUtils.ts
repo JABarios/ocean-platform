@@ -23,6 +23,7 @@ const RIGHT_CHANNEL_COLOR = '#b91c1c'
 const CENTER_CHANNEL_COLOR = '#475569'
 
 export const MONTAGES = {
+  raw: [],
   doble_banana: [
     ['Fp1', 'F7'], ['F7', 'T3'], ['T3', 'T5'], ['T5', 'O1'],
     ['Fp2', 'F8'], ['F8', 'T4'], ['T4', 'T6'], ['T6', 'O2'],
@@ -64,6 +65,7 @@ export type MontageName = keyof typeof MONTAGES
 export const MONTAGE_OPTIONS: MontageName[] = [
   'promedio',
   'doble_banana',
+  'raw',
   'transversal',
   'linked_mastoids',
   'hjorth',
@@ -105,7 +107,33 @@ function averageSignals(signals: Float32Array[], nSamples: number): Float32Array
   return out
 }
 
-export function applyMontage(epoch: EpochData, montageName: MontageName): EpochData {
+function getAverageReferenceSourceNames(epoch: EpochData): string[] {
+  const names = new Set<string>()
+  for (const definition of MONTAGES.promedio) {
+    const [channelA] = definition
+    names.add(channelA)
+  }
+
+  return epoch.channelNames.filter((name, index) => {
+    if (!names.has(name)) return false
+    return (epoch.channelTypes[index] ?? 'EEG') === 'EEG'
+  })
+}
+
+export function getAverageReferenceCandidates(epoch: EpochData | null): string[] {
+  if (!epoch) return []
+  return getAverageReferenceSourceNames(epoch)
+}
+
+export function applyMontage(
+  epoch: EpochData,
+  montageName: MontageName,
+  options?: {
+    excludedAverageReferenceChannels?: ReadonlySet<string>
+  },
+): EpochData {
+  if (montageName === 'raw') return epoch
+
   const definitions = MONTAGES[montageName]
   const byName = new Map<string, { data: Float32Array; type: string }>()
   epoch.channelNames.forEach((name, i) => {
@@ -120,7 +148,12 @@ export function applyMontage(epoch: EpochData, montageName: MontageName): EpochD
   const getType = (name: string) => byName.get(name)?.type ?? 'EEG'
 
   const avgReference = montageName === 'promedio'
-    ? averageSignals(epoch.data, epoch.nSamples)
+    ? averageSignals(
+        getAverageReferenceSourceNames(epoch)
+          .filter((name) => !options?.excludedAverageReferenceChannels?.has(name))
+          .map(getSignal),
+        epoch.nSamples,
+      )
     : null
 
   const linkedMastoidsReference = montageName === 'linked_mastoids'

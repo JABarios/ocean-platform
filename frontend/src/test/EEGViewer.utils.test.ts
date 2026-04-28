@@ -4,6 +4,7 @@ import {
   applyMontage,
   getAverageReferenceCandidates,
   getChannelColor,
+  getMontageHiddenCandidates,
   getNextArtifactRejectState,
   getRecordsPerPage,
   shouldShowMetadataForPointer,
@@ -143,6 +144,44 @@ describe('EEG viewer utils', () => {
 
     expect(asArray(fullAverage.data[0])).toEqual([-90, -90])
     expect(asArray(excluded.data[0])).toEqual([-85, -85])
+  })
+
+  it('lista canales ocultos por el montaje y permite añadirlos al trazado', () => {
+    const epoch = makeEpoch({
+      Fp1: [10, 20],
+      F7: [20, 30],
+      F3: [30, 40],
+      T3: [40, 50],
+      C3: [50, 60],
+      T5: [60, 70],
+      P3: [70, 80],
+      O1: [80, 90],
+      Fz: [90, 100],
+      Cz: [100, 110],
+      Pz: [110, 120],
+      Fp2: [120, 130],
+      F4: [130, 140],
+      F8: [140, 150],
+      C4: [150, 160],
+      T4: [160, 170],
+      P4: [170, 180],
+      T6: [180, 190],
+      O2: [190, 200],
+      A1: [1, 2],
+      ECG: [3, 4],
+    }, {
+      ECG: 'ECG',
+    })
+
+    const hidden = getMontageHiddenCandidates(epoch, 'promedio')
+    expect(hidden).toEqual(['A1', 'ECG'])
+
+    const result = applyMontage(epoch, 'promedio', {
+      includedHiddenChannels: new Set(['ECG']),
+    })
+
+    expect(result.channelNames[result.channelNames.length - 1]).toBe('ECG')
+    expect(asArray(result.data[result.data.length - 1])).toEqual([3, 4])
   })
 
   it('aplica linked mastoids usando la media de A1 y A2 como referencia común', () => {

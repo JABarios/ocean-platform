@@ -9,6 +9,7 @@ import {
   applyMontage,
   getAverageReferenceCandidates,
   getChannelColor,
+  getMontageHiddenCandidates,
   getNextArtifactRejectState,
   getRecordsPerPage,
   shouldShowMetadataForPointer,
@@ -669,8 +670,11 @@ export default function EEGViewer() {
   const [normalizeNonEEG, setNormalizeNonEEG] = useState(false)
   const [montage,         setMontage]         = useState<MontageName>('promedio')
   const [excludedAverageReferenceChannels, setExcludedAverageReferenceChannels] = useState<string[]>([])
+  const [includedHiddenChannels, setIncludedHiddenChannels] = useState<string[]>([])
   const [avgRefOpen, setAvgRefOpen] = useState(false)
   const [avgRefMenuPos, setAvgRefMenuPos] = useState<{ top: number; left: number } | null>(null)
+  const [extrasOpen, setExtrasOpen] = useState(false)
+  const [extrasMenuPos, setExtrasMenuPos] = useState<{ top: number; left: number } | null>(null)
   const [dsaChannel,      setDsaChannel]      = useState('off')
   const [artifactReject,  setArtifactReject]  = useState(false)
   const [dsaData,         setDsaData]         = useState<DSAData | null>(null)
@@ -685,6 +689,8 @@ export default function EEGViewer() {
   const dsaCacheRef = useRef<Map<string, DSAData>>(new Map())
   const avgRefButtonRef = useRef<HTMLButtonElement>(null)
   const avgRefMenuRef = useRef<HTMLDivElement>(null)
+  const extrasButtonRef = useRef<HTMLButtonElement>(null)
+  const extrasMenuRef = useRef<HTMLDivElement>(null)
 
   // Imperative overlay refs — no setState on mousemove
   const mousePosRef   = useRef<{ x: number; y: number } | null>(null)
@@ -700,10 +706,12 @@ export default function EEGViewer() {
     if (!epoch) return null
     return applyMontage(epoch, montage, {
       excludedAverageReferenceChannels: new Set(excludedAverageReferenceChannels),
+      includedHiddenChannels: new Set(includedHiddenChannels),
     })
-  }, [epoch, montage, excludedAverageReferenceChannels])
+  }, [epoch, montage, excludedAverageReferenceChannels, includedHiddenChannels])
 
   const averageReferenceCandidates = useMemo(() => getAverageReferenceCandidates(epoch), [epoch])
+  const hiddenMontageCandidates = useMemo(() => getMontageHiddenCandidates(epoch, montage), [epoch, montage])
 
   useEffect(() => {
     setExcludedAverageReferenceChannels((current) =>
@@ -712,7 +720,17 @@ export default function EEGViewer() {
   }, [averageReferenceCandidates])
 
   useEffect(() => {
+    setIncludedHiddenChannels((current) =>
+      current.filter((name) => hiddenMontageCandidates.includes(name)),
+    )
+  }, [hiddenMontageCandidates])
+
+  useEffect(() => {
     if (montage !== 'promedio') setAvgRefOpen(false)
+  }, [montage])
+
+  useEffect(() => {
+    if (montage === 'raw') setExtrasOpen(false)
   }, [montage])
 
   useEffect(() => {
@@ -749,6 +767,41 @@ export default function EEGViewer() {
       document.removeEventListener('mousedown', handleOutside)
     }
   }, [avgRefOpen])
+
+  useEffect(() => {
+    if (!extrasOpen) {
+      setExtrasMenuPos(null)
+      return
+    }
+
+    const updateMenuPosition = () => {
+      const rect = extrasButtonRef.current?.getBoundingClientRect()
+      if (!rect) return
+      setExtrasMenuPos({
+        top: rect.bottom + 6,
+        left: rect.left,
+      })
+    }
+
+    const handleOutside = (event: MouseEvent) => {
+      const target = event.target as Node | null
+      if (
+        extrasButtonRef.current?.contains(target) ||
+        extrasMenuRef.current?.contains(target)
+      ) return
+      setExtrasOpen(false)
+    }
+
+    updateMenuPosition()
+    window.addEventListener('resize', updateMenuPosition)
+    window.addEventListener('scroll', updateMenuPosition, true)
+    document.addEventListener('mousedown', handleOutside)
+    return () => {
+      window.removeEventListener('resize', updateMenuPosition)
+      window.removeEventListener('scroll', updateMenuPosition, true)
+      document.removeEventListener('mousedown', handleOutside)
+    }
+  }, [extrasOpen])
 
   const processedEpoch = useMemo(() => {
     if (!montagedEpoch) return null
@@ -893,6 +946,14 @@ export default function EEGViewer() {
 
   const toggleAverageReferenceChannel = useCallback((name: string) => {
     setExcludedAverageReferenceChannels((current) =>
+      current.includes(name)
+        ? current.filter((item) => item !== name)
+        : [...current, name],
+    )
+  }, [])
+
+  const toggleHiddenMontageChannel = useCallback((name: string) => {
+    setIncludedHiddenChannels((current) =>
       current.includes(name)
         ? current.filter((item) => item !== name)
         : [...current, name],
@@ -1274,27 +1335,86 @@ export default function EEGViewer() {
                 Ref AVG
               </span>
               <span style={{
-                background: '#f8fafc',
-                border: '1px solid #cbd5e1',
-                borderRadius: 4,
-                color: '#1e293b',
-                fontSize: '0.75rem',
-                padding: '0.16rem 0.42rem',
-                whiteSpace: 'nowrap',
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 6,
               }}>
+                <span style={{
+                  color: '#64748b',
+                  fontSize: '0.68rem',
+                  lineHeight: 1.1,
+                  whiteSpace: 'nowrap',
+                }}>
+                  {averageReferenceCandidates.length - excludedAverageReferenceChannels.length}/{averageReferenceCandidates.length}
+                </span>
+                <span style={{
+                  background: '#f8fafc',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: 4,
+                  color: '#1e293b',
+                  fontSize: '0.75rem',
+                  padding: '0.16rem 0.42rem',
+                  whiteSpace: 'nowrap',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}>
                 <span>Canales AVG</span>
                 <span style={{ color: '#64748b' }}>{avgRefOpen ? '▴' : '▾'}</span>
               </span>
+              </span>
+            </button>
+          </div>
+        )}
+        {montage !== 'raw' && hiddenMontageCandidates.length > 0 && (
+          <div>
+            <button
+              ref={extrasButtonRef}
+              type="button"
+              onClick={() => setExtrasOpen((open) => !open)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                padding: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 2,
+                cursor: 'pointer',
+                userSelect: 'none',
+                alignItems: 'flex-start',
+              }}
+            >
+              <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>
+                Extras
+              </span>
               <span style={{
-                color: '#64748b',
-                fontSize: '0.68rem',
-                lineHeight: 1.1,
-                whiteSpace: 'nowrap',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
               }}>
-                {averageReferenceCandidates.length - excludedAverageReferenceChannels.length}/{averageReferenceCandidates.length} activos
+                <span style={{
+                  color: '#64748b',
+                  fontSize: '0.68rem',
+                  lineHeight: 1.1,
+                  whiteSpace: 'nowrap',
+                }}>
+                  {includedHiddenChannels.length}/{hiddenMontageCandidates.length}
+                </span>
+                <span style={{
+                  background: '#f8fafc',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: 4,
+                  color: '#1e293b',
+                  fontSize: '0.75rem',
+                  padding: '0.16rem 0.42rem',
+                  whiteSpace: 'nowrap',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}>
+                  <span>Canales</span>
+                  <span style={{ color: '#64748b' }}>{extrasOpen ? '▴' : '▾'}</span>
+                </span>
               </span>
             </button>
           </div>
@@ -1398,6 +1518,52 @@ export default function EEGViewer() {
                   type="checkbox"
                   checked={checked}
                   onChange={() => toggleAverageReferenceChannel(name)}
+                />
+                <span>{name}</span>
+              </label>
+            )
+          })}
+        </div>
+      )}
+
+      {extrasOpen && extrasMenuPos && (
+        <div
+          ref={extrasMenuRef}
+          style={{
+            position: 'fixed',
+            top: extrasMenuPos.top,
+            left: extrasMenuPos.left,
+            zIndex: 20,
+            background: 'rgba(255,255,255,0.98)',
+            border: '1px solid #cbd5e1',
+            borderRadius: 8,
+            boxShadow: '0 10px 24px rgba(15,23,42,0.12)',
+            padding: '0.45rem',
+            minWidth: 176,
+            maxHeight: 240,
+            overflowY: 'auto',
+          }}
+        >
+          <div style={{ fontSize: '0.68rem', color: '#64748b', marginBottom: 6 }}>
+            Incluye canales que no aparecen por defecto en este montaje.
+          </div>
+          {hiddenMontageCandidates.map((name) => {
+            const checked = includedHiddenChannels.includes(name)
+            return (
+              <label key={name} style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: '0.75rem',
+                color: '#334155',
+                padding: '0.14rem 0',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}>
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => toggleHiddenMontageChannel(name)}
                 />
                 <span>{name}</span>
               </label>

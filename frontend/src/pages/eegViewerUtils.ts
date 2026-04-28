@@ -125,11 +125,30 @@ export function getAverageReferenceCandidates(epoch: EpochData | null): string[]
   return getAverageReferenceSourceNames(epoch)
 }
 
+function getVisibleSourceNamesForMontage(montageName: MontageName): Set<string> {
+  if (montageName === 'raw') return new Set()
+
+  const names = new Set<string>()
+  for (const definition of MONTAGES[montageName]) {
+    const [channelA] = definition as readonly string[]
+    names.add(channelA)
+  }
+  return names
+}
+
+export function getMontageHiddenCandidates(epoch: EpochData | null, montageName: MontageName): string[] {
+  if (!epoch || montageName === 'raw') return []
+
+  const visibleNames = getVisibleSourceNamesForMontage(montageName)
+  return epoch.channelNames.filter((name) => !visibleNames.has(name))
+}
+
 export function applyMontage(
   epoch: EpochData,
   montageName: MontageName,
   options?: {
     excludedAverageReferenceChannels?: ReadonlySet<string>
+    includedHiddenChannels?: ReadonlySet<string>
   },
 ): EpochData {
   if (montageName === 'raw') return epoch
@@ -183,6 +202,15 @@ export function applyMontage(
     channelNames.push(`${channelA} - ${channelB}`)
     channelTypes.push(getType(channelA))
     data.push(subtractSignals(getSignal(channelA), reference ?? zero))
+  }
+
+  if (options?.includedHiddenChannels?.size) {
+    epoch.channelNames.forEach((name, index) => {
+      if (!options.includedHiddenChannels?.has(name)) return
+      channelNames.push(name)
+      channelTypes.push(epoch.channelTypes[index] ?? 'EEG')
+      data.push(epoch.data[index])
+    })
   }
 
   return {

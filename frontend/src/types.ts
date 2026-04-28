@@ -3,8 +3,19 @@ export interface User {
   email: string
   displayName: string
   role: string
+  status?: string
   institution?: string
   specialty?: string
+  createdAt?: string
+  lastLoginAt?: string
+  groups?: Array<{ id: string; name: string }>
+  metrics?: {
+    casesCreated: number
+    pendingReviews: number
+    activeReviews: number
+    completedReviews: number
+    totalReviews: number
+  }
 }
 
 export interface CasePackage {

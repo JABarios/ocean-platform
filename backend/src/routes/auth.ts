@@ -37,6 +37,7 @@ router.post('/register', async (req, res) => {
   }
 
   const passwordHash = await bcrypt.hash(password, 10)
+  const now = new Date()
   const user = await prisma.user.create({
     data: {
       email,
@@ -47,6 +48,7 @@ router.post('/register', async (req, res) => {
       role: 'Clinician',
       passwordHash,
       preferences: "{}",
+      lastLoginAt: now,
     },
   })
 
@@ -89,13 +91,18 @@ router.post('/login', async (req, res) => {
     return
   }
 
+  const updatedUser = await prisma.user.update({
+    where: { id: user.id },
+    data: { lastLoginAt: new Date() },
+  })
+
   const token = jwt.sign(
-    { userId: user.id, email: user.email, role: user.role },
+    { userId: updatedUser.id, email: updatedUser.email, role: updatedUser.role },
     JWT_SECRET,
     { expiresIn: '7d' }
   )
 
-  res.json({ token, user: { id: user.id, email: user.email, displayName: user.displayName, role: user.role } })
+  res.json({ token, user: { id: updatedUser.id, email: updatedUser.email, displayName: updatedUser.displayName, role: updatedUser.role } })
 })
 
 router.get('/me', authMiddleware, async (req: AuthenticatedRequest, res) => {

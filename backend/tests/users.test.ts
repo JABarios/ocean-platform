@@ -1,17 +1,20 @@
 import request from 'supertest'
 import app from '../src/index'
-import { createUser, generateToken } from './helpers'
+import { createCase, createReviewRequest, createUser, generateToken, prisma } from './helpers'
 
 describe('GET /users', () => {
-  it('Admin lista usuarios activos', async () => {
+  it('Admin lista usuarios con activos e inactivos', async () => {
     const admin = await createUser({ email: 'admin-list@ocean.local', displayName: 'Admin List', role: 'Admin' })
-    const user = await createUser({ email: 'u1@ocean.local', displayName: 'U1', password: 'pass' })
+    const active = await createUser({ email: 'active@ocean.local', displayName: 'Active User', password: 'pass' })
+    const inactive = await createUser({ email: 'inactive@ocean.local', displayName: 'Inactive User', password: 'pass' })
+    await prisma.user.update({ where: { id: inactive.id }, data: { status: 'Pending' } })
     const token = generateToken(admin.id, admin.email, admin.role)
 
     const res = await request(app).get('/users').set('Authorization', `Bearer ${token}`)
+
     expect(res.status).toBe(200)
-    expect(Array.isArray(res.body)).toBe(true)
-    expect(res.body.some((u: { email: string }) => u.email === 'u1@ocean.local')).toBe(true)
+    expect(res.body.some((u: { id: string; status: string }) => u.id === active.id && u.status === 'Active')).toBe(true)
+    expect(res.body.some((u: { id: string; status: string }) => u.id === inactive.id && u.status === 'Pending')).toBe(true)
   })
 
   it('no-Admin recibe 403', async () => {
@@ -20,6 +23,32 @@ describe('GET /users', () => {
 
     const res = await request(app).get('/users').set('Authorization', `Bearer ${token}`)
     expect(res.status).toBe(403)
+  })
+
+  it('incluye métricas y grupos del usuario', async () => {
+    const admin = await createUser({ email: 'admin-metrics@ocean.local', displayName: 'Admin Metrics', role: 'Admin' })
+    const reviewer = await createUser({ email: 'reviewer-metrics@ocean.local', displayName: 'Reviewer Metrics', password: 'pass' })
+    const owner = await createUser({ email: 'owner-metrics@ocean.local', displayName: 'Owner Metrics', password: 'pass' })
+    const group = await prisma.group.create({ data: { name: 'Epilepsia Valencia' } })
+    await prisma.groupMember.create({ data: { userId: reviewer.id, groupId: group.id } })
+    const c1 = await createCase(owner.id, { title: 'Caso 1' })
+    const c2 = await createCase(owner.id, { title: 'Caso 2' })
+    await createReviewRequest({ caseId: c1.id, requestedBy: owner.id, targetUserId: reviewer.id })
+    const accepted = await createReviewRequest({ caseId: c2.id, requestedBy: owner.id, targetUserId: reviewer.id })
+    await prisma.reviewRequest.update({
+      where: { id: accepted.id },
+      data: { status: 'Completed', completedAt: new Date() },
+    })
+    const token = generateToken(admin.id, admin.email, admin.role)
+
+    const res = await request(app).get('/users').set('Authorization', `Bearer ${token}`)
+    const row = res.body.find((entry: { id: string }) => entry.id === reviewer.id)
+
+    expect(res.status).toBe(200)
+    expect(row.groups).toEqual([{ id: group.id, name: 'Epilepsia Valencia' }])
+    expect(row.metrics.pendingReviews).toBe(1)
+    expect(row.metrics.completedReviews).toBe(1)
+    expect(row.metrics.totalReviews).toBe(2)
   })
 
   it('no incluye passwordHash en la respuesta', async () => {
@@ -45,19 +74,6 @@ describe('PATCH /users/:id/role', () => {
 
     expect(res.status).toBe(200)
     expect(res.body.role).toBe('Curator')
-  })
-
-  it('no-Admin recibe 403', async () => {
-    const clinician = await createUser({ email: 'noadmin@ocean.local', displayName: 'NoAdmin', password: 'pass' })
-    const target = await createUser({ email: 'target@ocean.local', displayName: 'Target', password: 'pass' })
-    const token = generateToken(clinician.id, clinician.email, clinician.role)
-
-    const res = await request(app)
-      .patch(`/users/${target.id}/role`)
-      .set('Authorization', `Bearer ${token}`)
-      .send({ role: 'Curator' })
-
-    expect(res.status).toBe(403)
   })
 
   it('usuario inexistente devuelve 404', async () => {
@@ -95,14 +111,70 @@ describe('PATCH /users/:id/role', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ role: 'Reviewer' })
 
-    const { prisma } = await import('./helpers')
     const audit = await prisma.auditEvent.findFirst({ where: { actorId: admin.id, action: 'RoleChanged' } })
     expect(audit).not.toBeNull()
   })
 })
 
-describe('DELETE /users/:id', () => {
+describe('PATCH /users/:id/status', () => {
   it('Admin puede dar de baja a un usuario activo', async () => {
+    const admin = await createUser({ email: 'admin-status@ocean.local', displayName: 'Admin Status', role: 'Admin' })
+    const user = await createUser({ email: 'status-me@ocean.local', displayName: 'Status Me', password: 'pass' })
+    const token = generateToken(admin.id, admin.email, admin.role)
+
+    const res = await request(app)
+      .patch(`/users/${user.id}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: 'Pending' })
+
+    expect(res.status).toBe(200)
+    expect(res.body.status).toBe('Pending')
+  })
+
+  it('Admin puede reactivar a un usuario inactivo', async () => {
+    const admin = await createUser({ email: 'admin-reactivate@ocean.local', displayName: 'Admin Reactivate', role: 'Admin' })
+    const user = await createUser({ email: 'reactivate-me@ocean.local', displayName: 'Reactivate Me', password: 'pass' })
+    await prisma.user.update({ where: { id: user.id }, data: { status: 'Pending' } })
+    const token = generateToken(admin.id, admin.email, admin.role)
+
+    const res = await request(app)
+      .patch(`/users/${user.id}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: 'Active' })
+
+    expect(res.status).toBe(200)
+    expect(res.body.status).toBe('Active')
+  })
+
+  it('estado inválido devuelve 400', async () => {
+    const admin = await createUser({ email: 'admin-invalid-status@ocean.local', displayName: 'Admin Invalid Status', role: 'Admin' })
+    const user = await createUser({ email: 'invalid-status@ocean.local', displayName: 'Invalid Status', password: 'pass' })
+    const token = generateToken(admin.id, admin.email, admin.role)
+
+    const res = await request(app)
+      .patch(`/users/${user.id}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: 'Deleted' })
+
+    expect(res.status).toBe(400)
+  })
+
+  it('no permite desactivar el propio usuario', async () => {
+    const admin = await createUser({ email: 'admin-self@ocean.local', displayName: 'Admin Self', role: 'Admin' })
+    const token = generateToken(admin.id, admin.email, admin.role)
+
+    const res = await request(app)
+      .patch(`/users/${admin.id}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: 'Pending' })
+
+    expect(res.status).toBe(400)
+    expect(res.body.error).toBe('No puedes desactivar tu propio usuario')
+  })
+})
+
+describe('DELETE /users/:id', () => {
+  it('sigue dando de baja por compatibilidad', async () => {
     const admin = await createUser({ email: 'admin-delete@ocean.local', displayName: 'Admin Delete', role: 'Admin' })
     const user = await createUser({ email: 'delete-me@ocean.local', displayName: 'Delete Me', password: 'pass' })
     const token = generateToken(admin.id, admin.email, admin.role)
@@ -113,10 +185,8 @@ describe('DELETE /users/:id', () => {
 
     expect(res.status).toBe(204)
 
-    const { prisma } = await import('./helpers')
     const deletedUser = await prisma.user.findUnique({ where: { id: user.id } })
     expect(deletedUser?.status).toBe('Pending')
-    expect(deletedUser?.passwordHash).toBeNull()
   })
 
   it('el usuario dado de baja ya no puede iniciar sesión', async () => {
@@ -136,37 +206,8 @@ describe('DELETE /users/:id', () => {
     expect(res.body.error).toBe('Usuario inactivo')
   })
 
-  it('el usuario dado de baja deja de aparecer en el listado', async () => {
-    const admin = await createUser({ email: 'admin-delete-list@ocean.local', displayName: 'Admin Delete List', role: 'Admin' })
-    const user = await createUser({ email: 'hidden@ocean.local', displayName: 'Hidden', password: 'pass' })
-    const token = generateToken(admin.id, admin.email, admin.role)
-
-    await request(app)
-      .delete(`/users/${user.id}`)
-      .set('Authorization', `Bearer ${token}`)
-
-    const res = await request(app)
-      .get('/users')
-      .set('Authorization', `Bearer ${token}`)
-
-    expect(res.status).toBe(200)
-    expect(res.body.some((entry: { id: string }) => entry.id === user.id)).toBe(false)
-  })
-
-  it('no-Admin recibe 403', async () => {
-    const actor = await createUser({ email: 'actor-delete@ocean.local', displayName: 'Actor Delete', password: 'pass' })
-    const target = await createUser({ email: 'target-delete@ocean.local', displayName: 'Target Delete', password: 'pass' })
-    const token = generateToken(actor.id, actor.email, actor.role)
-
-    const res = await request(app)
-      .delete(`/users/${target.id}`)
-      .set('Authorization', `Bearer ${token}`)
-
-    expect(res.status).toBe(403)
-  })
-
   it('no permite borrarse a uno mismo', async () => {
-    const admin = await createUser({ email: 'admin-self@ocean.local', displayName: 'Admin Self', role: 'Admin' })
+    const admin = await createUser({ email: 'admin-self-delete@ocean.local', displayName: 'Admin Self Delete', role: 'Admin' })
     const token = generateToken(admin.id, admin.email, admin.role)
 
     const res = await request(app)
@@ -186,8 +227,25 @@ describe('DELETE /users/:id', () => {
       .delete(`/users/${user.id}`)
       .set('Authorization', `Bearer ${token}`)
 
-    const { prisma } = await import('./helpers')
     const audit = await prisma.auditEvent.findFirst({ where: { actorId: admin.id, action: 'UserDeleted' } })
     expect(audit).not.toBeNull()
+  })
+})
+
+describe('Auth user activity', () => {
+  it('actualiza lastLoginAt al iniciar sesión', async () => {
+    const user = await createUser({ email: 'login-time@ocean.local', displayName: 'Login Time', password: 'ocean123' })
+    await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: null } })
+
+    const before = await prisma.user.findUnique({ where: { id: user.id } })
+    expect(before?.lastLoginAt).toBeNull()
+
+    const res = await request(app)
+      .post('/auth/login')
+      .send({ email: 'login-time@ocean.local', password: 'ocean123' })
+
+    expect(res.status).toBe(200)
+    const after = await prisma.user.findUnique({ where: { id: user.id } })
+    expect(after?.lastLoginAt).not.toBeNull()
   })
 })

@@ -17,6 +17,7 @@ CREATE TABLE "users" (
     "password_hash" TEXT,
     "public_key" TEXT,
     "preferences" TEXT DEFAULT '{}',
+    "last_login_at" DATETIME,
     "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" DATETIME NOT NULL
 );

@@ -1460,7 +1460,16 @@ export default function EEGViewer() {
   const showArtifactControl = dsaChannel !== 'off'
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#f1f5f9', overflow: 'hidden' }}>
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      height: '100dvh',
+      minHeight: '100vh',
+      paddingTop: 'env(safe-area-inset-top, 0px)',
+      background: '#f1f5f9',
+      overflow: 'hidden',
+      boxSizing: 'border-box',
+    }}>
 
       {/* Toolbar */}
       <div style={{

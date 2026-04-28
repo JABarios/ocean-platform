@@ -58,6 +58,27 @@ router.get('/', async (req: AuthenticatedRequest, res) => {
   res.json(cases.map(toCaseResponse))
 })
 
+// Bandeja operativa de casos del propietario
+router.get('/managed', async (req: AuthenticatedRequest, res) => {
+  const cases = await prisma.case.findMany({
+    where: { ownerId: req.user!.id },
+    orderBy: { createdAt: 'desc' },
+    include: {
+      package: true,
+      reviewRequests: {
+        orderBy: { createdAt: 'desc' },
+        include: {
+          requester: { select: { id: true, displayName: true } },
+          targetUser: { select: { id: true, displayName: true, email: true } },
+          targetGroup: { select: { id: true, name: true } },
+        },
+      },
+      _count: { select: { comments: true } },
+    },
+  })
+  res.json(cases.map(toCaseResponse))
+})
+
 // Crear caso
 router.post('/', async (req: AuthenticatedRequest, res) => {
   const parsed = createCaseSchema.safeParse(req.body)

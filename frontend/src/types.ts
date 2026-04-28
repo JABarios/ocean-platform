@@ -62,6 +62,7 @@ export interface ReviewRequest {
   case?: Pick<CaseItem, 'id' | 'title' | 'status'>
   requester?: Pick<User, 'id' | 'displayName'>
   targetUser?: Pick<User, 'id' | 'displayName'>
+  targetGroup?: { id: string; name: string }
 }
 
 export interface Comment {

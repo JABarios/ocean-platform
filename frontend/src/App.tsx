@@ -11,6 +11,7 @@ import TeachingLibrary from './pages/TeachingLibrary'
 import TeachingQueue from './pages/TeachingQueue'
 import UserAdmin from './pages/UserAdmin'
 import CleanupAdmin from './pages/CleanupAdmin'
+import CaseOperations from './pages/CaseOperations'
 
 export default function App() {
   return (
@@ -33,6 +34,16 @@ export default function App() {
           <ProtectedRoute>
             <Layout>
               <CaseNew />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/cases/manage"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <CaseOperations />
             </Layout>
           </ProtectedRoute>
         }

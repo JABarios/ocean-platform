@@ -34,6 +34,44 @@ describe('GET /cases', () => {
     expect(res.status).toBe(200)
     expect(res.body).toHaveLength(0)
   })
+
+  it('GET /cases/managed incluye solicitudes y paquete para la gestión operativa', async () => {
+    const owner = await createUser({ email: 'managed@ocean.local', displayName: 'Managed', password: 'pass' })
+    const reviewer = await createUser({ email: 'managed-reviewer@ocean.local', displayName: 'Managed Reviewer', password: 'pass' })
+    const group = await prisma.group.create({ data: { name: 'Grupo EEG' } })
+    const groupRequestCase = await createCase(owner.id, { title: 'Caso con grupo' })
+    const c = await createCase(owner.id, { title: 'Caso gestionado', statusClinical: 'Requested' })
+    await prisma.casePackage.create({
+      data: {
+        caseId: c.id,
+        blobLocation: `${c.id}/file.enc`,
+        blobHash: 'hash-managed',
+        uploadStatus: 'Ready',
+      },
+    })
+    await createReviewRequest({ caseId: c.id, requestedBy: owner.id, targetUserId: reviewer.id })
+    await prisma.reviewRequest.create({
+      data: {
+        caseId: groupRequestCase.id,
+        requestedBy: owner.id,
+        targetGroupId: group.id,
+        status: 'Pending',
+      },
+    })
+    const token = generateToken(owner.id, owner.email, owner.role)
+
+    const res = await request(app).get('/cases/managed').set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(200)
+    const row = res.body.find((item: { id: string }) => item.id === c.id)
+    expect(row).toBeTruthy()
+    expect(Array.isArray(row.reviewRequests)).toBe(true)
+    expect(row.reviewRequests[0].targetUser.displayName).toBe('Managed Reviewer')
+    expect(row.package.blobHash).toBe('hash-managed')
+
+    const groupRow = res.body.find((item: { id: string }) => item.id === groupRequestCase.id)
+    expect(groupRow.reviewRequests[0].targetGroup.name).toBe('Grupo EEG')
+  })
 })
 
 describe('POST /cases — respuesta serializada', () => {

@@ -106,9 +106,10 @@ router.post('/login', async (req, res) => {
 })
 
 router.get('/me', authMiddleware, async (req: AuthenticatedRequest, res) => {
-  const user = await prisma.user.findUnique({
+  const user = await prisma.user.update({
     where: { id: req.user!.id },
-    select: { id: true, email: true, displayName: true, institution: true, specialty: true, role: true, status: true },
+    data: { lastLoginAt: new Date() },
+    select: { id: true, email: true, displayName: true, institution: true, specialty: true, role: true, status: true, lastLoginAt: true },
   })
   if (!user) {
     res.status(404).json({ error: 'Usuario no encontrado' })

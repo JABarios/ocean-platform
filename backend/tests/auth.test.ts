@@ -68,6 +68,23 @@ describe('GET /auth/me', () => {
     expect(res.body.email).toBe('me@ocean.local')
   })
 
+  it('actualiza lastLoginAt al consultar /auth/me', async () => {
+    const user = await createUser({ email: 'me-access@ocean.local', displayName: 'Me Access', password: 'pass' })
+    await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: null } })
+    const token = generateToken(user.id, user.email, user.role)
+
+    const before = await prisma.user.findUnique({ where: { id: user.id } })
+    expect(before?.lastLoginAt).toBeNull()
+
+    const res = await request(app).get('/auth/me').set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.lastLoginAt).toBeTruthy()
+
+    const after = await prisma.user.findUnique({ where: { id: user.id } })
+    expect(after?.lastLoginAt).not.toBeNull()
+  })
+
   it('rechaza sin token', async () => {
     const res = await request(app).get('/auth/me')
     expect(res.status).toBe(401)

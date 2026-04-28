@@ -669,6 +669,7 @@ export default function EEGViewer() {
   const [normalizeNonEEG, setNormalizeNonEEG] = useState(false)
   const [montage,         setMontage]         = useState<MontageName>('promedio')
   const [excludedAverageReferenceChannels, setExcludedAverageReferenceChannels] = useState<string[]>([])
+  const [avgRefOpen, setAvgRefOpen] = useState(false)
   const [dsaChannel,      setDsaChannel]      = useState('off')
   const [artifactReject,  setArtifactReject]  = useState(false)
   const [dsaData,         setDsaData]         = useState<DSAData | null>(null)
@@ -706,6 +707,10 @@ export default function EEGViewer() {
       current.filter((name) => averageReferenceCandidates.includes(name)),
     )
   }, [averageReferenceCandidates])
+
+  useEffect(() => {
+    if (montage !== 'promedio') setAvgRefOpen(false)
+  }, [montage])
 
   const processedEpoch = useMemo(() => {
     if (!montagedEpoch) return null
@@ -1190,17 +1195,6 @@ export default function EEGViewer() {
         padding: '0.35rem 0.6rem', background: '#ffffff',
         borderBottom: '1px solid #e2e8f0', flexShrink: 0,
       }}>
-        <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center', flexShrink: 0 }}>
-          <span style={{ color: '#94a3b8', fontSize: '0.7rem', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>t={timeOffsetSec}s</span>
-          <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 0} title="Anterior (←)" style={navBtnStyle(currentPage === 0)}>←</button>
-          <span style={{ color: '#475569', fontSize: '0.75rem', fontFamily: 'monospace', minWidth: 54, textAlign: 'center', whiteSpace: 'nowrap' }}>
-            {currentPage + 1} / {totalPages}
-          </span>
-          <button onClick={() => goToPage(currentPage + 1)} disabled={currentPage >= maxPage} title="Siguiente (→)" style={navBtnStyle(currentPage >= maxPage)}>→</button>
-        </div>
-
-        <div style={{ width: 1, height: 36, background: '#e2e8f0', flexShrink: 0 }} />
-
         <ToolbarSelect label="HP" value={hp} onChange={handleHpChange}>
           {HP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </ToolbarSelect>
@@ -1221,15 +1215,22 @@ export default function EEGViewer() {
           {MONTAGE_OPTIONS.map((name) => <option key={name} value={name}>{name}</option>)}
         </ToolbarSelect>
         {montage === 'promedio' && averageReferenceCandidates.length > 0 && (
-          <details style={{ position: 'relative' }}>
-            <summary style={{
-              listStyle: 'none',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 2,
-              cursor: 'pointer',
-              userSelect: 'none',
-            }}>
+          <div style={{ position: 'relative' }}>
+            <button
+              type="button"
+              onClick={() => setAvgRefOpen((open) => !open)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                padding: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 2,
+                cursor: 'pointer',
+                userSelect: 'none',
+                alignItems: 'flex-start',
+              }}
+            >
               <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>
                 Ref AVG
               </span>
@@ -1246,7 +1247,7 @@ export default function EEGViewer() {
                 gap: 6,
               }}>
                 <span>Canales AVG</span>
-                <span style={{ color: '#64748b' }}>▾</span>
+                <span style={{ color: '#64748b' }}>{avgRefOpen ? '▴' : '▾'}</span>
               </span>
               <span style={{
                 color: '#64748b',
@@ -1256,49 +1257,51 @@ export default function EEGViewer() {
               }}>
                 {averageReferenceCandidates.length - excludedAverageReferenceChannels.length}/{averageReferenceCandidates.length} activos
               </span>
-            </summary>
-            <div style={{
-              position: 'absolute',
-              top: '100%',
-              left: 0,
-              marginTop: 6,
-              zIndex: 4,
-              background: 'rgba(255,255,255,0.98)',
-              border: '1px solid #cbd5e1',
-              borderRadius: 8,
-              boxShadow: '0 10px 24px rgba(15,23,42,0.12)',
-              padding: '0.45rem',
-              minWidth: 176,
-              maxHeight: 240,
-              overflowY: 'auto',
-            }}>
-              <div style={{ fontSize: '0.68rem', color: '#64748b', marginBottom: 6 }}>
-                Desmarca canales ruidosos de la referencia media.
+            </button>
+            {avgRefOpen && (
+              <div style={{
+                position: 'absolute',
+                top: '100%',
+                left: 0,
+                marginTop: 6,
+                zIndex: 4,
+                background: 'rgba(255,255,255,0.98)',
+                border: '1px solid #cbd5e1',
+                borderRadius: 8,
+                boxShadow: '0 10px 24px rgba(15,23,42,0.12)',
+                padding: '0.45rem',
+                minWidth: 176,
+                maxHeight: 240,
+                overflowY: 'auto',
+              }}>
+                <div style={{ fontSize: '0.68rem', color: '#64748b', marginBottom: 6 }}>
+                  Desmarca canales ruidosos de la referencia media.
+                </div>
+                {averageReferenceCandidates.map((name) => {
+                  const checked = !excludedAverageReferenceChannels.includes(name)
+                  return (
+                    <label key={name} style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      fontSize: '0.75rem',
+                      color: '#334155',
+                      padding: '0.14rem 0',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleAverageReferenceChannel(name)}
+                      />
+                      <span>{name}</span>
+                    </label>
+                  )
+                })}
               </div>
-              {averageReferenceCandidates.map((name) => {
-                const checked = !excludedAverageReferenceChannels.includes(name)
-                return (
-                  <label key={name} style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    fontSize: '0.75rem',
-                    color: '#334155',
-                    padding: '0.14rem 0',
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                  }}>
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleAverageReferenceChannel(name)}
-                    />
-                    <span>{name}</span>
-                  </label>
-                )
-              })}
-            </div>
-          </details>
+            )}
+          </div>
         )}
         <ToolbarSelect label="DSA" value={dsaChannel} onChange={handleDsaChannelChange} width={112}>
           <option value="off">Desactivado</option>
@@ -1350,6 +1353,15 @@ export default function EEGViewer() {
         </label>
 
         <div style={{ flex: 1, minWidth: 8 }} />
+
+        <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center', flexShrink: 0 }}>
+          <span style={{ color: '#94a3b8', fontSize: '0.7rem', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>t={timeOffsetSec}s</span>
+          <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 0} title="Anterior (←)" style={navBtnStyle(currentPage === 0)}>←</button>
+          <span style={{ color: '#475569', fontSize: '0.75rem', fontFamily: 'monospace', minWidth: 54, textAlign: 'center', whiteSpace: 'nowrap' }}>
+            {currentPage + 1} / {totalPages}
+          </span>
+          <button onClick={() => goToPage(currentPage + 1)} disabled={currentPage >= maxPage} title="Siguiente (→)" style={navBtnStyle(currentPage >= maxPage)}>→</button>
+        </div>
       </div>
 
       {/* Canvas area — overflow:hidden so canvas fills exact height */}

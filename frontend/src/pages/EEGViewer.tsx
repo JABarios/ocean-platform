@@ -431,10 +431,11 @@ function StatusScreen({ message }: { message: string }) {
 // ─── Toolbar select ───────────────────────────────────────────────────────────
 
 function ToolbarSelect({
-  label, value, onChange, children,
+  label, value, onChange, children, width,
 }: {
   label: string; value: string | number
   onChange: (v: string) => void; children: React.ReactNode
+  width?: number
 }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -445,6 +446,8 @@ function ToolbarSelect({
         background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 4,
         color: '#1e293b', fontSize: '0.75rem', padding: '0.16rem 0.35rem',
         cursor: 'pointer', outline: 'none',
+        width,
+        maxWidth: width,
       }}>
         {children}
       </select>
@@ -1187,10 +1190,21 @@ export default function EEGViewer() {
         padding: '0.35rem 0.6rem', background: '#ffffff',
         borderBottom: '1px solid #e2e8f0', flexShrink: 0,
       }}>
-        <ToolbarSelect label="F. Baja (HP)" value={hp} onChange={handleHpChange}>
+        <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center', flexShrink: 0 }}>
+          <span style={{ color: '#94a3b8', fontSize: '0.7rem', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>t={timeOffsetSec}s</span>
+          <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 0} title="Anterior (←)" style={navBtnStyle(currentPage === 0)}>←</button>
+          <span style={{ color: '#475569', fontSize: '0.75rem', fontFamily: 'monospace', minWidth: 54, textAlign: 'center', whiteSpace: 'nowrap' }}>
+            {currentPage + 1} / {totalPages}
+          </span>
+          <button onClick={() => goToPage(currentPage + 1)} disabled={currentPage >= maxPage} title="Siguiente (→)" style={navBtnStyle(currentPage >= maxPage)}>→</button>
+        </div>
+
+        <div style={{ width: 1, height: 36, background: '#e2e8f0', flexShrink: 0 }} />
+
+        <ToolbarSelect label="HP" value={hp} onChange={handleHpChange}>
           {HP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </ToolbarSelect>
-        <ToolbarSelect label="F. Alta (LP)" value={lp} onChange={handleLpChange}>
+        <ToolbarSelect label="LP" value={lp} onChange={handleLpChange}>
           {LP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </ToolbarSelect>
         <ToolbarSelect label="Notch" value={notch ? '1' : '0'} onChange={handleNotchChange}>
@@ -1203,7 +1217,7 @@ export default function EEGViewer() {
         <ToolbarSelect label="Ventana" value={windowSecs} onChange={handleWindowChange}>
           {WINDOW_OPTIONS.map((s) => <option key={s} value={s}>{s}s</option>)}
         </ToolbarSelect>
-        <ToolbarSelect label="Montaje" value={montage} onChange={(v) => setMontage(v as MontageName)}>
+        <ToolbarSelect label="Mont" value={montage} onChange={(v) => setMontage(v as MontageName)} width={108}>
           {MONTAGE_OPTIONS.map((name) => <option key={name} value={name}>{name}</option>)}
         </ToolbarSelect>
         {montage === 'promedio' && averageReferenceCandidates.length > 0 && (
@@ -1225,10 +1239,22 @@ export default function EEGViewer() {
                 borderRadius: 4,
                 color: '#1e293b',
                 fontSize: '0.75rem',
-                padding: '0.16rem 0.35rem',
+                padding: '0.16rem 0.42rem',
+                whiteSpace: 'nowrap',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+              }}>
+                <span>Canales AVG</span>
+                <span style={{ color: '#64748b' }}>▾</span>
+              </span>
+              <span style={{
+                color: '#64748b',
+                fontSize: '0.68rem',
+                lineHeight: 1.1,
                 whiteSpace: 'nowrap',
               }}>
-                {averageReferenceCandidates.length - excludedAverageReferenceChannels.length}/{averageReferenceCandidates.length}
+                {averageReferenceCandidates.length - excludedAverageReferenceChannels.length}/{averageReferenceCandidates.length} activos
               </span>
             </summary>
             <div style={{
@@ -1274,7 +1300,7 @@ export default function EEGViewer() {
             </div>
           </details>
         )}
-        <ToolbarSelect label="DSA" value={dsaChannel} onChange={handleDsaChannelChange}>
+        <ToolbarSelect label="DSA" value={dsaChannel} onChange={handleDsaChannelChange} width={112}>
           <option value="off">Desactivado</option>
           {dsaChannels.map((channel) => <option key={channel.index} value={channel.index}>{channel.name}</option>)}
         </ToolbarSelect>
@@ -1306,7 +1332,7 @@ export default function EEGViewer() {
         <div style={{ width: 1, height: 32, background: '#e2e8f0', flexShrink: 0 }} />
 
         <label style={{ display: 'flex', flexDirection: 'column', gap: 2, cursor: 'pointer' }}>
-          <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>Norm. no-EEG</span>
+          <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>Norm</span>
           <button
             onClick={() => setNormalizeNonEEG((v) => !v)}
             title="Normalizar canales no-EEG a z-score (media=0, σ=1)"
@@ -1314,24 +1340,16 @@ export default function EEGViewer() {
               background: normalizeNonEEG ? '#dbeafe' : '#f8fafc',
               border: `1px solid ${normalizeNonEEG ? '#93c5fd' : '#cbd5e1'}`,
               borderRadius: 4, color: normalizeNonEEG ? '#1d4ed8' : '#475569',
-              fontSize: '0.75rem', padding: '0.16rem 0.45rem',
+              fontSize: '0.75rem', padding: '0.16rem 0.38rem',
               cursor: 'pointer', fontWeight: normalizeNonEEG ? 600 : 400,
+              minWidth: 66,
             }}
           >
-            {normalizeNonEEG ? 'z-score ✓' : 'z-score'}
+            {normalizeNonEEG ? 'z ✓' : 'z'}
           </button>
         </label>
 
         <div style={{ flex: 1, minWidth: 8 }} />
-
-        <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center', flexShrink: 0 }}>
-          <span style={{ color: '#94a3b8', fontSize: '0.7rem', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>t={timeOffsetSec}s</span>
-          <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 0} title="Anterior (←)" style={navBtnStyle(currentPage === 0)}>←</button>
-          <span style={{ color: '#475569', fontSize: '0.75rem', fontFamily: 'monospace', minWidth: 54, textAlign: 'center', whiteSpace: 'nowrap' }}>
-            {currentPage + 1} / {totalPages}
-          </span>
-          <button onClick={() => goToPage(currentPage + 1)} disabled={currentPage >= maxPage} title="Siguiente (→)" style={navBtnStyle(currentPage >= maxPage)}>→</button>
-        </div>
       </div>
 
       {/* Canvas area — overflow:hidden so canvas fills exact height */}

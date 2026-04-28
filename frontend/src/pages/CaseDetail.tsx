@@ -52,11 +52,13 @@ export default function CaseDetail() {
 
   const [decryptKey, setDecryptKey] = useState('')
   const [storedDecryptKey, setStoredDecryptKey] = useState('')
+  const [revealedStoredKey, setRevealedStoredKey] = useState('')
   const [decrypting, setDecrypting] = useState(false)
   const [decryptedUrl, setDecryptedUrl] = useState('')
   const [showPasswordModal, setShowPasswordModal] = useState(false)
   const [passwordConfirm, setPasswordConfirm] = useState('')
   const [recoveringKey, setRecoveringKey] = useState(false)
+  const [passwordAction, setPasswordAction] = useState<'use' | 'reveal'>('use')
 
   const { decryptFile } = useCrypto()
 
@@ -231,12 +233,25 @@ export default function CaseDetail() {
       })
       setStoredDecryptKey(res.keyBase64)
       sessionStorage.setItem(`ocean_eeg_key_${id}`, res.keyBase64)
+      if (passwordAction === 'reveal') {
+        setRevealedStoredKey(res.keyBase64)
+      }
       setPasswordConfirm('')
       setShowPasswordModal(false)
     } catch (err) {
       alert(friendlyError(err))
     } finally {
       setRecoveringKey(false)
+    }
+  }
+
+  const copyRevealedKey = async () => {
+    if (!revealedStoredKey) return
+    try {
+      await navigator.clipboard.writeText(revealedStoredKey)
+      alert('Clave copiada al portapapeles')
+    } catch {
+      alert('No se pudo copiar automáticamente. Puedes seleccionarla manualmente.')
     }
   }
 
@@ -405,17 +420,46 @@ export default function CaseDetail() {
               {decrypting ? 'Descifrando…' : 'Descifrar y descargar .edf'}
             </button>
             {caseItem.storedKeyAvailable && (
-              <button
-                className="btn-secondary"
-                type="button"
-                onClick={() => setShowPasswordModal(true)}
-              >
-                Usar clave guardada en OCEAN
-              </button>
+              <>
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  onClick={() => {
+                    setPasswordAction('use')
+                    setShowPasswordModal(true)
+                  }}
+                >
+                  Usar clave guardada en OCEAN
+                </button>
+                {isOwner && (
+                  <button
+                    className="btn-secondary"
+                    type="button"
+                    onClick={() => {
+                      setPasswordAction('reveal')
+                      setShowPasswordModal(true)
+                    }}
+                  >
+                    Mostrar clave
+                  </button>
+                )}
+              </>
             )}
           </div>
           {storedDecryptKey && (
             <div className="stored-key-banner">Clave recuperada desde OCEAN y lista para usar en este caso.</div>
+          )}
+          {revealedStoredKey && isOwner && (
+            <div className="revealed-key-box">
+              <div className="revealed-key-header">
+                <strong>Clave custodiada revelada</strong>
+                <button type="button" className="btn-secondary" onClick={copyRevealedKey}>
+                  Copiar clave
+                </button>
+              </div>
+              <div className="revealed-key-value">{revealedStoredKey}</div>
+              <div className="revealed-key-hint">Compártela solo si necesitas dar acceso manual fuera del flujo confiado de OCEAN.</div>
+            </div>
           )}
           {decryptedUrl && (
             <a
@@ -536,8 +580,12 @@ export default function CaseDetail() {
       {showPasswordModal && (
         <div className="modal-overlay" onClick={() => setShowPasswordModal(false)}>
           <div className="modal card" onClick={(e) => e.stopPropagation()}>
-            <h3>Recuperar acceso EEG</h3>
-            <p className="modal-copy">Confirma tu contraseña de OCEAN para usar la clave custodiada del caso.</p>
+            <h3>{passwordAction === 'reveal' ? 'Mostrar clave EEG' : 'Recuperar acceso EEG'}</h3>
+            <p className="modal-copy">
+              {passwordAction === 'reveal'
+                ? 'Confirma tu contraseña de OCEAN para revelar la clave custodiada y poder compartirla manualmente.'
+                : 'Confirma tu contraseña de OCEAN para usar la clave custodiada del caso.'}
+            </p>
             <div className="modal-form">
               <label>
                 Contraseña
@@ -563,7 +611,7 @@ export default function CaseDetail() {
                   onClick={recoverStoredKey}
                   disabled={recoveringKey || !passwordConfirm.trim()}
                 >
-                  {recoveringKey ? 'Validando…' : 'Usar clave guardada'}
+                  {recoveringKey ? 'Validando…' : passwordAction === 'reveal' ? 'Mostrar clave' : 'Usar clave guardada'}
                 </button>
               </div>
             </div>
@@ -693,6 +741,37 @@ export default function CaseDetail() {
           border: 1px solid #bbf7d0;
           color: #166534;
           font-size: 0.9rem;
+        }
+        .revealed-key-box {
+          margin-top: 0.75rem;
+          padding: 0.8rem;
+          border-radius: 0.7rem;
+          background: #fff7ed;
+          border: 1px solid #fdba74;
+          display: flex;
+          flex-direction: column;
+          gap: 0.55rem;
+        }
+        .revealed-key-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.75rem;
+        }
+        .revealed-key-value {
+          font-family: monospace;
+          font-size: 0.82rem;
+          color: #7c2d12;
+          background: rgba(255,255,255,0.6);
+          border: 1px solid #fed7aa;
+          border-radius: 0.45rem;
+          padding: 0.65rem 0.75rem;
+          word-break: break-all;
+        }
+        .revealed-key-hint {
+          color: #9a3412;
+          font-size: 0.82rem;
+          line-height: 1.45;
         }
         .decrypt-box input {
           flex: 1;

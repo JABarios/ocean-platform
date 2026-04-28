@@ -398,4 +398,33 @@ describe('CaseDetail — sección de paquete EEG', () => {
     expect(await screen.findByText(/Clave recuperada desde OCEAN/i)).toBeInTheDocument()
     expect(sessionStorage.getItem('ocean_eeg_key_case-1')).toBe('stored-base64-key')
   })
+
+  it('permite al propietario revelar la clave custodiada para compartirla manualmente', async () => {
+    mockFetchSequence([
+      {
+        data: {
+          ...BASE_CASE,
+          storedKeyAvailable: true,
+          package: {
+            id: 'pkg-1', caseId: 'case-1', sizeBytes: 1024,
+            blobHash: 'abc123', uploadStatus: 'Ready',
+            retentionPolicy: 'Temporal72h', createdAt: '2026-01-15T10:00:00.000Z',
+          },
+        },
+      },
+      { data: [] },
+      { data: [OTHER_USER] },
+      { data: { keyBase64: 'share-this-key' } },
+    ])
+
+    renderDetail()
+    fireEvent.click(await screen.findByRole('button', { name: /Mostrar clave/i }))
+    fireEvent.change(screen.getByPlaceholderText(/Tu contraseña de OCEAN/i), {
+      target: { value: 'ocean123' },
+    })
+    fireEvent.click(screen.getAllByRole('button', { name: /^Mostrar clave$/i })[1])
+
+    expect(await screen.findByText(/Clave custodiada revelada/i)).toBeInTheDocument()
+    expect(screen.getByText('share-this-key')).toBeInTheDocument()
+  })
 })

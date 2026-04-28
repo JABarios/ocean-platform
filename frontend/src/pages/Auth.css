@@ -63,3 +63,14 @@
   margin-top: 0.25rem;
   font-family: ui-monospace, monospace;
 }
+
+@media (max-width: 640px) {
+  .auth-page {
+    padding: 1.25rem 0.9rem;
+    align-items: flex-start;
+  }
+
+  .auth-card {
+    padding: 1.2rem;
+  }
+}

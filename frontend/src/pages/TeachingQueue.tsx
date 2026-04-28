@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import { useAuthStore } from '../store/authStore'
 import type { TeachingProposal } from '../types'
+import './TeachingQueue.css'
 
 export default function TeachingQueue() {
   const user = useAuthStore((s) => s.user)
@@ -160,104 +161,6 @@ export default function TeachingQueue() {
         </ul>
       )}
 
-      <style>{`
-        .queue {
-          display: flex;
-          flex-direction: column;
-          gap: 1rem;
-        }
-        .queue h2 {
-          font-size: 1.2rem;
-          font-weight: 600;
-        }
-        .subtitle {
-          color: var(--text-secondary);
-          font-size: 0.9rem;
-          margin-top: -0.5rem;
-        }
-        .filters {
-          display: flex;
-          gap: 0.5rem;
-        }
-        .filters button {
-          padding: 0.35rem 0.75rem;
-          font-size: 0.85rem;
-        }
-        .empty-state {
-          color: var(--text-secondary);
-          padding: 2rem;
-          text-align: center;
-        }
-        .queue-list {
-          list-style: none;
-          display: flex;
-          flex-direction: column;
-          gap: 0.75rem;
-        }
-        .queue-item {
-          display: flex;
-          flex-direction: column;
-          gap: 0.6rem;
-        }
-        .item-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 1rem;
-        }
-        .item-header h3 {
-          font-size: 1rem;
-          font-weight: 600;
-        }
-        .item-badges {
-          display: flex;
-          gap: 0.4rem;
-        }
-        .item-body {
-          display: flex;
-          flex-direction: column;
-          gap: 0.5rem;
-        }
-        .field-label {
-          display: block;
-          font-size: 0.8rem;
-          font-weight: 600;
-          color: var(--text-secondary);
-          text-transform: uppercase;
-          letter-spacing: 0.03em;
-          margin-bottom: 0.15rem;
-        }
-        .field p {
-          font-size: 0.9rem;
-          color: var(--text);
-        }
-        .item-meta {
-          display: flex;
-          gap: 1.5rem;
-          font-size: 0.8rem;
-          color: var(--text-secondary);
-        }
-        .item-tags {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 0.35rem;
-        }
-        .tag {
-          background: #eef2ff;
-          color: #3730a3;
-          padding: 0.15rem 0.5rem;
-          border-radius: 999px;
-          font-size: 0.75rem;
-          font-weight: 500;
-        }
-        .item-actions {
-          display: flex;
-          gap: 0.5rem;
-          margin-top: 0.25rem;
-        }
-        .badge-proposed { background: #dbeafe; color: #1e40af; }
-        .badge-recommended { background: #fef3c7; color: #92400e; }
-      `}</style>
     </div>
   )
 }

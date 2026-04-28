@@ -20,6 +20,7 @@ import {
 import type { EpochData, MontageName, PersistedViewerState } from './eegViewerUtils'
 import type { CaseItem } from '../types'
 import { getEncryptedPackageFromCache, saveEncryptedPackageToCache } from './encryptedPackageCache'
+import './EEGViewer.css'
 
 // ─── WASM types ───────────────────────────────────────────────────────────────
 
@@ -415,18 +416,9 @@ function drawOverlay(
 
 function StatusScreen({ message }: { message: string }) {
   return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', alignItems: 'center',
-      justifyContent: 'center', height: '100vh', background: '#f1f5f9',
-      color: '#64748b', fontFamily: 'monospace', fontSize: '1rem', gap: '1rem',
-    }}>
-      <div style={{
-        width: 28, height: 28,
-        border: '3px solid #e2e8f0', borderTop: '3px solid #2563eb',
-        borderRadius: '50%', animation: 'spin 0.8s linear infinite',
-      }} />
+    <div className="viewer-status-screen">
+      <div className="viewer-status-spinner" />
       <span>{message}</span>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   )
 }

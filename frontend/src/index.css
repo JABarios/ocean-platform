@@ -36,6 +36,11 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+::selection {
+  background: rgba(15, 91, 216, 0.18);
+  color: var(--text);
+}
+
 button {
   cursor: pointer;
   border: 1px solid transparent;
@@ -83,6 +88,10 @@ a:hover {
 
 h1, h2, h3 {
   letter-spacing: -0.02em;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 }
 
 .card {
@@ -160,4 +169,22 @@ h1, h2, h3 {
   padding: 0.75rem 0.95rem;
   border-radius: 12px;
   font-size: 0.9rem;
+}
+
+@media (max-width: 760px) {
+  button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .btn-primary,
+  .btn-secondary,
+  .btn-danger {
+    min-height: 42px;
+  }
+
+  .card {
+    padding: 1rem;
+    border-radius: 14px;
+  }
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, friendlyError } from '../api/client'
 import type { EegRecord } from '../types'
+import './EegRecords.css'
 
 function formatDate(value?: string) {
   if (!value) return '—'
@@ -85,119 +86,6 @@ export default function EegRecords() {
         )}
       </div>
 
-      <style>{`
-        .eeg-records {
-          display: flex;
-          flex-direction: column;
-          gap: 1rem;
-        }
-        .records-header {
-          display: flex;
-          justify-content: space-between;
-          gap: 1rem;
-          align-items: flex-start;
-          flex-wrap: wrap;
-        }
-        .records-header h2 {
-          font-size: 1.2rem;
-          font-weight: 600;
-          margin-bottom: 0.25rem;
-        }
-        .records-subtle, .record-meta {
-          color: var(--text-secondary);
-          font-size: 0.9rem;
-        }
-        .records-summary {
-          min-width: 140px;
-          display: flex;
-          flex-direction: column;
-          gap: 0.25rem;
-          align-items: center;
-          justify-content: center;
-        }
-        .records-summary strong, .usage-pill strong {
-          font-size: 1.15rem;
-        }
-        .records-summary span, .usage-pill span {
-          color: var(--text-secondary);
-          font-size: 0.78rem;
-          text-transform: uppercase;
-          letter-spacing: 0.04em;
-        }
-        .error-banner {
-          background: #fef2f2;
-          color: #b91c1c;
-          border: 1px solid #fca5a5;
-          padding: 0.6rem 1rem;
-          border-radius: 6px;
-          font-size: 0.9rem;
-        }
-        .records-list {
-          display: flex;
-          flex-direction: column;
-          gap: 1rem;
-        }
-        .record-card {
-          display: flex;
-          flex-direction: column;
-          gap: 0.9rem;
-        }
-        .record-top, .linked-case-row {
-          display: flex;
-          justify-content: space-between;
-          gap: 1rem;
-          flex-wrap: wrap;
-          align-items: flex-start;
-        }
-        .hash-row {
-          display: flex;
-          gap: 0.55rem;
-          align-items: center;
-          flex-wrap: wrap;
-          margin-bottom: 0.25rem;
-        }
-        .hash-row code {
-          font-size: 0.8rem;
-          background: #f8fafc;
-          border: 1px solid var(--border);
-          border-radius: 8px;
-          padding: 0.35rem 0.55rem;
-          word-break: break-all;
-        }
-        .usage-pill {
-          border: 1px solid var(--border);
-          border-radius: 10px;
-          background: var(--surface);
-          padding: 0.7rem 0.85rem;
-          min-width: 90px;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 0.2rem;
-        }
-        .linked-cases {
-          display: flex;
-          flex-direction: column;
-          gap: 0.7rem;
-        }
-        .linked-case-row {
-          border-top: 1px solid var(--border);
-          padding-top: 0.7rem;
-        }
-        .linked-case-title {
-          font-weight: 600;
-        }
-        .linked-case-actions {
-          display: flex;
-          gap: 0.8rem;
-          flex-wrap: wrap;
-          font-size: 0.9rem;
-        }
-        .empty-card {
-          color: var(--text-secondary);
-          text-align: center;
-        }
-      `}</style>
     </div>
   )
 }

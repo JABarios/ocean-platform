@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import type { TeachingProposal } from '../types'
+import './TeachingLibrary.css'
 
 const DIFFICULTIES = ['Introductory', 'Intermediate', 'Advanced']
 
@@ -98,34 +99,6 @@ export default function TeachingLibrary() {
         </ul>
       )}
 
-      <style>{`
-        .library { display: flex; flex-direction: column; gap: 1rem; }
-        .library h2 { font-size: 1.2rem; font-weight: 600; }
-        .subtitle { color: var(--text-secondary); font-size: 0.9rem; margin-top: -0.5rem; }
-        .search-bar {
-          display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; padding: 0.75rem 1rem;
-        }
-        .search-bar input[type="text"] {
-          flex: 1; min-width: 140px; padding: 0.4rem 0.6rem;
-          border: 1px solid var(--border); border-radius: 6px; font-size: 0.9rem; background: var(--bg);
-        }
-        .search-bar select {
-          padding: 0.4rem 0.6rem; border: 1px solid var(--border);
-          border-radius: 6px; font-size: 0.9rem; background: var(--bg); cursor: pointer;
-        }
-        .empty-state { color: var(--text-secondary); padding: 2rem; text-align: center; }
-        .library-list { list-style: none; display: flex; flex-direction: column; gap: 0.75rem; }
-        .library-item { display: flex; flex-direction: column; gap: 0.6rem; }
-        .item-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
-        .item-header h3 { font-size: 1rem; font-weight: 600; }
-        .item-summary { font-size: 0.9rem; color: var(--text-secondary); line-height: 1.45; }
-        .item-meta { display: flex; gap: 1.5rem; font-size: 0.8rem; color: var(--text-secondary); }
-        .item-tags { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-        .tag {
-          background: #eef2ff; color: #3730a3;
-          padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.75rem; font-weight: 500;
-        }
-      `}</style>
     </div>
   )
 }

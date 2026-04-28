@@ -230,3 +230,20 @@
     grid-template-columns: 1fr;
   }
 }
+
+@media (max-width: 640px) {
+  .case-links,
+  .actions-row,
+  .request-actions,
+  .invite-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .case-links a,
+  .actions-row button,
+  .request-actions button,
+  .invite-actions button {
+    width: 100%;
+  }
+}

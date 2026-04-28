@@ -40,6 +40,7 @@
 
 .field p {
   font-size: 0.96rem;
+  line-height: 1.55;
 }
 
 .status-actions {
@@ -83,6 +84,10 @@
 .comment {
   border-bottom: 1px solid var(--border);
   padding-bottom: 0.6rem;
+}
+
+.comment:last-child {
+  border-bottom: none;
 }
 
 .comment-author {
@@ -241,6 +246,26 @@
 @media (max-width: 760px) {
   .field-row {
     grid-template-columns: 1fr;
+  }
+
+  .status-actions,
+  .package-actions,
+  .decrypt-box,
+  .modal-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .teaching-action {
+    justify-content: stretch;
+  }
+
+  .teaching-action .btn-secondary,
+  .status-actions button,
+  .package-actions button,
+  .decrypt-box button,
+  .modal-actions button {
+    width: 100%;
   }
 
   .comment-form {

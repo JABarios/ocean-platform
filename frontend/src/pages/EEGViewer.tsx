@@ -670,6 +670,7 @@ export default function EEGViewer() {
   const [montage,         setMontage]         = useState<MontageName>('promedio')
   const [excludedAverageReferenceChannels, setExcludedAverageReferenceChannels] = useState<string[]>([])
   const [avgRefOpen, setAvgRefOpen] = useState(false)
+  const [avgRefMenuPos, setAvgRefMenuPos] = useState<{ top: number; left: number } | null>(null)
   const [dsaChannel,      setDsaChannel]      = useState('off')
   const [artifactReject,  setArtifactReject]  = useState(false)
   const [dsaData,         setDsaData]         = useState<DSAData | null>(null)
@@ -682,6 +683,8 @@ export default function EEGViewer() {
   const kappaRef   = useRef<KappaInstance | null>(null)
   const moduleRef  = useRef<KappaModuleInstance | null>(null)
   const dsaCacheRef = useRef<Map<string, DSAData>>(new Map())
+  const avgRefButtonRef = useRef<HTMLButtonElement>(null)
+  const avgRefMenuRef = useRef<HTMLDivElement>(null)
 
   // Imperative overlay refs — no setState on mousemove
   const mousePosRef   = useRef<{ x: number; y: number } | null>(null)
@@ -711,6 +714,41 @@ export default function EEGViewer() {
   useEffect(() => {
     if (montage !== 'promedio') setAvgRefOpen(false)
   }, [montage])
+
+  useEffect(() => {
+    if (!avgRefOpen) {
+      setAvgRefMenuPos(null)
+      return
+    }
+
+    const updateMenuPosition = () => {
+      const rect = avgRefButtonRef.current?.getBoundingClientRect()
+      if (!rect) return
+      setAvgRefMenuPos({
+        top: rect.bottom + 6,
+        left: rect.left,
+      })
+    }
+
+    const handleOutside = (event: MouseEvent) => {
+      const target = event.target as Node | null
+      if (
+        avgRefButtonRef.current?.contains(target) ||
+        avgRefMenuRef.current?.contains(target)
+      ) return
+      setAvgRefOpen(false)
+    }
+
+    updateMenuPosition()
+    window.addEventListener('resize', updateMenuPosition)
+    window.addEventListener('scroll', updateMenuPosition, true)
+    document.addEventListener('mousedown', handleOutside)
+    return () => {
+      window.removeEventListener('resize', updateMenuPosition)
+      window.removeEventListener('scroll', updateMenuPosition, true)
+      document.removeEventListener('mousedown', handleOutside)
+    }
+  }, [avgRefOpen])
 
   const processedEpoch = useMemo(() => {
     if (!montagedEpoch) return null
@@ -1215,8 +1253,9 @@ export default function EEGViewer() {
           {MONTAGE_OPTIONS.map((name) => <option key={name} value={name}>{name}</option>)}
         </ToolbarSelect>
         {montage === 'promedio' && averageReferenceCandidates.length > 0 && (
-          <div style={{ position: 'relative' }}>
+          <div>
             <button
+              ref={avgRefButtonRef}
               type="button"
               onClick={() => setAvgRefOpen((open) => !open)}
               style={{
@@ -1258,49 +1297,6 @@ export default function EEGViewer() {
                 {averageReferenceCandidates.length - excludedAverageReferenceChannels.length}/{averageReferenceCandidates.length} activos
               </span>
             </button>
-            {avgRefOpen && (
-              <div style={{
-                position: 'absolute',
-                top: '100%',
-                left: 0,
-                marginTop: 6,
-                zIndex: 4,
-                background: 'rgba(255,255,255,0.98)',
-                border: '1px solid #cbd5e1',
-                borderRadius: 8,
-                boxShadow: '0 10px 24px rgba(15,23,42,0.12)',
-                padding: '0.45rem',
-                minWidth: 176,
-                maxHeight: 240,
-                overflowY: 'auto',
-              }}>
-                <div style={{ fontSize: '0.68rem', color: '#64748b', marginBottom: 6 }}>
-                  Desmarca canales ruidosos de la referencia media.
-                </div>
-                {averageReferenceCandidates.map((name) => {
-                  const checked = !excludedAverageReferenceChannels.includes(name)
-                  return (
-                    <label key={name} style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      fontSize: '0.75rem',
-                      color: '#334155',
-                      padding: '0.14rem 0',
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                    }}>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleAverageReferenceChannel(name)}
-                      />
-                      <span>{name}</span>
-                    </label>
-                  )
-                })}
-              </div>
-            )}
           </div>
         )}
         <ToolbarSelect label="DSA" value={dsaChannel} onChange={handleDsaChannelChange} width={112}>
@@ -1363,6 +1359,52 @@ export default function EEGViewer() {
           <button onClick={() => goToPage(currentPage + 1)} disabled={currentPage >= maxPage} title="Siguiente (→)" style={navBtnStyle(currentPage >= maxPage)}>→</button>
         </div>
       </div>
+
+      {avgRefOpen && avgRefMenuPos && (
+        <div
+          ref={avgRefMenuRef}
+          style={{
+            position: 'fixed',
+            top: avgRefMenuPos.top,
+            left: avgRefMenuPos.left,
+            zIndex: 20,
+            background: 'rgba(255,255,255,0.98)',
+            border: '1px solid #cbd5e1',
+            borderRadius: 8,
+            boxShadow: '0 10px 24px rgba(15,23,42,0.12)',
+            padding: '0.45rem',
+            minWidth: 176,
+            maxHeight: 240,
+            overflowY: 'auto',
+          }}
+        >
+          <div style={{ fontSize: '0.68rem', color: '#64748b', marginBottom: 6 }}>
+            Desmarca canales ruidosos de la referencia media.
+          </div>
+          {averageReferenceCandidates.map((name) => {
+            const checked = !excludedAverageReferenceChannels.includes(name)
+            return (
+              <label key={name} style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: '0.75rem',
+                color: '#334155',
+                padding: '0.14rem 0',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}>
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => toggleAverageReferenceChannel(name)}
+                />
+                <span>{name}</span>
+              </label>
+            )
+          })}
+        </div>
+      )}
 
       {/* Canvas area — overflow:hidden so canvas fills exact height */}
       <div

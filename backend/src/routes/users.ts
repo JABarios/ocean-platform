@@ -51,9 +51,26 @@ async function setUserStatus(actorId: string, userId: string, status: 'Active' |
 }
 
 router.use(authMiddleware)
-router.use(requireRole(['Admin']))
 
-router.get('/', async (_req: AuthenticatedRequest, res) => {
+router.get('/', async (req: AuthenticatedRequest, res) => {
+  if (req.user?.role !== 'Admin') {
+    const users = await prisma.user.findMany({
+      where: { status: 'Active' },
+      select: {
+        id: true,
+        email: true,
+        displayName: true,
+        role: true,
+        status: true,
+        institution: true,
+        specialty: true,
+      },
+      orderBy: { displayName: 'asc' },
+    })
+    res.json(users)
+    return
+  }
+
   const users = await prisma.user.findMany({
     select: {
       id: true,
@@ -106,6 +123,11 @@ router.get('/', async (_req: AuthenticatedRequest, res) => {
 })
 
 router.patch('/:id/role', async (req: AuthenticatedRequest, res) => {
+  if (req.user?.role !== 'Admin') {
+    res.status(403).json({ error: 'Permiso insuficiente' })
+    return
+  }
+
   const parsed = changeRoleSchema.safeParse(req.body)
   if (!parsed.success) {
     res.status(400).json({ error: 'Rol inválido', validRoles: VALID_ROLES })
@@ -136,6 +158,11 @@ router.patch('/:id/role', async (req: AuthenticatedRequest, res) => {
 })
 
 router.patch('/:id/status', async (req: AuthenticatedRequest, res) => {
+  if (req.user?.role !== 'Admin') {
+    res.status(403).json({ error: 'Permiso insuficiente' })
+    return
+  }
+
   const parsed = changeStatusSchema.safeParse(req.body)
   if (!parsed.success) {
     res.status(400).json({ error: 'Estado inválido', validStatuses: VALID_STATUSES })
@@ -166,6 +193,11 @@ router.patch('/:id/status', async (req: AuthenticatedRequest, res) => {
 })
 
 router.delete('/:id', async (req: AuthenticatedRequest, res) => {
+  if (req.user?.role !== 'Admin') {
+    res.status(403).json({ error: 'Permiso insuficiente' })
+    return
+  }
+
   const result = await setUserStatus(req.user!.id, req.params.id, 'Pending')
   if (result.kind === 'not-found') {
     res.status(404).json({ error: 'Usuario no encontrado' })

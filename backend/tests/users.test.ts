@@ -17,12 +17,16 @@ describe('GET /users', () => {
     expect(res.body.some((u: { id: string; status: string }) => u.id === inactive.id && u.status === 'Pending')).toBe(true)
   })
 
-  it('no-Admin recibe 403', async () => {
+  it('no-Admin puede listar usuarios activos para la operativa clínica', async () => {
     const user = await createUser({ email: 'u-forbidden@ocean.local', displayName: 'Forbidden', password: 'pass' })
+    const inactive = await createUser({ email: 'inactive-hidden@ocean.local', displayName: 'Inactive Hidden', password: 'pass' })
+    await prisma.user.update({ where: { id: inactive.id }, data: { status: 'Pending' } })
     const token = generateToken(user.id, user.email, user.role)
 
     const res = await request(app).get('/users').set('Authorization', `Bearer ${token}`)
-    expect(res.status).toBe(403)
+    expect(res.status).toBe(200)
+    expect(res.body.every((entry: { status: string }) => entry.status === 'Active')).toBe(true)
+    expect(res.body.some((entry: { id: string }) => entry.id === inactive.id)).toBe(false)
   })
 
   it('incluye métricas y grupos del usuario', async () => {

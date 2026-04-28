@@ -29,6 +29,7 @@ model User {
   auditEvents        AuditEvent[]
   groupMemberships   GroupMember[]
   recommendations    TeachingRecommendation[]
+  viewerStates       ViewerState[]
 
   @@map("users")
 }
@@ -199,4 +200,29 @@ model AuditEvent {
   case  Case? @relation(fields: [caseId], references: [id])
 
   @@map("audit_events")
+}
+
+model ViewerState {
+  id                               String   @id @default(uuid())
+  userId                           String   @map("user_id")
+  packageHash                      String   @map("package_hash")
+  positionSec                      Int      @default(0) @map("position_sec")
+  windowSecs                       Int      @default(10) @map("window_secs")
+  hp                               Float    @default(0.5)
+  lp                               Float    @default(45)
+  notch                            Boolean  @default(true)
+  gainMult                         Float    @default(1) @map("gain_mult")
+  normalizeNonEEG                  Boolean  @default(false) @map("normalize_non_eeg")
+  montage                          String   @default("promedio")
+  excludedAverageReferenceChannels String?  @default("[]") @map("excluded_average_reference_channels")
+  includedHiddenChannels           String?  @default("[]") @map("included_hidden_channels")
+  dsaChannel                       String?  @default("off") @map("dsa_channel")
+  artifactReject                   Boolean  @default(false) @map("artifact_reject")
+  createdAt                        DateTime @default(now()) @map("created_at")
+  updatedAt                        DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, packageHash])
+  @@map("viewer_states")
 }

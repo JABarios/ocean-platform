@@ -11,6 +11,7 @@ import userRoutes from './routes/users'
 import packageRoutes from './routes/packages'
 import groupRoutes from './routes/groups'
 import auditRoutes from './routes/audit'
+import viewerStateRoutes from './routes/viewer-state'
 import { startCleanupJob } from './utils/cleanup'
 
 dotenv.config()
@@ -68,6 +69,7 @@ app.use('/teaching', teachingRoutes)
 app.use('/packages', packageRoutes)
 app.use('/groups', groupRoutes)
 app.use('/audit', auditRoutes)
+app.use('/viewer-state', viewerStateRoutes)
 
 // 404 handler (ruta no encontrada)
 app.use((_req: express.Request, res: express.Response) => {
@@ -80,7 +82,9 @@ app.use((err: any, req: express.Request, res: express.Response, _next: express.N
   res.status(500).json({ error: 'Error interno del servidor', detail: err.message || undefined })
 })
 
-startCleanupJob()
+if (process.env.NODE_ENV !== 'test') {
+  startCleanupJob()
+}
 
 if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, () => {

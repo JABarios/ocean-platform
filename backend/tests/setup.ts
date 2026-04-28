@@ -154,6 +154,28 @@ CREATE TABLE "audit_events" (
     CONSTRAINT "audit_events_actor_id_fkey" FOREIGN KEY ("actor_id") REFERENCES "users" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT "audit_events_case_id_fkey" FOREIGN KEY ("case_id") REFERENCES "cases" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
+
+CREATE TABLE "viewer_states" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "user_id" TEXT NOT NULL,
+    "package_hash" TEXT NOT NULL,
+    "position_sec" INTEGER NOT NULL DEFAULT 0,
+    "window_secs" INTEGER NOT NULL DEFAULT 10,
+    "hp" REAL NOT NULL DEFAULT 0.5,
+    "lp" REAL NOT NULL DEFAULT 45,
+    "notch" BOOLEAN NOT NULL DEFAULT true,
+    "gain_mult" REAL NOT NULL DEFAULT 1,
+    "normalize_non_eeg" BOOLEAN NOT NULL DEFAULT false,
+    "montage" TEXT NOT NULL DEFAULT 'promedio',
+    "excluded_average_reference_channels" TEXT DEFAULT '[]',
+    "included_hidden_channels" TEXT DEFAULT '[]',
+    "dsa_channel" TEXT DEFAULT 'off',
+    "artifact_reject" BOOLEAN NOT NULL DEFAULT false,
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" DATETIME NOT NULL,
+    CONSTRAINT "viewer_states_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE UNIQUE INDEX "viewer_states_user_id_package_hash_key" ON "viewer_states"("user_id", "package_hash");
 `
 
 beforeAll(async () => {
@@ -166,6 +188,7 @@ beforeAll(async () => {
     'DROP TABLE IF EXISTS "review_requests"',
     'DROP TABLE IF EXISTS "case_packages"',
     'DROP TABLE IF EXISTS "cases"',
+    'DROP TABLE IF EXISTS "viewer_states"',
     'DROP TABLE IF EXISTS "group_members"',
     'DROP TABLE IF EXISTS "groups"',
     'DROP TABLE IF EXISTS "users"',
@@ -185,6 +208,7 @@ afterAll(async () => {
 afterEach(async () => {
   const tables = [
     'audit_events',
+    'viewer_states',
     'teaching_recommendations',
     'teaching_proposals',
     'comments',

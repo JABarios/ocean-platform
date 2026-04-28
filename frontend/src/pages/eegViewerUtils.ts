@@ -8,6 +8,7 @@ export interface EpochData {
 }
 
 export const LABEL_WIDTH = 76
+export const WINDOW_OPTIONS = [10, 20, 30, 150] as const
 
 const CHANNEL_COLORS: Record<string, string> = {
   EEG: '#1d4ed8',
@@ -71,6 +72,37 @@ export const MONTAGE_OPTIONS: MontageName[] = [
   'hjorth',
 ]
 
+export interface PersistedViewerState {
+  positionSec: number
+  windowSecs: number
+  hp: number
+  lp: number
+  notch: boolean
+  gainMult: number
+  normalizeNonEEG: boolean
+  montage: string
+  excludedAverageReferenceChannels: string[]
+  includedHiddenChannels: string[]
+  dsaChannel: string
+  artifactReject: boolean
+  updatedAt?: string
+}
+
+export interface SanitizedViewerState {
+  positionSec: number
+  windowSecs: number
+  hp: number
+  lp: number
+  notch: boolean
+  gainMult: number
+  normalizeNonEEG: boolean
+  montage: MontageName
+  excludedAverageReferenceChannels: string[]
+  includedHiddenChannels: string[]
+  dsaChannel: string
+  artifactReject: boolean
+}
+
 export function getChannelColor(name: string, type: string): string {
   if (type !== 'EEG') return CHANNEL_COLORS[type] ?? DEFAULT_COLOR
 
@@ -88,6 +120,18 @@ export function getChannelColor(name: string, type: string): string {
 export function getRecordsPerPage(windowSecs: number, recordDurationSec: number): number {
   if (recordDurationSec <= 0) return Math.max(1, windowSecs)
   return Math.max(1, Math.round(windowSecs / recordDurationSec))
+}
+
+export function getDsaChannels(epoch: EpochData | null): Array<{ index: number; name: string }> {
+  if (!epoch) return []
+  return epoch.channelNames
+    .map((name, index) => ({
+      index,
+      name,
+      type: epoch.channelTypes[index] ?? 'EEG',
+    }))
+    .filter((item) => item.type === 'EEG')
+    .map(({ index, name }) => ({ index, name }))
 }
 
 function subtractSignals(a: Float32Array, b: Float32Array): Float32Array {
@@ -230,4 +274,58 @@ export function getNextArtifactRejectState(currentDsaChannel: string, nextDsaCha
   if (nextDsaChannel === 'off') return false
   if (currentDsaChannel === 'off') return true
   return currentArtifactReject
+}
+
+function pickPersistedWindow(windowSecs: number): number {
+  if (!Number.isFinite(windowSecs)) return WINDOW_OPTIONS[0]
+  const rounded = Math.round(windowSecs)
+  if (WINDOW_OPTIONS.includes(rounded as typeof WINDOW_OPTIONS[number])) return rounded
+
+  let best: number = WINDOW_OPTIONS[0]
+  let bestDistance = Math.abs(rounded - best)
+  for (const option of WINDOW_OPTIONS.slice(1)) {
+    const distance = Math.abs(rounded - option)
+    if (distance < bestDistance) {
+      best = option
+      bestDistance = distance
+    }
+  }
+  return best
+}
+
+export function sanitizePersistedViewerState(
+  state: PersistedViewerState | null,
+  epoch: EpochData,
+  totalSeconds: number,
+): SanitizedViewerState | null {
+  if (!state) return null
+
+  const montage = MONTAGE_OPTIONS.includes(state.montage as MontageName)
+    ? state.montage as MontageName
+    : 'promedio'
+
+  const averageReferenceCandidates = new Set(getAverageReferenceCandidates(epoch))
+  const hiddenMontageCandidates = new Set(getMontageHiddenCandidates(epoch, montage))
+  const dsaChannels = new Set(getDsaChannels(epoch).map((channel) => String(channel.index)))
+
+  const safePositionSec = Number.isFinite(state.positionSec)
+    ? Math.max(0, Math.min(Math.round(state.positionSec), Math.max(0, totalSeconds)))
+    : 0
+
+  return {
+    positionSec: safePositionSec,
+    windowSecs: pickPersistedWindow(state.windowSecs),
+    hp: Number.isFinite(state.hp) ? Math.max(0, state.hp) : 0.5,
+    lp: Number.isFinite(state.lp) ? Math.max(1, state.lp) : 45,
+    notch: Boolean(state.notch),
+    gainMult: Number.isFinite(state.gainMult) ? Math.max(0.1, state.gainMult) : 1,
+    normalizeNonEEG: Boolean(state.normalizeNonEEG),
+    montage,
+    excludedAverageReferenceChannels: (state.excludedAverageReferenceChannels ?? [])
+      .filter((name) => averageReferenceCandidates.has(name)),
+    includedHiddenChannels: (state.includedHiddenChannels ?? [])
+      .filter((name) => hiddenMontageCandidates.has(name)),
+    dsaChannel: dsaChannels.has(state.dsaChannel) ? state.dsaChannel : 'off',
+    artifactReject: dsaChannels.has(state.dsaChannel) ? Boolean(state.artifactReject) : false,
+  }
 }

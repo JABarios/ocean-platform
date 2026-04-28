@@ -2,19 +2,22 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useParams } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { useCrypto } from '../hooks/useCrypto'
-import { API_BASE } from '../api/client'
+import { API_BASE, api } from '../api/client'
 import {
   LABEL_WIDTH,
   MONTAGE_OPTIONS,
+  WINDOW_OPTIONS,
   applyMontage,
   getAverageReferenceCandidates,
   getChannelColor,
+  getDsaChannels,
   getMontageHiddenCandidates,
   getNextArtifactRejectState,
   getRecordsPerPage,
+  sanitizePersistedViewerState,
   shouldShowMetadataForPointer,
 } from './eegViewerUtils'
-import type { EpochData, MontageName } from './eegViewerUtils'
+import type { EpochData, MontageName, PersistedViewerState } from './eegViewerUtils'
 
 // ─── WASM types ───────────────────────────────────────────────────────────────
 
@@ -85,8 +88,6 @@ const LP_OPTIONS: { label: string; value: number }[] = [
   { label: '45 Hz', value: 45 },
   { label: '70 Hz', value: 70 },
 ]
-
-const WINDOW_OPTIONS = [10, 20, 30, 150]
 
 const GAIN_OPTIONS: { label: string; value: number }[] = [
   { label: '0.1×', value: 0.1 },
@@ -691,6 +692,9 @@ export default function EEGViewer() {
   const avgRefMenuRef = useRef<HTMLDivElement>(null)
   const extrasButtonRef = useRef<HTMLButtonElement>(null)
   const extrasMenuRef = useRef<HTMLDivElement>(null)
+  const restoreInFlightRef = useRef(false)
+  const viewerStateReadyRef = useRef(false)
+  const persistTimerRef = useRef<number | null>(null)
 
   // Imperative overlay refs — no setState on mousemove
   const mousePosRef   = useRef<{ x: number; y: number } | null>(null)
@@ -828,17 +832,7 @@ export default function EEGViewer() {
   const recordsPerPage = getRecordsPerPage(windowSecs, recordDurationSec)
   const currentPage = Math.floor(recordOffset / recordsPerPage)
   const maxPage = Math.max(0, Math.ceil(totalRecords / recordsPerPage) - 1)
-  const dsaChannels = useMemo(() => {
-    if (!epoch) return [] as Array<{ index: number; name: string }>
-    return epoch.channelNames
-      .map((name, index) => ({
-        index,
-        name,
-        type: epoch.channelTypes[index] ?? 'EEG',
-      }))
-      .filter((item) => item.type === 'EEG')
-      .map(({ index, name }) => ({ index, name }))
-  }, [epoch])
+  const dsaChannels = useMemo(() => getDsaChannels(epoch), [epoch])
 
   // ── Overlay redraw (imperative — reads refs, no React re-render) ─────────────
 
@@ -1012,6 +1006,12 @@ export default function EEGViewer() {
   const startViewer = useCallback(async (key: string) => {
     if (!id) return
     try {
+      restoreInFlightRef.current = true
+      viewerStateReadyRef.current = false
+      if (persistTimerRef.current !== null) {
+        window.clearTimeout(persistTimerRef.current)
+        persistTimerRef.current = null
+      }
       setPhase('downloading')
       const res = await fetch(`${API_BASE}/packages/download/${id}`, {
         headers: { Authorization: `Bearer ${token ?? ''}` },
@@ -1031,7 +1031,6 @@ export default function EEGViewer() {
       if (!kappa.openEDF('/tmp/file.edf')) throw new Error('openEDF devolvió false — archivo inválido')
 
       const info = kappa.getMeta()
-      kappa.setFilters(0.5, 45, 50)
       kappaRef.current = kappa
       sbPosRef.current = null
       dsaCacheRef.current.clear()
@@ -1041,25 +1040,71 @@ export default function EEGViewer() {
       setDsaLoading(false)
       setDsaError('')
       setMeta({ subjectId: info.subjectId, recordingDate: info.recordingDate })
-      setTotalSeconds(Math.floor(info.numSamples / info.sampleRate))
+      const totalDurationSec = Math.floor(info.numSamples / info.sampleRate)
+      setTotalSeconds(totalDurationSec)
       const probeEpoch = kappa.readEpoch(0, 1)
       if (!probeEpoch) throw new Error('readEpoch(0, 1) devolvió null')
       const probeDurationSec = probeEpoch.nSamples / probeEpoch.sfreq
       setRecordDurationSec(probeDurationSec)
+      let persistedState: PersistedViewerState | null = null
+      try {
+        persistedState = await api.get<PersistedViewerState | null>(`/viewer-state/${id}`)
+      } catch (err) {
+        console.warn('[OCEAN EEG] No se pudo recuperar el estado guardado del visor', err)
+      }
 
-      const firstEpoch = kappa.readEpoch(0, getRecordsPerPage(windowSecs, probeDurationSec))
+      const restoredState = sanitizePersistedViewerState(persistedState, probeEpoch, totalDurationSec)
+      const nextWindowSecs = restoredState?.windowSecs ?? 10
+      const nextHp = restoredState?.hp ?? 0.5
+      const nextLp = restoredState?.lp ?? 45
+      const nextNotch = restoredState?.notch ?? true
+      const nextGainMult = restoredState?.gainMult ?? 1
+      const nextNormalizeNonEEG = restoredState?.normalizeNonEEG ?? false
+      const nextMontage = restoredState?.montage ?? 'promedio'
+      const nextExcludedAverageReferenceChannels = restoredState?.excludedAverageReferenceChannels ?? []
+      const nextIncludedHiddenChannels = restoredState?.includedHiddenChannels ?? []
+      const nextDsaChannel = restoredState?.dsaChannel ?? 'off'
+      const nextArtifactReject = restoredState?.artifactReject ?? false
+      const nextPositionSec = restoredState?.positionSec ?? 0
+
+      kappa.setFilters(nextHp, nextLp, nextNotch ? 50 : 0)
+      const nextRecordsPerPage = getRecordsPerPage(nextWindowSecs, probeDurationSec)
+      const totalRecords = Math.max(1, Math.ceil(totalDurationSec / Math.max(probeDurationSec, 1e-9)))
+      const maxPageForWindow = Math.max(0, Math.ceil(totalRecords / nextRecordsPerPage) - 1)
+      const targetRecord = Math.floor(nextPositionSec / Math.max(probeDurationSec, 1e-9))
+      const targetPage = Math.max(0, Math.min(maxPageForWindow, Math.floor(targetRecord / nextRecordsPerPage)))
+      const nextRecordOffset = targetPage * nextRecordsPerPage
+
+      const firstEpoch = kappa.readEpoch(nextRecordOffset, nextRecordsPerPage)
       if (!firstEpoch) throw new Error('readEpoch devolvió null')
+      setWindowSecs(nextWindowSecs)
+      setHp(nextHp)
+      setLp(nextLp)
+      setNotch(nextNotch)
+      setGainMult(nextGainMult)
+      setNormalizeNonEEG(nextNormalizeNonEEG)
+      setMontage(nextMontage)
+      setExcludedAverageReferenceChannels(nextExcludedAverageReferenceChannels)
+      setIncludedHiddenChannels(nextIncludedHiddenChannels)
+      setDsaChannel(nextDsaChannel)
+      setArtifactReject(nextArtifactReject)
       setEpoch(firstEpoch)
-      setRecordOffset(0)
+      setRecordOffset(nextRecordOffset)
       sessionStorage.setItem(`ocean_eeg_key_${id}`, key)
       setPhase('viewing')
+      window.setTimeout(() => {
+        restoreInFlightRef.current = false
+        viewerStateReadyRef.current = true
+      }, 0)
     } catch (err) {
       const msg      = err instanceof Error ? err.message : 'Error desconocido'
       const isBadKey = (err instanceof DOMException && err.name === 'OperationError') || msg.includes('autenticación')
+      restoreInFlightRef.current = false
+      viewerStateReadyRef.current = false
       setErrorMsg(isBadKey ? 'Clave incorrecta — el archivo no se pudo descifrar.' : msg)
       setPhase('error')
     }
-  }, [id, token, decryptFile, loadModule, windowSecs])
+  }, [id, token, decryptFile, loadModule])
 
   // ── Auto-start from sessionStorage ───────────────────────────────────────────
 
@@ -1171,6 +1216,55 @@ export default function EEGViewer() {
     }
   }, [phase, dsaChannel, hp, lp, notch, artifactReject])
 
+  useEffect(() => {
+    if (!id || phase !== 'viewing' || restoreInFlightRef.current || !viewerStateReadyRef.current) return
+
+    const payload: PersistedViewerState = {
+      positionSec: Math.max(0, Math.round(recordOffset * recordDurationSec)),
+      windowSecs,
+      hp,
+      lp,
+      notch,
+      gainMult,
+      normalizeNonEEG,
+      montage,
+      excludedAverageReferenceChannels,
+      includedHiddenChannels,
+      dsaChannel,
+      artifactReject,
+    }
+
+    if (persistTimerRef.current !== null) window.clearTimeout(persistTimerRef.current)
+    persistTimerRef.current = window.setTimeout(() => {
+      api.put(`/viewer-state/${id}`, payload).catch((err) => {
+        console.warn('[OCEAN EEG] No se pudo guardar el estado del visor', err)
+      })
+    }, 800)
+
+    return () => {
+      if (persistTimerRef.current !== null) {
+        window.clearTimeout(persistTimerRef.current)
+        persistTimerRef.current = null
+      }
+    }
+  }, [
+    id,
+    phase,
+    recordOffset,
+    recordDurationSec,
+    windowSecs,
+    hp,
+    lp,
+    notch,
+    gainMult,
+    normalizeNonEEG,
+    montage,
+    excludedAverageReferenceChannels,
+    includedHiddenChannels,
+    dsaChannel,
+    artifactReject,
+  ])
+
   // ── Keyboard navigation ───────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -1201,6 +1295,10 @@ export default function EEGViewer() {
 
   useEffect(() => {
     return () => {
+      if (persistTimerRef.current !== null) {
+        window.clearTimeout(persistTimerRef.current)
+        persistTimerRef.current = null
+      }
       try { moduleRef.current?.FS.unlink('/tmp/file.edf') } catch { /* already gone */ }
     }
   }, [])

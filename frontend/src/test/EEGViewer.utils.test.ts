@@ -7,6 +7,7 @@ import {
   getMontageHiddenCandidates,
   getNextArtifactRejectState,
   getRecordsPerPage,
+  sanitizePersistedViewerState,
   shouldShowMetadataForPointer,
 } from '../pages/eegViewerUtils'
 import type { EpochData } from '../pages/eegViewerUtils'
@@ -260,5 +261,92 @@ describe('EEG viewer utils', () => {
     expect(getNextArtifactRejectState('3', '5', true)).toBe(true)
     expect(getNextArtifactRejectState('3', '5', false)).toBe(false)
     expect(getNextArtifactRejectState('5', 'off', true)).toBe(false)
+  })
+
+  it('sanea el estado persistido del visor frente a canales y montajes inválidos', () => {
+    const epoch = makeEpoch({
+      Fp1: [10, 20],
+      F7: [20, 30],
+      F3: [30, 40],
+      T3: [40, 50],
+      C3: [50, 60],
+      T5: [60, 70],
+      P3: [70, 80],
+      O1: [80, 90],
+      Fz: [90, 100],
+      Cz: [100, 110],
+      Pz: [110, 120],
+      Fp2: [120, 130],
+      F4: [130, 140],
+      F8: [140, 150],
+      C4: [150, 160],
+      T4: [160, 170],
+      P4: [170, 180],
+      T6: [180, 190],
+      O2: [190, 200],
+      ECG: [1, 2],
+    }, {
+      ECG: 'ECG',
+    })
+
+    const result = sanitizePersistedViewerState({
+      positionSec: 9999,
+      windowSecs: 21,
+      hp: 1,
+      lp: 30,
+      notch: false,
+      gainMult: 2,
+      normalizeNonEEG: true,
+      montage: 'inventado',
+      excludedAverageReferenceChannels: ['Fp1', 'BAD'],
+      includedHiddenChannels: ['ECG', 'BAD'],
+      dsaChannel: '999',
+      artifactReject: true,
+    }, epoch, 120)
+
+    expect(result).toEqual({
+      positionSec: 120,
+      windowSecs: 20,
+      hp: 1,
+      lp: 30,
+      notch: false,
+      gainMult: 2,
+      normalizeNonEEG: true,
+      montage: 'promedio',
+      excludedAverageReferenceChannels: ['Fp1'],
+      includedHiddenChannels: ['ECG'],
+      dsaChannel: 'off',
+      artifactReject: false,
+    })
+  })
+
+  it('conserva un canal DSA válido y su flag de artefactos al restaurar estado', () => {
+    const epoch = makeEpoch({
+      Fp1: [1, 2],
+      Fp2: [3, 4],
+      ECG: [5, 6],
+    }, {
+      ECG: 'ECG',
+    })
+
+    const result = sanitizePersistedViewerState({
+      positionSec: 12,
+      windowSecs: 30,
+      hp: 0.5,
+      lp: 45,
+      notch: true,
+      gainMult: 1,
+      normalizeNonEEG: false,
+      montage: 'raw',
+      excludedAverageReferenceChannels: ['Fp1'],
+      includedHiddenChannels: ['ECG'],
+      dsaChannel: '1',
+      artifactReject: true,
+    }, epoch, 60)
+
+    expect(result?.dsaChannel).toBe('1')
+    expect(result?.artifactReject).toBe(true)
+    expect(result?.montage).toBe('raw')
+    expect(result?.includedHiddenChannels).toEqual([])
   })
 })

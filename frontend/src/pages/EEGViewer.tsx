@@ -433,23 +433,27 @@ function StatusScreen({ message }: { message: string }) {
 // ─── Toolbar select ───────────────────────────────────────────────────────────
 
 function ToolbarSelect({
-  label, value, onChange, children, width,
+  label, value, onChange, children, width, compact = false,
 }: {
   label: string; value: string | number
   onChange: (v: string) => void; children: React.ReactNode
   width?: number
+  compact?: boolean
 }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>
-        {label}
-      </span>
-      <select value={value} onChange={(e) => onChange(e.target.value)} style={{
+      {!compact && (
+        <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>
+          {label}
+        </span>
+      )}
+      <select value={value} title={label} aria-label={label} onChange={(e) => onChange(e.target.value)} style={{
         background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 4,
-        color: '#1e293b', fontSize: '0.75rem', padding: '0.16rem 0.35rem',
+        color: '#1e293b', fontSize: compact ? '0.72rem' : '0.75rem', padding: compact ? '0.14rem 0.28rem' : '0.16rem 0.35rem',
         cursor: 'pointer', outline: 'none',
         width,
         maxWidth: width,
+        lineHeight: 1.15,
       }}>
         {children}
       </select>
@@ -706,6 +710,7 @@ export default function EEGViewer() {
   const sbPosRef      = useRef<{ x: number; y: number } | null>(null)
   const sbDragRef     = useRef<{ startMX: number; startMY: number; startSBX: number; startSBY: number } | null>(null)
   const renderMetaRef = useRef<RenderMeta | null>(null)
+  const touchSwipeRef = useRef<{ startX: number; startY: number; active: boolean } | null>(null)
 
   // ── Derived data ─────────────────────────────────────────────────────────────
 
@@ -1182,6 +1187,31 @@ export default function EEGViewer() {
     goToPage(targetPage)
   }, [goToPage, maxPage, recordDurationSec, recordsPerPage])
 
+  const handleTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    if (!compactToolbar) return
+    const touch = e.touches[0]
+    if (!touch) return
+    touchSwipeRef.current = { startX: touch.clientX, startY: touch.clientY, active: true }
+  }, [compactToolbar])
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    if (!compactToolbar) return
+    const swipe = touchSwipeRef.current
+    touchSwipeRef.current = null
+    if (!swipe?.active) return
+    const touch = e.changedTouches[0]
+    if (!touch) return
+
+    const dx = touch.clientX - swipe.startX
+    const dy = touch.clientY - swipe.startY
+    const absDx = Math.abs(dx)
+    const absDy = Math.abs(dy)
+
+    if (absDx < 48 || absDy > 40 || absDx < absDy * 1.2) return
+    if (dx < 0 && currentPage < maxPage) goToPage(currentPage + 1)
+    if (dx > 0 && currentPage > 0) goToPage(currentPage - 1)
+  }, [compactToolbar, currentPage, maxPage, goToPage])
+
   const handleHpChange = (val: string) => {
     const v = parseFloat(val); setHp(v)
     kappaRef.current?.setFilters(v, lp, notch ? 50 : 0)
@@ -1434,9 +1464,9 @@ export default function EEGViewer() {
 
       {/* Toolbar */}
       <div style={{
-        display: 'flex', alignItems: 'flex-end', gap: compactToolbar ? '0.45rem' : '0.65rem', flexWrap: 'nowrap',
+        display: 'flex', alignItems: compactToolbar ? 'center' : 'flex-end', gap: compactToolbar ? '0.32rem' : '0.65rem', flexWrap: 'nowrap',
         overflowX: compactToolbar ? 'hidden' : 'auto',
-        padding: '0.35rem 0.6rem', background: '#ffffff',
+        padding: compactToolbar ? '0.22rem 0.42rem' : '0.35rem 0.6rem', background: '#ffffff',
         borderBottom: '1px solid #e2e8f0', flexShrink: 0,
       }}>
         {!compactToolbar && (
@@ -1456,10 +1486,10 @@ export default function EEGViewer() {
           </>
         )}
 
-        <ToolbarSelect label="Vent" value={windowSecs} onChange={handleWindowChange} width={compactToolbar ? 74 : undefined}>
+        <ToolbarSelect label="Vent" value={windowSecs} onChange={handleWindowChange} width={compactToolbar ? 62 : undefined} compact={compactToolbar}>
           {WINDOW_OPTIONS.map((s) => <option key={s} value={s}>{s}s</option>)}
         </ToolbarSelect>
-        <ToolbarSelect label="Mont" value={montage} onChange={(v) => setMontage(v as MontageName)} width={compactToolbar ? 92 : 108}>
+        <ToolbarSelect label="Mont" value={montage} onChange={(v) => setMontage(v as MontageName)} width={compactToolbar ? 82 : 108} compact={compactToolbar}>
           {MONTAGE_OPTIONS.map((name) => <option key={name} value={name}>{name}</option>)}
         </ToolbarSelect>
         {!compactToolbar && showAvgRefControl && (
@@ -1568,7 +1598,7 @@ export default function EEGViewer() {
             </button>
           </div>
         )}
-        <ToolbarSelect label="DSA" value={dsaChannel} onChange={handleDsaChannelChange} width={compactToolbar ? 96 : 112}>
+        <ToolbarSelect label="DSA" value={dsaChannel} onChange={handleDsaChannelChange} width={compactToolbar ? 84 : 112} compact={compactToolbar}>
           <option value="off">Desactivado</option>
           {dsaChannels.map((channel) => <option key={channel.index} value={channel.index}>{channel.name}</option>)}
         </ToolbarSelect>
@@ -1632,8 +1662,8 @@ export default function EEGViewer() {
               border: `1px solid ${mobileControlsOpen ? '#93c5fd' : '#cbd5e1'}`,
               borderRadius: 4,
               color: mobileControlsOpen ? '#1d4ed8' : '#334155',
-              fontSize: '0.76rem',
-              padding: '0.28rem 0.5rem',
+              fontSize: '0.72rem',
+              padding: '0.18rem 0.38rem',
               cursor: 'pointer',
               whiteSpace: 'nowrap',
               fontWeight: mobileControlsOpen ? 600 : 500,
@@ -1646,9 +1676,9 @@ export default function EEGViewer() {
         <div style={{ flex: 1, minWidth: 8 }} />
 
         <div style={{ display: 'flex', gap: compactToolbar ? '0.2rem' : '0.3rem', alignItems: 'center', flexShrink: 0 }}>
-          <span style={{ color: '#94a3b8', fontSize: compactToolbar ? '0.64rem' : '0.7rem', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>t={timeOffsetSec}s</span>
+          <span style={{ color: '#94a3b8', fontSize: compactToolbar ? '0.6rem' : '0.7rem', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>t={timeOffsetSec}s</span>
           <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 0} title="Anterior (←)" style={navBtnStyle(currentPage === 0)}>←</button>
-          <span style={{ color: '#475569', fontSize: compactToolbar ? '0.7rem' : '0.75rem', fontFamily: 'monospace', minWidth: compactToolbar ? 44 : 54, textAlign: 'center', whiteSpace: 'nowrap' }}>
+          <span style={{ color: '#475569', fontSize: compactToolbar ? '0.66rem' : '0.75rem', fontFamily: 'monospace', minWidth: compactToolbar ? 38 : 54, textAlign: 'center', whiteSpace: 'nowrap' }}>
             {currentPage + 1} / {totalPages}
           </span>
           <button onClick={() => goToPage(currentPage + 1)} disabled={currentPage >= maxPage} title="Siguiente (→)" style={navBtnStyle(currentPage >= maxPage)}>→</button>
@@ -1930,6 +1960,8 @@ export default function EEGViewer() {
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
           onMouseDown={handleMouseDown}
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
         >
           {meta && showMeta && (
             <div style={{

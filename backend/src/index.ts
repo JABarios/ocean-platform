@@ -12,6 +12,7 @@ import packageRoutes from './routes/packages'
 import groupRoutes from './routes/groups'
 import auditRoutes from './routes/audit'
 import viewerStateRoutes from './routes/viewer-state'
+import cleanupRoutes from './routes/cleanup'
 import { startCleanupJob } from './utils/cleanup'
 
 dotenv.config()
@@ -70,6 +71,7 @@ app.use('/packages', packageRoutes)
 app.use('/groups', groupRoutes)
 app.use('/audit', auditRoutes)
 app.use('/viewer-state', viewerStateRoutes)
+app.use('/cleanup', cleanupRoutes)
 
 // 404 handler (ruta no encontrada)
 app.use((_req: express.Request, res: express.Response) => {

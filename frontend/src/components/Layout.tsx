@@ -36,9 +36,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               Cola de propuestas
             </Link>
             {user?.role === 'Admin' && (
-              <Link to="/admin/users" className={navLinkClass('/admin/users')}>
-                Usuarios
-              </Link>
+              <>
+                <Link to="/admin/users" className={navLinkClass('/admin/users')}>
+                  Usuarios
+                </Link>
+                <Link to="/admin/cleanup" className={navLinkClass('/admin/cleanup')}>
+                  Limpieza
+                </Link>
+              </>
             )}
           </nav>
           <div className="header-actions">

@@ -10,6 +10,7 @@ import EEGViewer from './pages/EEGViewer'
 import TeachingLibrary from './pages/TeachingLibrary'
 import TeachingQueue from './pages/TeachingQueue'
 import UserAdmin from './pages/UserAdmin'
+import CleanupAdmin from './pages/CleanupAdmin'
 
 export default function App() {
   return (
@@ -73,6 +74,16 @@ export default function App() {
           <ProtectedRoute>
             <Layout>
               <UserAdmin />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/cleanup"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <CleanupAdmin />
             </Layout>
           </ProtectedRoute>
         }

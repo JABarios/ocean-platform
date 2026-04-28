@@ -59,14 +59,22 @@ export async function createReviewRequest(data: {
   })
 }
 
-export async function createCasePackage(caseId: string, blobHash = 'hash-shared-edf') {
+export async function createCasePackage(caseId: string, blobHash = 'hash-shared-edf', overrides?: {
+  blobLocation?: string
+  sizeBytes?: number
+  uploadStatus?: string
+  retentionPolicy?: string
+  expiresAt?: Date | null
+}) {
   return prisma.casePackage.create({
     data: {
       caseId,
-      blobLocation: `${caseId}/${blobHash}.enc`,
+      blobLocation: overrides?.blobLocation || `${caseId}/${blobHash}.enc`,
       blobHash,
-      uploadStatus: 'Ready',
-      retentionPolicy: 'Temporal72h',
+      sizeBytes: overrides?.sizeBytes,
+      uploadStatus: overrides?.uploadStatus || 'Ready',
+      retentionPolicy: overrides?.retentionPolicy || 'Temporal72h',
+      expiresAt: overrides?.expiresAt,
     },
   })
 }

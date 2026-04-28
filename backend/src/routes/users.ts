@@ -12,6 +12,7 @@ const changeRoleSchema = z.object({
 })
 
 router.use(authMiddleware)
+router.use(requireRole(['Admin']))
 
 router.get('/', async (_req: AuthenticatedRequest, res) => {
   const users = await prisma.user.findMany({
@@ -57,6 +58,38 @@ router.patch('/:id/role', requireRole(['Admin']), async (req: AuthenticatedReque
   })
 
   res.json(updated)
+})
+
+router.delete('/:id', async (req: AuthenticatedRequest, res) => {
+  if (req.params.id === req.user!.id) {
+    res.status(400).json({ error: 'No puedes borrar tu propio usuario' })
+    return
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: req.params.id } })
+  if (!user || user.status !== 'Active') {
+    res.status(404).json({ error: 'Usuario no encontrado' })
+    return
+  }
+
+  await prisma.user.update({
+    where: { id: req.params.id },
+    data: {
+      status: 'Pending',
+      passwordHash: null,
+      publicKey: null,
+    },
+  })
+
+  await prisma.auditEvent.create({
+    data: {
+      actorId: req.user!.id,
+      action: 'UserDeleted',
+      metadata: JSON.stringify({ userId: user.id, email: user.email }),
+    },
+  })
+
+  res.status(204).send()
 })
 
 export default router

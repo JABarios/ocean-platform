@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { api, friendlyError } from '../api/client'
 import type { User } from '../types'
+import { useAuthStore } from '../store/authStore'
 
 const VALID_ROLES = ['Clinician', 'Reviewer', 'Curator', 'Admin'] as const
 type Role = typeof VALID_ROLES[number]
 
 export default function UserAdmin() {
+  const currentUser = useAuthStore((s) => s.user)
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
@@ -24,6 +26,22 @@ export default function UserAdmin() {
     try {
       const updated = await api.patch<User>(`/users/${userId}/role`, { role })
       setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)))
+    } catch (err) {
+      setError(friendlyError(err))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const deleteUser = async (user: User) => {
+    const confirmed = window.confirm(`Se dará de baja al usuario ${user.displayName}. ¿Continuar?`)
+    if (!confirmed) return
+
+    setBusy(user.id)
+    setError('')
+    try {
+      await api.del<void>(`/users/${user.id}`)
+      setUsers((prev) => prev.filter((u) => u.id !== user.id))
     } catch (err) {
       setError(friendlyError(err))
     } finally {
@@ -50,7 +68,21 @@ export default function UserAdmin() {
         <tbody>
           {users.map((u) => (
             <tr key={u.id}>
-              <td>{u.displayName}</td>
+              <td>
+                <div className="user-name-cell">
+                  <span>{u.displayName}</span>
+                  {u.id !== currentUser?.id && (
+                    <button
+                      type="button"
+                      className="delete-user-btn"
+                      onClick={() => deleteUser(u)}
+                      disabled={busy === u.id}
+                    >
+                      Borrar
+                    </button>
+                  )}
+                </div>
+              </td>
               <td className="email-cell">{u.email}</td>
               <td>{u.institution || '—'}</td>
               <td>
@@ -114,6 +146,12 @@ export default function UserAdmin() {
           color: var(--text-secondary);
           font-size: 0.85rem;
         }
+        .user-name-cell {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 0.75rem;
+        }
         .users-table select {
           font-size: 0.85rem;
           padding: 0.25rem 0.4rem;
@@ -121,6 +159,22 @@ export default function UserAdmin() {
           border-radius: 4px;
           background: var(--surface);
           cursor: pointer;
+        }
+        .delete-user-btn {
+          border: 1px solid #fecaca;
+          background: #fff1f2;
+          color: #b91c1c;
+          border-radius: 999px;
+          padding: 0.2rem 0.55rem;
+          font-size: 0.75rem;
+          font-weight: 600;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+        .delete-user-btn:disabled,
+        .users-table select:disabled {
+          opacity: 0.65;
+          cursor: wait;
         }
       `}</style>
     </div>

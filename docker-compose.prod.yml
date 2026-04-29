@@ -10,11 +10,14 @@ services:
     environment:
       DATABASE_URL: file:/app/data/prod.db
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET no está definido}
+      KEY_CUSTODY_SECRET: ${KEY_CUSTODY_SECRET:?KEY_CUSTODY_SECRET no está definido}
       PORT: 4000
       NODE_ENV: production
       STORAGE_TYPE: filesystem
       UPLOAD_DIR: /app/uploads/cases
+      GALLERY_IMPORT_ROOT: /app/gallery-imports
       CORS_ORIGIN: ${CORS_ORIGIN:-*}
     volumes:
       - ./backend/data:/app/data
       - ./backend/uploads:/app/uploads/cases
+      - ./backend/gallery-imports:/app/gallery-imports

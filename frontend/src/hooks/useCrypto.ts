@@ -146,7 +146,7 @@ function decryptWithForge(encryptedBuffer: ArrayBuffer, keyBase64: string): Prom
 
 // ─── Hook público ───
 export function useCrypto() {
-  const encryptFile = useCallback(async (file: File): Promise<EncryptionResult> => {
+  const encryptFile = useCallback(async (file: Blob): Promise<EncryptionResult> => {
     const fileBuffer = await file.arrayBuffer()
 
     if (isCryptoAvailable()) {

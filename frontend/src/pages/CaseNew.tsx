@@ -5,6 +5,7 @@ import { useAuthStore } from '../store/authStore'
 import { useCrypto, isCryptoAvailable } from '../hooks/useCrypto'
 import type { CaseItem } from '../types'
 import PageHeader from '../components/PageHeader'
+import { anonymizeEdfFile, type EdfAnonymizationReport } from '../utils/edfAnonymization'
 import './CaseNew.css'
 
 export default function CaseNew() {
@@ -21,6 +22,7 @@ export default function CaseNew() {
   const [encryptedBlob, setEncryptedBlob] = useState<Blob | null>(null)
   const [decryptionKey, setDecryptionKey] = useState('')
   const [storedKeyInOcean, setStoredKeyInOcean] = useState(false)
+  const [anonymizationReport, setAnonymizationReport] = useState<EdfAnonymizationReport | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const token = useAuthStore((s) => s.token)
@@ -37,12 +39,15 @@ export default function CaseNew() {
     setEncrypting(true)
     setError('')
     try {
-      const result = await encryptFile(file)
+      const { anonymizedFile, report } = await anonymizeEdfFile(file)
+      const result = await encryptFile(anonymizedFile)
       setEncryptedBlob(result.encryptedWithIv)
       setDecryptionKey(result.keyBase64)
+      setAnonymizationReport(report)
     } catch {
-      setError('Error al cifrar el archivo')
+      setError('Error al anonimizar o cifrar el archivo EDF')
       setSelectedFile(null)
+      setAnonymizationReport(null)
     } finally {
       setEncrypting(false)
     }
@@ -196,9 +201,19 @@ export default function CaseNew() {
               ? `${selectedFile.name} (${(selectedFile.size / 1024 / 1024).toFixed(1)} MB)`
               : encrypting
               ? 'Cifrando…'
-              : 'Selecciona un archivo .edf (se cifra localmente en tu navegador)'}
+              : 'Selecciona un archivo .edf (se anonimiza y cifra localmente en tu navegador)'}
           </span>
         </label>
+
+        {anonymizationReport && (
+          <div className="anonymization-note">
+            <strong>Anonimización EDF aplicada</strong>
+            <span>
+              Formato {anonymizationReport.format} · paciente, identificación de registro, fecha y hora de inicio
+              reescritos antes del cifrado.
+            </span>
+          </div>
+        )}
 
         {decryptionKey && (
           <div className="key-box card">

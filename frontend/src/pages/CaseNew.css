@@ -31,6 +31,22 @@
   font-weight: 400;
 }
 
+.anonymization-note {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.83rem;
+  color: #0f4f9d;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  padding: 0.75rem 0.85rem;
+}
+
+.anonymization-note strong {
+  color: #1d4ed8;
+}
+
 .key-box {
   background: linear-gradient(180deg, #f0fdf4 0%, #ecfdf5 100%);
   border: 1px solid #86efac;

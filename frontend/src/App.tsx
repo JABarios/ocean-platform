@@ -15,6 +15,7 @@ import CaseOperations from './pages/CaseOperations'
 import EegRecords from './pages/EegRecords'
 import Galleries from './pages/Galleries'
 import GalleryDetail from './pages/GalleryDetail'
+import AdminHome from './pages/AdminHome'
 
 export default function App() {
   return (
@@ -37,6 +38,16 @@ export default function App() {
           <ProtectedRoute>
             <Layout>
               <CaseNew />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/cases"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <CaseOperations />
             </Layout>
           </ProtectedRoute>
         }
@@ -109,6 +120,16 @@ export default function App() {
           <ProtectedRoute>
             <Layout>
               <TeachingQueue />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <AdminHome />
             </Layout>
           </ProtectedRoute>
         }

@@ -13,8 +13,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     navigate('/login')
   }
 
-  const navLinkClass = (path: string) =>
-    location.pathname === path ? 'nav-link active' : 'nav-link'
+  const navLinkClass = (...paths: string[]) =>
+    paths.some((path) => {
+      if (path === '/') return location.pathname === '/'
+      return location.pathname === path || location.pathname.startsWith(`${path}/`)
+    })
+      ? 'nav-link active'
+      : 'nav-link'
 
   return (
     <div className="layout">
@@ -25,35 +30,30 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </Link>
           <nav className="main-nav">
             <Link to="/" className={navLinkClass('/')}>
-              Dashboard
+              Inicio
             </Link>
             <Link to="/cases/new" className={navLinkClass('/cases/new')}>
               Nuevo Caso
             </Link>
-            <Link to="/cases/manage" className={navLinkClass('/cases/manage')}>
-              Gestión
-            </Link>
-            <Link to="/eegs" className={navLinkClass('/eegs')}>
-              EEGs
+            <Link to="/cases" className={navLinkClass('/cases', '/cases/manage')}>
+              Casos
             </Link>
             <Link to="/galleries" className={navLinkClass('/galleries')}>
               Galerías
             </Link>
+            <Link to="/eegs" className={navLinkClass('/eegs')}>
+              EEGs
+            </Link>
             <Link to="/library" className={navLinkClass('/library')}>
-              Biblioteca Docente
+              Biblioteca
             </Link>
             <Link to="/queue" className={navLinkClass('/queue')}>
-              Cola de propuestas
+              Cola docente
             </Link>
             {user?.role === 'Admin' && (
-              <>
-                <Link to="/admin/users" className={navLinkClass('/admin/users')}>
-                  Usuarios
-                </Link>
-                <Link to="/admin/cleanup" className={navLinkClass('/admin/cleanup')}>
-                  Limpieza
-                </Link>
-              </>
+              <Link to="/admin" className={navLinkClass('/admin')}>
+                Admin
+              </Link>
             )}
           </nav>
           <div className="header-actions">

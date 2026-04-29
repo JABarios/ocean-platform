@@ -1,10 +1,31 @@
 # OCEAN — Especificaciones de Plataforma
 ## Documento técnico de visión, arquitectura y requisitos
-**Versión:** 0.1 — Visión fundacional  
-**Fecha:** 2026-04-23  
+**Versión:** 0.3 — Visión fundacional + estado actual  
+**Fecha:** 2026-04-29  
 **Relación con KAPPA:** Cliente colaborativo / Backend de coordinación
 
 ---
+
+## 0. Estado actual implementado
+
+Este documento nació como visión fundacional. A fecha de **29 de abril de 2026**, el producto real ya incluye varias piezas que en esta versión temprana figuraban fuera de alcance o se describían de forma más conservadora.
+
+### 0.1 Capacidades ya presentes en OCEAN
+- **Visor EEG web integrado** para apertura directa del paquete desde navegador.
+- **Persistencia del estado del visor** por `user + blobHash` del EEG.
+- **Caché local del paquete cifrado** en navegador para evitar redescargas.
+- **Custodia de la clave EEG en OCEAN**, recuperable con contraseña del usuario; el propietario también puede volver a revelarla.
+- **Anonimización de cabecera EDF antes del cifrado** en la subida web.
+- **Entidad reutilizable `EegRecord`** con deduplicación por `blobHash`.
+- **Panel independiente de EEGs** y **Galerías** de EEGs anonimizados o de libre distribución.
+- **Importación de galerías desde directorio local del servidor** preparado por scripts externos.
+- **Panel admin ampliado** con usuarios, limpieza y visibilidad global de casos.
+
+### 0.2 Aclaración importante
+OCEAN sigue **sin ser un repositorio masivo indiscriminado de EEGs**, pero ya no es solo un coordinador efímero: ahora puede mantener **registros EEG reutilizables, galerías curadas y paquetes cifrados** bajo control explícito y trazabilidad.
+
+### 0.3 Lectura recomendada
+El resto del documento debe leerse como **arquitectura de intención y principios**, no como fotografía exacta de todas las funciones ya desplegadas.
 
 ## 1. Resumen ejecutivo
 
@@ -15,7 +36,7 @@ OCEAN es la capa colaborativa del ecosistema KAPPA. Mientras KAPPA es la estaci�
 - Conservar la discusión clínica asociada a cada caso de forma estructurada y trazable.
 - Promover casos de especial interés a una biblioteca docente validada por la comunidad.
 
-OCEAN **no** es un repositorio masivo de EEGs, ni una red social médica, ni un motor de IA diagnóstica. Es una **infraestructura de coordinación clínica** cuya unidad básica es la **petición de revisión de un caso**.
+OCEAN **no** es un repositorio masivo indiscriminado de EEGs, ni una red social médica, ni un motor de IA diagnóstica. Es una **infraestructura de coordinación clínica** cuya unidad básica sigue siendo la **petición de revisión de un caso**, aunque hoy también incorpora un visor web, registros EEG reutilizables y galerías curadas.
 
 ---
 
@@ -32,7 +53,6 @@ OCEAN **no** es un repositorio masivo de EEGs, ni una red social médica, ni un 
 - Propuesta de casos para docencia.
 - Sistema de recomendaciones y validación docente ligera (1-2 curadores).
 - Tags docentes básicos (patrón, artefacto, pediatría, UCI, etc.).
-- **Visor EEG en navegador** (`/cases/:id/eeg`): desencriptación en cliente, renderizado canvas vía WebAssembly (módulo KAPPA), filtros HP/LP/notch, ganancia relativa, navegación temporal.
 
 ### 2.2 Fuera del alcance (V1)
 - Almacenamiento permanente centralizado de todos los EEGs de todos los usuarios.
@@ -40,6 +60,8 @@ OCEAN **no** es un repositorio masivo de EEGs, ni una red social médica, ni un 
 - Mensajería directa desvinculada de casos.
 - Publicaciones científicas o foros abiertos.
 - Integración con EHR/historia clínica del hospital.
+
+> **Nota de actualización:** el visor web ya está implementado en OCEAN. Sigue siendo válido, no obstante, que KAPPA permanezca como estación local de trabajo avanzada.
 
 ---
 
@@ -76,15 +98,17 @@ OCEAN opera como un **orquestador de relaciones clínicas**. El EEG no es un act
 | **Request Service** | Creación, envío, aceptación y rechazo de peticiones de revisión. |
 | **Comment Service** | Comentarios estructurados por caso, conclusiones, hilos. |
 | **Teaching Service** | Propuestas docentes, recomendaciones, validación curatorial, tags. |
-| **Transfer Service** | Señalización de disponibilidad, coordinación de entrega de paquetes. |
+| **Transfer Service** | Señalización de disponibilidad, coordinación de entrega de paquetes y recuperación controlada de claves. |
 | **Notification Service** | Alertas de solicitudes, comentarios, cambios de estado. |
+| **EEG Record Service** | Reutilización de blobs por hash, deduplicación y trazabilidad de uso. |
+| **Gallery Service** | Gestión de colecciones de EEGs públicos o completamente anonimizados. |
 
 ### 3.3 Modalidades de transferencia de caso
 1. **P2P directo:** Ambos usuarios en línea, transferencia cifrada punto a punto.
 2. **Buffer temporal cifrado:** El paquete se almacena cifrado en el servidor durante un tiempo limitado (ej. 72h) hasta que el revisor lo recoge.
 3. **Prestamo de acceso:** El caso permanece en posesión del solicitante; el revisor obtiene un token de acceso temporal para abrirlo desde su KAPPA local.
 
-> **Decisión de diseño:** El servidor OCEAN nunca almacena EEGs en claro de forma permanente. Solo mantiene metadatos, estados, comentarios y referencias.
+> **Decisión de diseño:** El servidor OCEAN nunca almacena EEGs en claro de forma permanente. Mantiene blobs cifrados, metadatos, estados, comentarios, referencias y, cuando aplica, registros EEG reutilizables o galerías curadas.
 
 ---
 

@@ -2,10 +2,26 @@
 
 ## Integración con KAPPA para revisión clínica, discusión y curación docente de EEG
 
-**Versión:** borrador 0.1
+**Versión:** borrador 0.3
+**Fecha de actualización:** 2026-04-29
 **Propósito:** definir la plataforma colaborativa que trabajará junto a KAPPA para permitir revisión de casos EEG, discusión estructurada y evolución hacia una biblioteca docente.
 
 ---
+
+## 0. Estado actual implementado
+
+Este texto nació como borrador temprano. Hoy conviene leerlo junto a este resumen del estado real de la plataforma:
+
+- OCEAN ya dispone de **visor EEG web**.
+- La subida web **anonimiza la cabecera EDF antes del cifrado**.
+- El visor guarda su estado por usuario y EEG, y reutiliza **caché local del paquete cifrado**.
+- Existe **custodia de la clave EEG en OCEAN**, recuperable con contraseña del usuario; el propietario puede volver a revelarla.
+- Los EEGs ya no viven solo pegados a un caso: existe una entidad **`EegRecord` reutilizable** con deduplicación por hash.
+- Existen **Galerías** como entidad separada de `Case`, pensadas para EEGs públicos o completamente anonimizados.
+- El área `Admin` ya no sustituye al flujo normal: se añade encima de él.
+
+### 0.1 Aclaración
+OCEAN sigue sin pretender ser un repositorio indiscriminado de todos los EEGs posibles, pero ya sí gestiona **registros reutilizables y colecciones curadas**.
 
 ## 1. Objeto del documento
 
@@ -15,7 +31,7 @@ KAPPA será la estación de trabajo local: abrir, revisar, filtrar, cuantificar,
 
 OCEAN será la capa de coordinación y colaboración: identidad, permisos, peticiones de revisión, entrega de casos, discusión, recomendaciones y curación docente.
 
-La idea central no es crear un repositorio masivo de EEG, sino un **sistema de peticiones de revisión de casos**, con trazabilidad y una capa superior de conocimiento compartido.
+La idea central no es crear un repositorio masivo indiscriminado de EEG, sino un **sistema de peticiones de revisión de casos**, con trazabilidad y una capa superior de conocimiento compartido. Sobre esa base, la implementación actual añade visor web, EEGs reutilizables y galerías curadas.
 
 ---
 
@@ -47,6 +63,8 @@ KAPPA y OCEAN tienen funciones distintas:
 ### 3.3 Privacidad y control
 
 La plataforma no debe obligar a un almacenamiento central permanente del EEG en claro. El modelo preferente es de **caso cifrado + acceso controlado + entrega bajo aceptación**.
+
+> **Nota de actualización:** hoy el sistema conserva blobs cifrados, claves custodiadas bajo control del usuario, y registros EEG reutilizables cuando procede, pero no EEGs en claro.
 
 ### 3.4 Sobriedad profesional
 
@@ -135,7 +153,7 @@ Gestiona el paquete EEG del caso:
 
 * transferencia directa entre clientes cuando sea posible
 * o almacenamiento temporal cifrado en un buzón central
-* apertura local desde KAPPA
+* apertura local desde KAPPA o desde el visor web de OCEAN
 * sin persistencia en claro por defecto
 
 ---
@@ -710,4 +728,3 @@ OCEAN debe ser una plataforma profesional de **peticiones de revisión de casos 
 * los paquetes EEG se transfieren de forma controlada y cifrada
 * la discusión clínica queda preservada
 * algunos casos pueden evolucionar a biblioteca docente validada
-

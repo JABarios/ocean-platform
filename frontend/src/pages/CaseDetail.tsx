@@ -4,6 +4,7 @@ import { api, friendlyError } from '../api/client'
 import { useAuthStore } from '../store/authStore'
 import { useCrypto } from '../hooks/useCrypto'
 import type { CaseItem, Comment, User } from '../types'
+import PageHeader from '../components/PageHeader'
 import './CaseDetail.css'
 
 function statusBadgeClass(status: CaseItem['status']) {
@@ -277,10 +278,11 @@ export default function CaseDetail() {
 
   return (
     <div className="case-detail">
-      <div className="case-header">
-        <h2>{caseItem.title}</h2>
-        <span className={statusBadgeClass(caseItem.status)}>{caseItem.status}</span>
-      </div>
+      <PageHeader
+        title={caseItem.title}
+        subtitle="Caso clínico, discusión entre revisores y acceso seguro al paquete EEG."
+        actions={<span className={statusBadgeClass(caseItem.status)}>{caseItem.status}</span>}
+      />
 
       <div className="case-fields card">
         <div className="field">

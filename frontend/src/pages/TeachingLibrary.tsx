@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import type { TeachingProposal } from '../types'
+import PageHeader from '../components/PageHeader'
 import './TeachingLibrary.css'
 
 const DIFFICULTIES = ['Introductory', 'Intermediate', 'Advanced']
@@ -34,10 +35,10 @@ export default function TeachingLibrary() {
 
   return (
     <div className="library">
-      <h2>Biblioteca docente OCEAN</h2>
-      <p className="subtitle">
-        Casos validados por la comunidad como material de enseñanza.
-      </p>
+      <PageHeader
+        title="Biblioteca docente"
+        subtitle="Casos validados por la comunidad como material de enseñanza y consulta."
+      />
 
       <form onSubmit={handleSearch} className="search-bar card">
         <input

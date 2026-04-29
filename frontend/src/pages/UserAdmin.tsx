@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { api, friendlyError } from '../api/client'
 import type { User } from '../types'
 import { useAuthStore } from '../store/authStore'
+import PageHeader from '../components/PageHeader'
 import './UserAdmin.css'
 
 const VALID_ROLES = ['Clinician', 'Reviewer', 'Curator', 'Admin'] as const
@@ -92,18 +93,18 @@ export default function UserAdmin() {
 
   return (
     <div className="user-admin">
-      <div className="header-row">
-        <div>
-          <h2>Administración de usuarios</h2>
-          <p className="subtle-copy">Control de acceso, actividad y carga de revisión de la red OCEAN.</p>
-        </div>
-        <div className="summary-grid">
-          <div className="summary-card"><strong>{summary.total}</strong><span>Total</span></div>
-          <div className="summary-card"><strong>{summary.active}</strong><span>Activos</span></div>
-          <div className="summary-card"><strong>{summary.inactive}</strong><span>Inactivos</span></div>
-          <div className="summary-card"><strong>{summary.admins}</strong><span>Admins</span></div>
-        </div>
-      </div>
+      <PageHeader
+        title="Administración de usuarios"
+        subtitle="Control de acceso, actividad y carga operativa de la red clínica OCEAN."
+        aside={(
+          <div className="summary-grid">
+            <div className="summary-card"><strong>{summary.total}</strong><span>Total</span></div>
+            <div className="summary-card"><strong>{summary.active}</strong><span>Activos</span></div>
+            <div className="summary-card"><strong>{summary.inactive}</strong><span>Inactivos</span></div>
+            <div className="summary-card"><strong>{summary.admins}</strong><span>Admins</span></div>
+          </div>
+        )}
+      />
 
       {error && <div className="error-banner">{error}</div>}
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import { useAuthStore } from '../store/authStore'
 import type { TeachingProposal } from '../types'
+import PageHeader from '../components/PageHeader'
 import './TeachingQueue.css'
 
 export default function TeachingQueue() {
@@ -53,10 +54,10 @@ export default function TeachingQueue() {
 
   return (
     <div className="queue">
-      <h2>Cola de propuestas docentes</h2>
-      <p className="subtitle">
-        Casos propuestos por la comunidad pendientes de validación curatorial.
-      </p>
+      <PageHeader
+        title="Cola de propuestas docentes"
+        subtitle="Casos propuestos por la comunidad pendientes de recomendación y validación curatorial."
+      />
 
       <div className="filters">
         {(['all', 'Proposed', 'Recommended'] as const).map((f) => (

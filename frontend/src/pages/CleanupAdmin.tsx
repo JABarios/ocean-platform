@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api, friendlyError } from '../api/client'
+import PageHeader from '../components/PageHeader'
 import './CleanupAdmin.css'
 
 type CleanupTaskName =
@@ -134,22 +135,20 @@ export default function CleanupAdmin() {
 
   return (
     <div className="cleanup-admin">
-      <div className="cleanup-header">
-        <div>
-          <h2>Panel de limpieza</h2>
-          <p className="cleanup-subtitle">
-            Revisa candidatos, estima impacto y ejecuta solo tareas seguras.
-          </p>
-        </div>
-        <div className="cleanup-header-actions">
-          <button className="btn-secondary" onClick={refreshReport} disabled={loading || running}>
-            {loading ? 'Actualizando…' : 'Actualizar reporte'}
-          </button>
-          <button className="btn-primary" onClick={handleRun} disabled={running || selectedTasks.length === 0}>
-            {running ? 'Ejecutando…' : 'Ejecutar limpieza segura'}
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Panel de limpieza"
+        subtitle="Revisa candidatos, estima impacto y ejecuta solo tareas seguras de mantenimiento."
+        actions={(
+          <>
+            <button className="btn-secondary" onClick={refreshReport} disabled={loading || running}>
+              {loading ? 'Actualizando…' : 'Actualizar reporte'}
+            </button>
+            <button className="btn-primary" onClick={handleRun} disabled={running || selectedTasks.length === 0}>
+              {running ? 'Ejecutando…' : 'Ejecutar limpieza segura'}
+            </button>
+          </>
+        )}
+      />
 
       {error && <div className="cleanup-error">{error}</div>}
 

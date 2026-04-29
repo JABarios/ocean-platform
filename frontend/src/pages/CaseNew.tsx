@@ -4,6 +4,7 @@ import { api, API_BASE, friendlyError } from '../api/client'
 import { useAuthStore } from '../store/authStore'
 import { useCrypto, isCryptoAvailable } from '../hooks/useCrypto'
 import type { CaseItem } from '../types'
+import PageHeader from '../components/PageHeader'
 import './CaseNew.css'
 
 export default function CaseNew() {
@@ -109,7 +110,10 @@ export default function CaseNew() {
 
   return (
     <div className="case-new">
-      <h2>Nuevo caso</h2>
+      <PageHeader
+        title="Nuevo caso"
+        subtitle="Prepara el contexto clínico, cifra el EEG en local y deja la revisión lista para compartir."
+      />
       <form onSubmit={handleSubmit} className="case-form card">
         <label>
           Título

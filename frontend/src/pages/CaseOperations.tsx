@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api, friendlyError } from '../api/client'
 import type { CaseItem, ReviewRequest, TeachingProposal, User } from '../types'
 import { useAuthStore } from '../store/authStore'
+import PageHeader from '../components/PageHeader'
 import './CaseOperations.css'
 
 type CaseStatusFilter = 'all' | CaseItem['status']
@@ -239,19 +240,19 @@ export default function CaseOperations() {
 
   return (
     <div className="case-ops">
-      <div className="ops-header">
-        <div>
-          <h2>Gestión de casos</h2>
-          <p className="ops-subtle">Coordina casos abiertos, invitaciones y cierre clínico desde una sola bandeja.</p>
-        </div>
-        <div className="summary-grid">
-          <div className="summary-card"><strong>{summary.total}</strong><span>Total</span></div>
-          <div className="summary-card"><strong>{summary.open}</strong><span>Abiertos</span></div>
-          <div className="summary-card"><strong>{summary.requested}</strong><span>Solicitados</span></div>
-          <div className="summary-card"><strong>{summary.inReview}</strong><span>En revisión</span></div>
-          <div className="summary-card"><strong>{summary.resolved}</strong><span>Resueltos</span></div>
-        </div>
-      </div>
+      <PageHeader
+        title="Gestión de casos"
+        subtitle="Coordina invitaciones, estado clínico y propuesta docente desde una sola bandeja."
+        aside={(
+          <div className="summary-grid">
+            <div className="summary-card"><strong>{summary.total}</strong><span>Total</span></div>
+            <div className="summary-card"><strong>{summary.open}</strong><span>Abiertos</span></div>
+            <div className="summary-card"><strong>{summary.requested}</strong><span>Solicitados</span></div>
+            <div className="summary-card"><strong>{summary.inReview}</strong><span>En revisión</span></div>
+            <div className="summary-card"><strong>{summary.resolved}</strong><span>Resueltos</span></div>
+          </div>
+        )}
+      />
 
       {error && <div className="error-banner">{error}</div>}
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, friendlyError } from '../api/client'
 import type { EegRecord } from '../types'
+import PageHeader from '../components/PageHeader'
 import './EegRecords.css'
 
 function formatDate(value?: string) {
@@ -25,16 +26,16 @@ export default function EegRecords() {
 
   return (
     <div className="eeg-records">
-      <div className="records-header">
-        <div>
-          <h2>EEGs</h2>
-          <p className="records-subtle">Registros compartidos, reutilización por hash y casos vinculados.</p>
-        </div>
-        <div className="records-summary card">
-          <strong>{records.length}</strong>
-          <span>Registros visibles</span>
-        </div>
-      </div>
+      <PageHeader
+        title="EEGs"
+        subtitle="Registros compartidos, reutilización por hash y casos vinculados."
+        aside={(
+          <div className="records-summary card">
+            <strong>{records.length}</strong>
+            <span>Registros visibles</span>
+          </div>
+        )}
+      />
 
       {error && <div className="error-banner">{error}</div>}
 

@@ -1,0 +1,92 @@
+.page-header {
+  padding: 1rem 1.1rem;
+  margin-bottom: 1rem;
+  background:
+    linear-gradient(135deg, rgba(15, 91, 216, 0.05), rgba(15, 91, 216, 0.015)),
+    var(--surface);
+  box-shadow: var(--shadow-soft);
+}
+
+.page-header-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.page-header-copy {
+  min-width: 0;
+}
+
+.page-header-copy h1 {
+  font-size: 1.35rem;
+  line-height: 1.1;
+  margin-bottom: 0.35rem;
+}
+
+.page-header-copy p {
+  color: var(--text-secondary);
+  font-size: 0.94rem;
+  max-width: 62ch;
+}
+
+.page-header-side {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.page-header-aside {
+  display: flex;
+  align-items: stretch;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.page-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.page-header-actions .btn-primary,
+.page-header-actions .btn-secondary,
+.page-header-actions .btn-danger {
+  width: auto;
+  min-height: unset;
+}
+
+@media (max-width: 760px) {
+  .page-header {
+    padding: 0.95rem 1rem;
+  }
+
+  .page-header-main,
+  .page-header-side {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .page-header-copy h1 {
+    font-size: 1.2rem;
+  }
+
+  .page-header-copy p {
+    font-size: 0.9rem;
+  }
+
+  .page-header-actions,
+  .page-header-aside {
+    width: 100%;
+  }
+
+  .page-header-actions .btn-primary,
+  .page-header-actions .btn-secondary,
+  .page-header-actions .btn-danger {
+    width: 100%;
+  }
+}

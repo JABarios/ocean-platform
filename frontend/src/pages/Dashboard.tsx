@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api, friendlyError } from '../api/client'
 import type { CaseItem, ReviewRequest } from '../types'
+import PageHeader from '../components/PageHeader'
 import './Dashboard.css'
 
 function statusBadgeClass(status: CaseItem['status']) {
@@ -73,12 +74,15 @@ export default function Dashboard() {
 
   return (
     <div className="dashboard">
-      <div className="dashboard-header">
-        <h2>Dashboard</h2>
-        <button className="btn-primary" onClick={() => navigate('/cases/new')}>
-          Solicitar nueva revisión
-        </button>
-      </div>
+      <PageHeader
+        title="Dashboard"
+        subtitle="Resumen de tus casos, invitaciones pendientes y revisiones activas."
+        actions={(
+          <button className="btn-primary" onClick={() => navigate('/cases/new')}>
+            Solicitar nueva revisión
+          </button>
+        )}
+      />
 
       <section className="dashboard-section">
         <h3>Mis Casos</h3>

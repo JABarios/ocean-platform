@@ -147,6 +147,52 @@ describe('EEG viewer utils', () => {
     expect(asArray(excluded.data[0])).toEqual([-85, -85])
   })
 
+  it('reconoce canales EEG con prefijos habituales al construir promedio y Ref AVG', () => {
+    const epoch = makeEpoch({
+      'EEG Fp1': [10, 20],
+      'EEG F7': [20, 30],
+      'EEG F3': [30, 40],
+      'EEG T3': [40, 50],
+      'EEG C3': [50, 60],
+      'EEG T5': [60, 70],
+      'EEG P3': [70, 80],
+      'EEG O1': [80, 90],
+      'EEG Fz': [90, 100],
+      'EEG Cz': [100, 110],
+      'EEG Pz': [110, 120],
+      'EEG Fp2': [120, 130],
+      'EEG F4': [130, 140],
+      'EEG F8': [140, 150],
+      'EEG C4': [150, 160],
+      'EEG T4': [160, 170],
+      'EEG P4': [170, 180],
+      'EEG T6': [180, 190],
+      'EEG O2': [190, 200],
+    })
+
+    const candidates = getAverageReferenceCandidates(epoch)
+    expect(candidates).toContain('EEG F7')
+    expect(candidates).toContain('EEG O2')
+
+    const result = applyMontage(epoch, 'promedio')
+    expect(result.channelNames[0]).toBe('Fp1 - AVG')
+    expect(result.channelNames[1]).toBe('F7 - AVG')
+    expect(asArray(result.data[0])).toEqual([-90, -90])
+  })
+
+  it('no marca como ocultos canales ya cubiertos por el montaje si vienen con prefijo EEG', () => {
+    const epoch = makeEpoch({
+      'EEG Fp1': [10, 20],
+      'EEG F7': [20, 30],
+      ECG: [1, 2],
+    }, {
+      ECG: 'ECG',
+    })
+
+    const hidden = getMontageHiddenCandidates(epoch, 'promedio')
+    expect(hidden).toEqual(['ECG'])
+  })
+
   it('lista canales ocultos por el montaje y permite añadirlos al trazado', () => {
     const epoch = makeEpoch({
       Fp1: [10, 20],

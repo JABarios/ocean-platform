@@ -103,6 +103,27 @@ export interface SanitizedViewerState {
   artifactReject: boolean
 }
 
+function canonicalizeChannelName(name: string): string {
+  const trimmed = name.trim()
+  if (!trimmed) return trimmed
+
+  let canonical = trimmed
+    .replace(/^EEG[\s:_-]*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const upper = canonical.toUpperCase()
+  const aliases: Record<string, string> = {
+    T7: 'T3',
+    T8: 'T4',
+    P7: 'T5',
+    P8: 'T6',
+  }
+
+  if (aliases[upper]) canonical = aliases[upper]
+  return canonical
+}
+
 export function getChannelColor(name: string, type: string): string {
   if (type !== 'EEG') return CHANNEL_COLORS[type] ?? DEFAULT_COLOR
 
@@ -159,7 +180,7 @@ function getAverageReferenceSourceNames(epoch: EpochData): string[] {
   }
 
   return epoch.channelNames.filter((name, index) => {
-    if (!names.has(name)) return false
+    if (!names.has(canonicalizeChannelName(name))) return false
     return (epoch.channelTypes[index] ?? 'EEG') === 'EEG'
   })
 }
@@ -184,7 +205,7 @@ export function getMontageHiddenCandidates(epoch: EpochData | null, montageName:
   if (!epoch || montageName === 'raw') return []
 
   const visibleNames = getVisibleSourceNamesForMontage(montageName)
-  return epoch.channelNames.filter((name) => !visibleNames.has(name))
+  return epoch.channelNames.filter((name) => !visibleNames.has(canonicalizeChannelName(name)))
 }
 
 export function applyMontage(
@@ -200,15 +221,15 @@ export function applyMontage(
   const definitions = MONTAGES[montageName]
   const byName = new Map<string, { data: Float32Array; type: string }>()
   epoch.channelNames.forEach((name, i) => {
-    byName.set(name, {
+    byName.set(canonicalizeChannelName(name), {
       data: epoch.data[i],
       type: epoch.channelTypes[i] ?? 'EEG',
     })
   })
 
   const zero = new Float32Array(epoch.nSamples)
-  const getSignal = (name: string) => byName.get(name)?.data ?? zero
-  const getType = (name: string) => byName.get(name)?.type ?? 'EEG'
+  const getSignal = (name: string) => byName.get(canonicalizeChannelName(name))?.data ?? zero
+  const getType = (name: string) => byName.get(canonicalizeChannelName(name))?.type ?? 'EEG'
 
   const avgReference = montageName === 'promedio'
     ? averageSignals(

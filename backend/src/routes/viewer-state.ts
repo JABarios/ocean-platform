@@ -44,6 +44,13 @@ async function findAccessibleCaseWithPackage(req: AuthenticatedRequest, caseId: 
   })
 }
 
+async function findAccessibleGalleryRecord(recordId: string) {
+  return prisma.galleryRecord.findUnique({
+    where: { id: recordId },
+    include: { eegRecord: true },
+  })
+}
+
 function toViewerStateResponse(state: {
   positionSec: number
   windowSecs: number
@@ -148,6 +155,86 @@ router.put('/:caseId', async (req: AuthenticatedRequest, res) => {
     create: {
       userId: req.user!.id,
       packageHash: caseItem.package.blobHash,
+      positionSec: data.positionSec,
+      windowSecs: data.windowSecs,
+      hp: data.hp,
+      lp: data.lp,
+      notch: data.notch,
+      gainMult: data.gainMult,
+      normalizeNonEEG: data.normalizeNonEEG,
+      montage: data.montage,
+      excludedAverageReferenceChannels: JSON.stringify(data.excludedAverageReferenceChannels),
+      includedHiddenChannels: JSON.stringify(data.includedHiddenChannels),
+      dsaChannel: data.dsaChannel,
+      artifactReject: data.artifactReject,
+    },
+  })
+
+  res.json(toViewerStateResponse(state))
+})
+
+router.get('/gallery/:recordId', async (req: AuthenticatedRequest, res) => {
+  const record = await findAccessibleGalleryRecord(req.params.recordId)
+  if (!record?.eegRecord?.blobHash) {
+    res.json(null)
+    return
+  }
+
+  const state = await prisma.viewerState.findUnique({
+    where: {
+      userId_packageHash: {
+        userId: req.user!.id,
+        packageHash: record.eegRecord.blobHash,
+      },
+    },
+  })
+
+  if (!state) {
+    res.json(null)
+    return
+  }
+
+  res.json(toViewerStateResponse(state))
+})
+
+router.put('/gallery/:recordId', async (req: AuthenticatedRequest, res) => {
+  const parsed = viewerStateSchema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Estado de visor inválido', issues: parsed.error.issues })
+    return
+  }
+
+  const record = await findAccessibleGalleryRecord(req.params.recordId)
+  if (!record?.eegRecord?.blobHash) {
+    res.status(404).json({ error: 'Registro de galería no encontrado' })
+    return
+  }
+
+  const data = parsed.data
+  const state = await prisma.viewerState.upsert({
+    where: {
+      userId_packageHash: {
+        userId: req.user!.id,
+        packageHash: record.eegRecord.blobHash,
+      },
+    },
+    update: {
+      positionSec: data.positionSec,
+      windowSecs: data.windowSecs,
+      hp: data.hp,
+      lp: data.lp,
+      notch: data.notch,
+      gainMult: data.gainMult,
+      normalizeNonEEG: data.normalizeNonEEG,
+      montage: data.montage,
+      excludedAverageReferenceChannels: JSON.stringify(data.excludedAverageReferenceChannels),
+      includedHiddenChannels: JSON.stringify(data.includedHiddenChannels),
+      dsaChannel: data.dsaChannel,
+      artifactReject: data.artifactReject,
+    },
+    create: {
+      userId: req.user!.id,
+      packageHash: record.eegRecord.blobHash,
       positionSec: data.positionSec,
       windowSecs: data.windowSecs,
       hp: data.hp,

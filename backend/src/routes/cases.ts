@@ -260,11 +260,16 @@ router.delete('/:id', async (req: AuthenticatedRequest, res) => {
   })
 
   if (caseItem.package?.eegRecordId) {
-    const remainingUsages = await prisma.casePackage.count({
-      where: { eegRecordId: caseItem.package.eegRecordId },
-    })
+    const [remainingCaseUsages, remainingGalleryUsages] = await Promise.all([
+      prisma.casePackage.count({
+        where: { eegRecordId: caseItem.package.eegRecordId },
+      }),
+      prisma.galleryRecord.count({
+        where: { eegRecordId: caseItem.package.eegRecordId },
+      }),
+    ])
 
-    if (remainingUsages === 0) {
+    if (remainingCaseUsages === 0 && remainingGalleryUsages === 0) {
       await safeDeleteBlob(caseItem.package.blobLocation)
       await prisma.eegRecord.deleteMany({ where: { id: caseItem.package.eegRecordId } })
     }

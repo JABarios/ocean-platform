@@ -9,6 +9,7 @@ import commentRoutes from './routes/comments'
 import teachingRoutes from './routes/teaching'
 import userRoutes from './routes/users'
 import packageRoutes from './routes/packages'
+import galleryRoutes from './routes/galleries'
 import groupRoutes from './routes/groups'
 import auditRoutes from './routes/audit'
 import viewerStateRoutes from './routes/viewer-state'
@@ -68,6 +69,7 @@ app.use('/requests', requestRoutes)
 app.use('/comments', commentRoutes)
 app.use('/teaching', teachingRoutes)
 app.use('/packages', packageRoutes)
+app.use('/galleries', galleryRoutes)
 app.use('/groups', groupRoutes)
 app.use('/audit', auditRoutes)
 app.use('/viewer-state', viewerStateRoutes)

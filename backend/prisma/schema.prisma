@@ -33,6 +33,7 @@ model User {
   viewerStates       ViewerState[]
   createdSecrets     EegAccessSecret[] @relation("CreatedSecrets")
   uploadedEegRecords EegRecord[]       @relation("UploadedEegRecords")
+  createdGalleries   Gallery[]         @relation("CreatedGalleries")
 
   @@map("users")
 }
@@ -126,10 +127,47 @@ model EegRecord {
   createdAt      DateTime      @default(now()) @map("created_at")
   updatedAt      DateTime      @updatedAt @map("updated_at")
 
-  uploader User?         @relation("UploadedEegRecords", fields: [uploadedBy], references: [id])
-  packages CasePackage[]
+  uploader      User?           @relation("UploadedEegRecords", fields: [uploadedBy], references: [id])
+  packages      CasePackage[]
+  galleryRecords GalleryRecord[]
 
   @@map("eeg_records")
+}
+
+model Gallery {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  source      String?
+  license     String?
+  visibility  String   @default("Institutional")
+  tags        String?  @default("[]")
+  createdBy   String?  @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  creator User?           @relation("CreatedGalleries", fields: [createdBy], references: [id])
+  records GalleryRecord[]
+
+  @@map("galleries")
+}
+
+model GalleryRecord {
+  id          String   @id @default(uuid())
+  galleryId   String   @map("gallery_id")
+  eegRecordId String   @map("eeg_record_id")
+  label       String
+  sortOrder   Int      @default(0) @map("sort_order")
+  metadata    String?  @default("{}")
+  tags        String?  @default("[]")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  gallery   Gallery   @relation(fields: [galleryId], references: [id], onDelete: Cascade)
+  eegRecord EegRecord @relation(fields: [eegRecordId], references: [id], onDelete: Cascade)
+
+  @@unique([galleryId, eegRecordId])
+  @@map("gallery_records")
 }
 
 model ReviewRequest {

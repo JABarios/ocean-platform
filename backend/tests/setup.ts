@@ -77,6 +77,35 @@ CREATE TABLE "eeg_records" (
 );
 CREATE UNIQUE INDEX "eeg_records_blob_hash_key" ON "eeg_records"("blob_hash");
 
+CREATE TABLE "galleries" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "title" TEXT NOT NULL,
+    "description" TEXT,
+    "source" TEXT,
+    "license" TEXT,
+    "visibility" TEXT NOT NULL DEFAULT 'Institutional',
+    "tags" TEXT DEFAULT '[]',
+    "created_by" TEXT,
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" DATETIME NOT NULL,
+    CONSTRAINT "galleries_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "users" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+
+CREATE TABLE "gallery_records" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "gallery_id" TEXT NOT NULL,
+    "eeg_record_id" TEXT NOT NULL,
+    "label" TEXT NOT NULL,
+    "sort_order" INTEGER NOT NULL DEFAULT 0,
+    "metadata" TEXT DEFAULT '{}',
+    "tags" TEXT DEFAULT '[]',
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" DATETIME NOT NULL,
+    CONSTRAINT "gallery_records_gallery_id_fkey" FOREIGN KEY ("gallery_id") REFERENCES "galleries" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "gallery_records_eeg_record_id_fkey" FOREIGN KEY ("eeg_record_id") REFERENCES "eeg_records" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE UNIQUE INDEX "gallery_records_gallery_id_eeg_record_id_key" ON "gallery_records"("gallery_id", "eeg_record_id");
+
 CREATE TABLE "case_packages" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "case_id" TEXT NOT NULL,
@@ -217,6 +246,8 @@ beforeAll(async () => {
     'DROP TABLE IF EXISTS "comments"',
     'DROP TABLE IF EXISTS "review_requests"',
     'DROP TABLE IF EXISTS "case_packages"',
+    'DROP TABLE IF EXISTS "gallery_records"',
+    'DROP TABLE IF EXISTS "galleries"',
     'DROP TABLE IF EXISTS "eeg_records"',
     'DROP TABLE IF EXISTS "cases"',
     'DROP TABLE IF EXISTS "viewer_states"',
@@ -246,6 +277,8 @@ afterEach(async () => {
     'comments',
     'review_requests',
     'case_packages',
+    'gallery_records',
+    'galleries',
     'eeg_records',
     'cases',
     'group_members',

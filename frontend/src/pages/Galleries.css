@@ -1,0 +1,160 @@
+.galleries-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.gallery-summary {
+  min-width: 156px;
+}
+
+.gallery-summary strong {
+  font-size: 1.1rem;
+}
+
+.gallery-summary span {
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.gallery-filters {
+  padding: 0.9rem;
+}
+
+.gallery-import {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.ops-subtle {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
+.gallery-import-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+.gallery-import-form textarea {
+  grid-column: 1 / -1;
+}
+
+.gallery-import-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.gallery-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.case-meta {
+  color: var(--text-secondary);
+  font-size: 0.86rem;
+  margin-top: 0.24rem;
+}
+
+.case-links {
+  display: flex;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  font-size: 0.9rem;
+}
+
+.usage-pill {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+  padding: 0.7rem 0.8rem;
+  min-width: 92px;
+  text-align: center;
+}
+
+.usage-pill strong {
+  display: block;
+  font-size: 1.05rem;
+}
+
+.usage-pill span {
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.status-pill {
+  border-radius: 999px;
+  padding: 0.2rem 0.58rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.status-archived {
+  background: #faf5ff;
+  color: #7c3aed;
+}
+
+.gallery-card-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  align-items: flex-start;
+}
+
+.gallery-title-row {
+  display: flex;
+  gap: 0.55rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.gallery-title-link {
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.gallery-title-link:hover {
+  color: var(--primary);
+}
+
+.gallery-description {
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.gallery-tag-row {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 720px) {
+  .gallery-import-form {
+    grid-template-columns: 1fr;
+  }
+
+  .gallery-import-actions {
+    justify-content: stretch;
+  }
+
+  .gallery-import-actions button {
+    width: 100%;
+  }
+}

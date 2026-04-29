@@ -36,6 +36,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <Link to="/eegs" className={navLinkClass('/eegs')}>
               EEGs
             </Link>
+            <Link to="/galleries" className={navLinkClass('/galleries')}>
+              Galerías
+            </Link>
             <Link to="/library" className={navLinkClass('/library')}>
               Biblioteca Docente
             </Link>

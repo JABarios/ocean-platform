@@ -98,4 +98,44 @@ export async function createEegRecord(data?: {
   })
 }
 
+export async function createGallery(data: {
+  title: string
+  createdBy?: string
+  source?: string
+  license?: string
+  visibility?: string
+  tags?: string[]
+}) {
+  return prisma.gallery.create({
+    data: {
+      title: data.title,
+      createdBy: data.createdBy,
+      source: data.source,
+      license: data.license,
+      visibility: data.visibility || 'Institutional',
+      tags: JSON.stringify(data.tags || []),
+    },
+  })
+}
+
+export async function createGalleryRecord(data: {
+  galleryId: string
+  eegRecordId: string
+  label: string
+  sortOrder?: number
+  metadata?: Record<string, unknown>
+  tags?: string[]
+}) {
+  return prisma.galleryRecord.create({
+    data: {
+      galleryId: data.galleryId,
+      eegRecordId: data.eegRecordId,
+      label: data.label,
+      sortOrder: data.sortOrder || 0,
+      metadata: JSON.stringify(data.metadata || {}),
+      tags: JSON.stringify(data.tags || []),
+    },
+  })
+}
+
 export { prisma }

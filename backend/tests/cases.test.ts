@@ -1,6 +1,6 @@
 import request from 'supertest'
 import app from '../src/index'
-import { createUser, generateToken, createCase, createReviewRequest, prisma } from './helpers'
+import { createUser, generateToken, createCase, createGallery, createGalleryRecord, createReviewRequest, prisma } from './helpers'
 
 describe('GET /cases', () => {
   it('lista casos del usuario autenticado', async () => {
@@ -336,5 +336,41 @@ describe('DELETE /cases/:id', () => {
 
     expect(res.status).toBe(404)
     expect(await prisma.case.findUnique({ where: { id: c.id } })).not.toBeNull()
+  })
+
+  it('conserva el EEG si sigue enlazado desde una galería', async () => {
+    const owner = await createUser({ email: 'delete-gallery-owner@ocean.local', displayName: 'Delete Gallery Owner', password: 'pass' })
+    const c = await createCase(owner.id, { title: 'Caso con galería' })
+    const eegRecord = await prisma.eegRecord.create({
+      data: {
+        blobHash: 'hash-delete-gallery-case',
+        blobLocation: '/tmp/ocean-delete-gallery-case.edf',
+        encryptionMode: 'NONE',
+        uploadedBy: owner.id,
+      },
+    })
+    await prisma.casePackage.create({
+      data: {
+        caseId: c.id,
+        eegRecordId: eegRecord.id,
+        blobLocation: eegRecord.blobLocation,
+        blobHash: eegRecord.blobHash,
+        uploadStatus: 'Ready',
+      },
+    })
+    const gallery = await createGallery({ title: 'Galería test', createdBy: owner.id })
+    await createGalleryRecord({
+      galleryId: gallery.id,
+      eegRecordId: eegRecord.id,
+      label: 'registro-1',
+    })
+    const token = generateToken(owner.id, owner.email, owner.role)
+
+    const res = await request(app)
+      .delete(`/cases/${c.id}`)
+      .set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(200)
+    expect(await prisma.eegRecord.findUnique({ where: { id: eegRecord.id } })).not.toBeNull()
   })
 })

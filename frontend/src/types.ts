@@ -51,6 +51,38 @@ export interface EegRecord {
   }>
 }
 
+export interface GalleryRecord {
+  id: string
+  label: string
+  sortOrder: number
+  tags: string[]
+  metadata: Record<string, unknown>
+  createdAt: string
+  eegRecord?: {
+    id: string
+    blobHash: string
+    sizeBytes?: number
+    encryptionMode: string
+    createdAt: string
+    updatedAt: string
+  }
+}
+
+export interface Gallery {
+  id: string
+  title: string
+  description?: string
+  source?: string
+  license?: string
+  visibility: 'Institutional' | 'Public'
+  tags: string[]
+  createdAt: string
+  updatedAt: string
+  recordCount: number
+  createdBy?: Pick<User, 'id' | 'displayName' | 'email'>
+  records?: GalleryRecord[]
+}
+
 export interface CaseItem {
   id: string
   title: string

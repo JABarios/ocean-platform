@@ -13,6 +13,8 @@ import UserAdmin from './pages/UserAdmin'
 import CleanupAdmin from './pages/CleanupAdmin'
 import CaseOperations from './pages/CaseOperations'
 import EegRecords from './pages/EegRecords'
+import Galleries from './pages/Galleries'
+import GalleryDetail from './pages/GalleryDetail'
 
 export default function App() {
   return (
@@ -59,6 +61,27 @@ export default function App() {
           </ProtectedRoute>
         }
       />
+      <Route
+        path="/galleries"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <Galleries />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/galleries/:id"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <GalleryDetail />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route path="/galleries/records/:recordId/eeg" element={<EEGViewer />} />
       <Route
         path="/cases/:id"
         element={

@@ -109,6 +109,16 @@
   margin-top: 0.24rem;
 }
 
+.case-owner {
+  color: var(--text);
+  font-size: 0.87rem;
+  margin-top: 0.28rem;
+}
+
+.case-owner strong {
+  font-weight: 700;
+}
+
 .case-links {
   display: flex;
   gap: 0.95rem;

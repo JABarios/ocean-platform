@@ -29,6 +29,7 @@ function formatDate(value?: string) {
 
 export default function CaseOperations() {
   const currentUser = useAuthStore((s) => s.user)
+  const seeingAllCases = currentUser?.role === 'Admin'
   const [cases, setCases] = useState<CaseItem[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
@@ -81,6 +82,7 @@ export default function CaseOperations() {
         item.clinicalContext,
         item.studyReason,
         item.ageRange,
+        item.owner?.displayName || '',
         ...(item.tags || []),
       ].join(' ').toLowerCase()
       return haystack.includes(q)
@@ -242,7 +244,9 @@ export default function CaseOperations() {
     <div className="case-ops">
       <PageHeader
         title="Gestión de casos"
-        subtitle="Coordina invitaciones, estado clínico y propuesta docente desde una sola bandeja."
+        subtitle={seeingAllCases
+          ? 'Coordina invitaciones, estado clínico y propuesta docente sobre todos los casos de la plataforma.'
+          : 'Coordina invitaciones, estado clínico y propuesta docente desde una sola bandeja.'}
         aside={(
           <div className="summary-grid">
             <div className="summary-card"><strong>{summary.total}</strong><span>Total</span></div>
@@ -287,6 +291,11 @@ export default function CaseOperations() {
                   <div className="case-meta">
                     {item.ageRange || 'Edad no indicada'} · {item.modality} · {formatDate(item.createdAt)}
                   </div>
+                  {seeingAllCases && item.owner && (
+                    <div className="case-owner">
+                      Propietario: <strong>{item.owner.displayName}</strong>
+                    </div>
+                  )}
                   {item.studyReason && <div className="case-meta">{item.studyReason}</div>}
                 </div>
                 <div className="case-links">

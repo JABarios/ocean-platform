@@ -112,6 +112,26 @@ describe('GET /comments/case/:caseId', () => {
     expect(res.status).toBe(404)
   })
 
+  it('admin puede leer comentarios de cualquier caso', async () => {
+    const owner = await createUser({ email: 'cm-admin-own@ocean.local', displayName: 'CmAdminOwn', password: 'pass' })
+    const admin = await createUser({
+      email: 'cm-admin@ocean.local',
+      displayName: 'CmAdmin',
+      password: 'pass',
+      role: 'Admin',
+    })
+    const c = await createCase(owner.id)
+    const ownerToken = generateToken(owner.id, owner.email, owner.role)
+    await request(app).post(`/comments/case/${c.id}`).set('Authorization', `Bearer ${ownerToken}`).send({ body: 'Visible para admin' })
+
+    const token = generateToken(admin.id, admin.email, admin.role)
+    const res = await request(app).get(`/comments/case/${c.id}`).set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body).toHaveLength(1)
+    expect(res.body[0].content).toBe('Visible para admin')
+  })
+
   it('devuelve lista vacía si no hay comentarios', async () => {
     const owner = await createUser({ email: 'cm-zero@ocean.local', displayName: 'CmZero', password: 'pass' })
     const c = await createCase(owner.id)

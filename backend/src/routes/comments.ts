@@ -11,6 +11,10 @@ const createCommentSchema = z.object({
   requestId: z.string().uuid().optional(),
 })
 
+function canSeeAllCases(req: AuthenticatedRequest) {
+  return req.user?.role === 'Admin'
+}
+
 router.use(authMiddleware)
 
 // Listar comentarios de un caso
@@ -18,19 +22,23 @@ router.get('/case/:caseId', async (req: AuthenticatedRequest, res) => {
   const caseItem = await prisma.case.findFirst({
     where: {
       id: req.params.caseId,
-      OR: [
-        { ownerId: req.user!.id },
-        {
-          reviewRequests: {
-            some: {
-              OR: [
-                { targetUserId: req.user!.id },
-                { requestedBy: req.user!.id },
-              ],
-            },
-          },
-        },
-      ],
+      ...(canSeeAllCases(req)
+        ? {}
+        : {
+            OR: [
+              { ownerId: req.user!.id },
+              {
+                reviewRequests: {
+                  some: {
+                    OR: [
+                      { targetUserId: req.user!.id },
+                      { requestedBy: req.user!.id },
+                    ],
+                  },
+                },
+              },
+            ],
+          }),
     },
   })
 

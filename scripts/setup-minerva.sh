@@ -4,6 +4,14 @@
 
 set -e
 
+if [ "${OCEAN_ALLOW_LEGACY_MINERVA:-}" != "1" ]; then
+  echo "ERROR: setup-minerva.sh es un script histórico y ya no forma parte del camino soportado de despliegue."
+  echo "Usa docs/DEPLOY.md e install-new-machine.sh para despliegues actuales."
+  echo "Si necesitas ejecutar esta versión legacy conscientemente, relanza con:"
+  echo "  OCEAN_ALLOW_LEGACY_MINERVA=1 ./scripts/setup-minerva.sh"
+  exit 1
+fi
+
 OCEAN_DIR="$HOME/ocean-platform"
 BACKEND_DIR="$OCEAN_DIR/backend"
 FRONTEND_DIR="$OCEAN_DIR/frontend"

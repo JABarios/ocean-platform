@@ -59,6 +59,8 @@ if (process.env.NODE_ENV !== 'test') {
 
 const app = express()
 const PORT = process.env.PORT || 4000
+const shouldLogRequests =
+  process.env.NODE_ENV !== 'production' || process.env.LOG_REQUESTS === 'true'
 
 const corsOrigin = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN === '*'
@@ -69,11 +71,13 @@ const corsOrigin = process.env.CORS_ORIGIN
 // Log de configuración al arrancar
 console.log(`[OCEAN] CORS_ORIGIN configurado: ${JSON.stringify(corsOrigin)}`)
 
-app.use((req, res, next) => {
-  const origin = req.headers.origin || '(sin origin)'
-  console.log(`[OCEAN] ${req.method} ${req.url} | Origin: ${origin} | IP: ${req.ip || req.socket.remoteAddress}`)
-  next()
-})
+if (shouldLogRequests) {
+  app.use((req, _res, next) => {
+    const origin = req.headers.origin || '(sin origin)'
+    console.log(`[OCEAN] ${req.method} ${req.url} | Origin: ${origin} | IP: ${req.ip || req.socket.remoteAddress}`)
+    next()
+  })
+}
 
 app.use(cors({
   origin: corsOrigin,

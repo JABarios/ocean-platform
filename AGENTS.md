@@ -19,9 +19,9 @@ La estructura del repositorio es:
 ocean-platform/
 ├── backend/             # API REST (Node.js + Express + TypeScript + Prisma + SQLite)
 ├── frontend/            # Aplicación web (React + TypeScript + Vite)
-├── scripts/             # Scripts de utilidad (ocean.sh, install-new-machine.sh)
+├── scripts/             # Scripts de utilidad y despliegue
 ├── docker-compose.yml   # Desarrollo con Docker (PostgreSQL + MinIO)
-├── docker-compose.prod.yml # Producción con Docker
+├── docker-compose.prod.yml # Producción con Docker (SQLite bind-mount)
 └── docs/                # Documentación (DEPLOY.md, MINERVA.md)
 ```
 
@@ -65,18 +65,24 @@ backend/
 │   │   ├── requests.ts       # Solicitudes de revisión (pending, active, accept, reject)
 │   │   ├── packages.ts       # Subida/descarga con diskStorage + hash streaming (sin cargar en RAM)
 │   │   ├── teaching.ts       # Propuestas docentes, recomendaciones, validación
-│   │   └── users.ts          # Listado de usuarios
+│   │   ├── users.ts          # Listado y administración de usuarios
+│   │   ├── galleries.ts      # Galerías e importación desde directorio del servidor
+│   │   ├── groups.ts         # Grupos clínicos
+│   │   ├── audit.ts          # Auditoría
+│   │   ├── viewer-state.ts   # Persistencia del visor por usuario + EEG
+│   │   └── cleanup.ts        # Limpieza manual/segura
 │   ├── middleware/
 │   │   └── auth.ts           # authMiddleware, requireRole
 │   └── utils/
 │       ├── prisma.ts         # Singleton PrismaClient
 │       ├── storage.ts        # Abstracted storage (filesystem / S3)
-│       └── cleanup.ts        # Cron cleanup de paquetes expirados
+│       ├── cleanup.ts        # Cron cleanup de paquetes expirados
+│       └── keyCustody.ts     # Custodia de claves EEG
 ├── prisma/
 │   ├── schema.prisma
 │   ├── seed.ts               # 4 usuarios de prueba (pass: ocean123)
 │   └── migrations/
-├── tests/                    # 65 tests de integración (Jest + Supertest)
+├── tests/                    # 117 tests de integración (Jest + Supertest)
 ├── .env / .env.example
 └── package.json
 ```
@@ -87,23 +93,32 @@ backend/
 frontend/
 ├── src/
 │   ├── main.tsx
-│   ├── App.tsx               # Rutas: /, /login, /register, /cases/new, /cases/:id, /cases/:id/eeg, /library, /queue
+│   ├── App.tsx               # Rutas: /, /login, /register, /cases, /cases/new, /cases/:id, /cases/:id/eeg, /eegs, /galleries, /library, /queue, /admin
 │   ├── api/
 │   │   └── client.ts         # API_BASE dinámico (window.location.hostname:4000)
 │   ├── store/
 │   │   └── authStore.ts      # Zustand con persistencia
 │   ├── hooks/
 │   │   └── useCrypto.ts      # AES-GCM (Web Crypto) + fallback node-forge
+│   ├── utils/
+│   │   └── edfAnonymization.ts # Anonimización de cabeceras EDF antes del cifrado
 │   ├── pages/
 │   │   ├── Login.tsx
 │   │   ├── Register.tsx
 │   │   ├── Dashboard.tsx
-│   │   ├── CaseNew.tsx       # Formulario + cifrado de .edf
-│   │   ├── CaseDetail.tsx    # Detalle, descarga, descifrado, comentarios, botón Ver EEG
+│   │   ├── CaseNew.tsx       # Formulario + cifrado de .edf + anonimización
+│   │   ├── CaseDetail.tsx    # Detalle, comentarios y recuperación de clave EEG
+│   │   ├── CaseOperations.tsx # Bandeja operativa de casos
 │   │   ├── EEGViewer.tsx     # Visor EEG completo (ver §EEG Viewer)
+│   │   ├── EegRecords.tsx    # Inventario de EEGs reutilizables
+│   │   ├── Galleries.tsx     # Listado de galerías
+│   │   ├── GalleryDetail.tsx # Detalle de galería
 │   │   ├── TeachingLibrary.tsx
-│   │   └── TeachingQueue.tsx
-│   └── test/                 # 42 tests en 6 suites (Vitest + RTL)
+│   │   ├── TeachingQueue.tsx
+│   │   ├── AdminHome.tsx
+│   │   ├── UserAdmin.tsx
+│   │   └── CleanupAdmin.tsx
+│   └── test/                 # 54 tests en 7 suites (Vitest + RTL)
 ├── public/
 │   └── wasm/                 # kappa_wasm.js + kappa_wasm.wasm (módulo Emscripten)
 └── package.json
@@ -122,7 +137,7 @@ npm run dev                 # tsx watch src/index.ts (puerto 4000)
 npm run build               # tsc → dist/
 npm run start               # node dist/index.js
 npm run db:seed             # tsx prisma/seed.ts
-npm test                    # Jest — 65 tests
+npm test                    # Jest — 117 tests
 ```
 
 ### Frontend
@@ -132,16 +147,17 @@ cd frontend
 npm install
 npm run dev                 # vite — puerto 5173
 npm run build               # tsc && vite build → dist/
-npm test                    # Vitest — 42 tests
+npm test                    # Vitest — 54 tests
 ```
 
 ### Producción (servidor Hetzner — app.ocean-eeg.org)
 
-Stack: **Docker** (backend) + **nginx en host** (HTTPS + frontend estático + proxy /api/).
+Stack actual de producción: **Docker** (backend) + **nginx en host** (HTTPS + frontend estático + proxy /api/).
 
 ```bash
 # Requisito: crear ~/ocean-platform/.env con:
 # JWT_SECRET=<openssl rand -hex 64>
+# KEY_CUSTODY_SECRET=<openssl rand -hex 64>
 # CORS_ORIGIN=https://app.ocean-eeg.org
 
 # Primera vez
@@ -177,10 +193,11 @@ docker compose -f docker-compose.prod.yml run --rm --no-deps backend \
 Scripts principales:
 | Script | Uso |
 |---|---|
-| `update.sh` | Actualización en caliente: git pull + docker build + frontend build + nginx reload |
+| `update.sh` | Actualización en caliente del servidor actual |
 | `install-new-machine.sh` | Instalación completa en Ubuntu 22.04/24.04 nuevo (Node, Docker, nginx, Certbot, UFW) |
 | `ocean.sh` | `ocean_up` / `ocean_down` — arrancar/parar (entorno de desarrollo local) |
 | `run-dev.sh` | Modo desarrollo con `--network` para acceso LAN |
+| `setup-minerva.sh` | Script histórico, bloqueado por defecto |
 
 Para instalar en máquina nueva:
 ```bash
@@ -194,10 +211,15 @@ sudo bash ocean-platform/scripts/install-new-machine.sh
 
 - **User:** roles (`Clinician`, `Reviewer`, `Curator`, `Admin`)
 - **Case:** estados clínicos `Draft → Requested → InReview → Resolved → Archived` (máquina de estados en backend)
-- **CasePackage:** blob cifrado (IV + ciphertext AES-GCM), hash SHA-256
+- **CasePackage:** blob cifrado (IV + ciphertext AES-GCM), hash SHA-256 y referencia a `EegRecord`
+- **EegRecord:** registro EEG reutilizable y deduplicado por hash
+- **Gallery / GalleryRecord:** colecciones de EEGs anónimos o públicos
+- **Group / GroupMember:** grupos clínicos y membresía
 - **ReviewRequest:** estados `Pending`, `Accepted`, `Rejected`, `Completed`
 - **Comment:** tipos `Comment`, `Conclusion`, `TeachingNote`
 - **TeachingProposal:** estados `None → Proposed → Recommended → Validated/Rejected`
+- **ViewerState:** estado persistido del visor por `user + packageHash`
+- **EegAccessSecret:** custodia de clave EEG en OCEAN
 - **AuditEvent:** trazabilidad de acciones
 
 ---
@@ -214,25 +236,26 @@ sudo bash ocean-platform/scripts/install-new-machine.sh
 
 ## 8. Testing
 
-### Backend — 65 tests (Jest + Supertest + SQLite :memory:)
+### Backend — 117 tests (Jest + Supertest + SQLite :memory:)
 
 ```bash
 cd backend && npm test
 ```
 
-Suites: auth, cases, requests, teaching, packages, comments.
+Suites: auth, cases, requests, teaching, packages, comments, galleries, groups, cleanup, viewer-state y audit.
 
-### Frontend — 42 tests (Vitest + React Testing Library)
+### Frontend — 54 tests (Vitest + React Testing Library)
 
 ```bash
 cd frontend && npm test
 ```
 
-Suites: Login, Dashboard, CaseNew, CaseDetail, api.client, EEGViewer.utils.
+Suites: Login, Dashboard, CaseNew, CaseDetail, api.client, EEGViewer.utils y edfAnonymization.
 
 ### EEG Viewer
 
 - El visor web usa `frontend/public/wasm/kappa_wasm.js/.wasm`, compilado desde el repo padre `kappa`.
+- El visor persiste estado por usuario y `blobHash`, y reutiliza caché local cifrada del paquete cuando existe.
 - `EEGViewer.tsx` trabaja con duración real de página derivada de `nSamples / sfreq`; no asume que `1 record = 1 s`.
 - Soporta montajes `promedio` (por defecto), `doble_banana`, `transversal`, `linked_mastoids` y `hjorth`.
 - `promedio` resta la media instantánea de todos los canales.
@@ -247,6 +270,7 @@ Suites: Login, Dashboard, CaseNew, CaseDetail, api.client, EEGViewer.utils.
 - La barra de amplitud usa una escala discreta clínica (`1, 2, 5, 10... µV`) y cambia de tamaño junto con la ganancia visible.
 - El visor incluye selector DSA bajo demanda por canal EEG. Al activarlo, `Artefactos` se enciende por defecto, aunque luego puede desactivarse.
 - El panel DSA permite click para saltar a la época correspondiente; la barra de artefactos encima del DSA también permite navegar a épocas marcadas.
+- La subida web anonimiza cabeceras EDF antes del cifrado.
 - Parte de la lógica pura del visor vive en `frontend/src/pages/eegViewerUtils.ts` y está cubierta con tests unitarios (montajes, colores, tiempo real, hover de metadata, regla DSA→Artefactos).
 - Si se cambia `src/wasm/kappa_wasm.cpp` en `kappa`, hay que recompilar con `./build_wasm.sh` y refrescar los binarios de `frontend/public/wasm/`.
 
@@ -277,9 +301,9 @@ ocean_down                             # parar todo
 - **Transacciones:** operaciones multi-write (aceptar solicitud, crear propuesta docente) envueltas en `prisma.$transaction`.
 - **Almacenamiento de archivos:** multer usa `diskStorage` (no RAM); hash SHA-256 por streaming.
 - **Propuestas docentes:** transacción interactiva evita race condition TOCTOU (duplicados).
-- **Cifrado:** AES-256-GCM en navegador. La clave nunca llega al servidor.
+- **Cifrado:** AES-256-GCM en navegador. La clave nunca llega en claro al servidor.
 - **Visor EEG:** Descarga paquete cifrado → desencripta con clave → monta en MEMFS de Emscripten → renderiza señal en canvas. Clave guardada en `sessionStorage` para el creador (auto-start en recargas). Otros usuarios deben introducirla manualmente.
-- **Clave de descifrado:** Se muestra una vez al crear el caso. El servidor nunca la almacena.
+- **Clave de descifrado:** Puede custodiarse en OCEAN y recuperarse con contraseña del usuario. El propietario también puede volver a revelarla manualmente.
 - **Controles del visor:** Filtro paso-alto (HP: off/0.3/0.5/1/5 Hz), paso-bajo (LP: 15/30/45/70 Hz), notch 50 Hz, ventana temporal (10/20/30 s), ganancia relativa (0.1×–4× sobre escala auto compartida). Teclado: ←/→ navega páginas, ↑/↓ ajusta ganancia.
 
 ---

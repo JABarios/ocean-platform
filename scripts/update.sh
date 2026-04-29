@@ -47,7 +47,11 @@ fi
 
 # 4. Recargar nginx para servir el nuevo dist/
 echo "[4/4] Recargando nginx..."
-sudo nginx -s reload
+if sudo -n /usr/sbin/nginx -s reload; then
+  echo "  nginx recargado"
+else
+  echo "  ⚠️  No se pudo recargar nginx sin contraseña. El frontend ya está compilado; solo faltó el reload."
+fi
 
 echo ""
 echo "========================================"
@@ -55,5 +59,5 @@ echo "ACTUALIZACIÓN COMPLETADA"
 echo "========================================"
 docker compose -f "$OCEAN_DIR/docker-compose.prod.yml" ps
 echo ""
-echo "Nginx activo — el nuevo frontend ya está en dist/"
+echo "Frontend compilado en dist/"
 echo ""

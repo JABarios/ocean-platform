@@ -18,17 +18,42 @@ import { startCleanupJob } from './utils/cleanup'
 
 dotenv.config()
 
+const KNOWN_DEV_SECRETS = ['dev-secret-change-me', 'dev-secret-ocean-platform-2026']
+
 // Validación de configuración obligatoria (solo fuera de test)
 if (process.env.NODE_ENV !== 'test') {
-  for (const key of ['JWT_SECRET', 'DATABASE_URL']) {
+  const requiredKeys = ['JWT_SECRET', 'DATABASE_URL']
+  if (process.env.NODE_ENV === 'production') {
+    requiredKeys.push('KEY_CUSTODY_SECRET')
+  }
+
+  for (const key of requiredKeys) {
     if (!process.env[key]) throw new Error(`[OCEAN] Variable requerida no configurada: ${key}`)
   }
-  const KNOWN_DEV_SECRETS = ['dev-secret-change-me', 'dev-secret-ocean-platform-2026']
+
   if (KNOWN_DEV_SECRETS.includes(process.env.JWT_SECRET!)) {
     if (process.env.NODE_ENV === 'production') {
       throw new Error('[OCEAN] JWT_SECRET tiene un valor de desarrollo conocido. Genera uno propio con: openssl rand -hex 64')
     }
     console.warn('[OCEAN] ⚠️  JWT_SECRET usa valor de desarrollo. En producción genera uno propio con: openssl rand -hex 64')
+  }
+
+  if (process.env.KEY_CUSTODY_SECRET) {
+    if (KNOWN_DEV_SECRETS.includes(process.env.KEY_CUSTODY_SECRET)) {
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error('[OCEAN] KEY_CUSTODY_SECRET tiene un valor de desarrollo conocido. Genera uno propio con: openssl rand -hex 64')
+      }
+      console.warn('[OCEAN] ⚠️  KEY_CUSTODY_SECRET usa un valor de desarrollo. Se recomienda separarlo de JWT_SECRET.')
+    }
+
+    if (process.env.KEY_CUSTODY_SECRET === process.env.JWT_SECRET) {
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error('[OCEAN] KEY_CUSTODY_SECRET no puede coincidir con JWT_SECRET en producción.')
+      }
+      console.warn('[OCEAN] ⚠️  KEY_CUSTODY_SECRET coincide con JWT_SECRET. En producción deben ser secretos separados.')
+    }
+  } else {
+    console.warn('[OCEAN] ⚠️  KEY_CUSTODY_SECRET no configurado. En desarrollo se reutilizará JWT_SECRET solo como fallback temporal.')
   }
 }
 

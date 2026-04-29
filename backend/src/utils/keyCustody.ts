@@ -1,9 +1,14 @@
 import crypto from 'crypto'
 
-const KEY_CUSTODY_SECRET = process.env.KEY_CUSTODY_SECRET || process.env.JWT_SECRET || 'dev-secret-change-me'
+function resolveKeyCustodySecret() {
+  if (process.env.KEY_CUSTODY_SECRET) return process.env.KEY_CUSTODY_SECRET
+  if (process.env.NODE_ENV === 'test' && process.env.JWT_SECRET) return process.env.JWT_SECRET
+  if (process.env.JWT_SECRET) return process.env.JWT_SECRET
+  throw new Error('KEY_CUSTODY_SECRET no configurado')
+}
 
 function getKeyMaterial() {
-  return crypto.createHash('sha256').update(KEY_CUSTODY_SECRET).digest()
+  return crypto.createHash('sha256').update(resolveKeyCustodySecret()).digest()
 }
 
 export function wrapCaseKey(keyBase64: string): string {

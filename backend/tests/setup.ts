@@ -1,7 +1,10 @@
 import { PrismaClient } from '@prisma/client'
+import os from 'os'
 
 process.env.DATABASE_URL = 'file::memory:'
 process.env.JWT_SECRET = 'test-secret-very-long-string-for-testing-only'
+process.env.KEY_CUSTODY_SECRET = 'test-key-custody-secret-separated-from-jwt'
+process.env.GALLERY_IMPORT_ROOT = os.tmpdir()
 
 const prisma = new PrismaClient()
 

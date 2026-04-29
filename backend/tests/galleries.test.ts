@@ -147,4 +147,34 @@ describe('Galleries', () => {
     expect(await prisma.gallery.findUnique({ where: { id: galleryId } })).toBeNull()
     expect(await prisma.eegRecord.findUnique({ where: { id: eegRecordId } })).toBeNull()
   })
+
+  it('rechaza importaciones fuera del directorio base permitido', async () => {
+    const curator = await createUser({
+      email: 'gallery-forbidden@ocean.local',
+      displayName: 'Gallery Forbidden',
+      role: 'Curator',
+      password: 'pass123',
+    })
+    const token = generateToken(curator.id, curator.email, curator.role)
+
+    const outsideDir = await fsPromises.mkdtemp(path.join(process.cwd(), 'gallery-outside-'))
+    await fsPromises.writeFile(path.join(outsideDir, 'omega.edf'), Buffer.from('fake-edf-omega'))
+
+    const res = await request(app)
+      .post('/galleries/import')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        title: 'Galería prohibida',
+        source: 'Fuera de raíz',
+        license: 'Libre',
+        visibility: 'Institutional',
+        tags: ['forbidden'],
+        directoryPath: outsideDir,
+      })
+
+    expect(res.status).toBe(403)
+    expect(res.body.error).toMatch(/fuera del directorio permitido/i)
+
+    await fsPromises.rm(outsideDir, { recursive: true, force: true })
+  })
 })

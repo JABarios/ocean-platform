@@ -40,6 +40,28 @@ function safeParseJson(value: string | null | undefined, fallback: any) {
   }
 }
 
+function resolveGalleryImportDirectory(inputPath: string) {
+  const configuredRoot = process.env.GALLERY_IMPORT_ROOT
+  if (!configuredRoot) {
+    throw new Error('GALLERY_IMPORT_ROOT no configurado')
+  }
+
+  const allowedRoot = path.resolve(configuredRoot)
+  const resolvedPath = path.isAbsolute(inputPath)
+    ? path.resolve(inputPath)
+    : path.resolve(allowedRoot, inputPath)
+  const relative = path.relative(allowedRoot, resolvedPath)
+
+  const withinAllowedRoot =
+    relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
+
+  if (!withinAllowedRoot) {
+    throw new Error('DIRECTORY_OUTSIDE_ALLOWED_ROOT')
+  }
+
+  return resolvedPath
+}
+
 async function sha256ForFile(filePath: string) {
   return await new Promise<string>((resolve, reject) => {
     const hasher = crypto.createHash('sha256')
@@ -309,7 +331,21 @@ router.post('/import', requireRole(['Curator', 'Admin']), async (req: Authentica
   }
 
   const data = parsed.data
-  const directoryPath = path.resolve(data.directoryPath)
+  let directoryPath: string
+  try {
+    directoryPath = resolveGalleryImportDirectory(data.directoryPath)
+  } catch (err: any) {
+    if (err?.message === 'GALLERY_IMPORT_ROOT no configurado') {
+      res.status(503).json({ error: 'La importación de galerías no está habilitada en este entorno' })
+      return
+    }
+    if (err?.message === 'DIRECTORY_OUTSIDE_ALLOWED_ROOT') {
+      res.status(403).json({ error: 'La ruta indicada queda fuera del directorio permitido para importación' })
+      return
+    }
+    throw err
+  }
+
   let stats
   try {
     stats = await fsPromises.stat(directoryPath)

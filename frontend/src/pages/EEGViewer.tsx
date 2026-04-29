@@ -1290,6 +1290,43 @@ export default function EEGViewer() {
     setRecordOffset(nextRecordOffset)
   }
 
+  const resetViewerState = useCallback(() => {
+    const defaultWindowSecs = 10
+    const defaultHp = 0.5
+    const defaultLp = 45
+    const defaultNotch = true
+    const defaultGainMult = 1
+    const defaultMontage: MontageName = 'promedio'
+    const defaultRecordsPerPage = getRecordsPerPage(defaultWindowSecs, recordDurationSec)
+
+    kappaRef.current?.setFilters(defaultHp, defaultLp, defaultNotch ? 50 : 0)
+
+    const firstEpoch = kappaRef.current?.readEpoch(0, defaultRecordsPerPage)
+    if (firstEpoch) {
+      setEpoch(firstEpoch)
+      setRecordOffset(0)
+    }
+
+    setWindowSecs(defaultWindowSecs)
+    setHp(defaultHp)
+    setLp(defaultLp)
+    setNotch(defaultNotch)
+    setGainMult(defaultGainMult)
+    setNormalizeNonEEG(false)
+    setMontage(defaultMontage)
+    setExcludedAverageReferenceChannels([])
+    setIncludedHiddenChannels([])
+    setAvgRefOpen(false)
+    setExtrasOpen(false)
+    setDsaChannel('off')
+    setArtifactReject(false)
+    setDsaData(null)
+    setDsaLoading(false)
+    setDsaError('')
+    setMobileControlsOpen(false)
+    dsaCacheRef.current.clear()
+  }, [recordDurationSec])
+
   useEffect(() => {
     if (phase !== 'viewing' || dsaChannel === 'off') {
       setDsaData(null)
@@ -1824,6 +1861,26 @@ export default function EEGViewer() {
                 {normalizeNonEEG ? 'z ✓' : 'z'}
               </button>
             </label>
+
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>Reset</span>
+              <button
+                onClick={resetViewerState}
+                title="Restaurar montaje y controles por defecto para este EEG"
+                style={{
+                  background: '#f8fafc',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: 4,
+                  color: '#475569',
+                  fontSize: '0.75rem',
+                  padding: '0.16rem 0.52rem',
+                  cursor: 'pointer',
+                  minWidth: 62,
+                }}
+              >
+                Reset
+              </button>
+            </label>
           </>
         )}
 
@@ -2029,6 +2086,25 @@ export default function EEGViewer() {
               </button>
             </div>
           )}
+
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>Reset</span>
+            <button
+              onClick={resetViewerState}
+              title="Restaurar montaje y controles por defecto para este EEG"
+              style={{
+                background: '#f8fafc',
+                border: '1px solid #cbd5e1',
+                borderRadius: 4,
+                color: '#475569',
+                fontSize: '0.75rem',
+                padding: '0.16rem 0.52rem',
+                cursor: 'pointer',
+              }}
+            >
+              Reset
+            </button>
+          </label>
         </div>
       )}
 

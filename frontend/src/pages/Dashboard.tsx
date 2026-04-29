@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { api, friendlyError } from '../api/client'
 import type { CaseItem, ReviewRequest } from '../types'
 import PageHeader from '../components/PageHeader'
+import { useAuthStore } from '../store/authStore'
 import './Dashboard.css'
 
 function statusBadgeClass(status: CaseItem['status']) {
@@ -23,6 +24,8 @@ function statusBadgeClass(status: CaseItem['status']) {
 }
 
 export default function Dashboard() {
+  const currentUser = useAuthStore((s) => s.user)
+  const seeingAllCases = currentUser?.role === 'Admin'
   const [cases, setCases] = useState<CaseItem[]>([])
   const [pending, setPending] = useState<ReviewRequest[]>([])
   const [active, setActive] = useState<ReviewRequest[]>([])
@@ -76,7 +79,9 @@ export default function Dashboard() {
     <div className="dashboard">
       <PageHeader
         title="Dashboard"
-        subtitle="Resumen de tus casos, invitaciones pendientes y revisiones activas."
+        subtitle={seeingAllCases
+          ? 'Resumen global de casos, invitaciones pendientes y revisiones activas.'
+          : 'Resumen de tus casos, invitaciones pendientes y revisiones activas.'}
         actions={(
           <button className="btn-primary" onClick={() => navigate('/cases/new')}>
             Solicitar nueva revisión
@@ -85,9 +90,9 @@ export default function Dashboard() {
       />
 
       <section className="dashboard-section">
-        <h3>Mis Casos</h3>
+        <h3>{seeingAllCases ? 'Todos los Casos' : 'Mis Casos'}</h3>
         {cases.length === 0 ? (
-          <p className="empty">No tienes casos creados.</p>
+          <p className="empty">{seeingAllCases ? 'No hay casos registrados.' : 'No tienes casos creados.'}</p>
         ) : (
           <ul className="case-list">
             {cases.map((c) => (
@@ -98,6 +103,9 @@ export default function Dashboard() {
                   </Link>
                   <span className={statusBadgeClass(c.status)}>{c.status}</span>
                 </div>
+                {seeingAllCases && c.owner && (
+                  <div className="request-message">Propietario: {c.owner.displayName}</div>
+                )}
                 <span className="case-date">
                   {new Date(c.createdAt).toLocaleDateString()}
                 </span>

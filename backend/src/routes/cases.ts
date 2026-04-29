@@ -21,6 +21,10 @@ const updateStatusSchema = z.object({
 
 router.use(authMiddleware)
 
+function canSeeAllCases(req: AuthenticatedRequest) {
+  return req.user?.role === 'Admin'
+}
+
 function safeParseJson(value: any): any {
   if (typeof value !== 'string') return value
   try {
@@ -61,10 +65,11 @@ async function safeDeleteBlob(blobLocation: string) {
 // Listar casos del usuario autenticado
 router.get('/', async (req: AuthenticatedRequest, res) => {
   const cases = await prisma.case.findMany({
-    where: { ownerId: req.user!.id },
+    where: canSeeAllCases(req) ? undefined : { ownerId: req.user!.id },
     orderBy: { createdAt: 'desc' },
     include: {
       _count: { select: { reviewRequests: true, comments: true } },
+      owner: { select: { id: true, displayName: true, email: true } },
     },
   })
   res.json(cases.map(toCaseResponse))
@@ -73,9 +78,10 @@ router.get('/', async (req: AuthenticatedRequest, res) => {
 // Bandeja operativa de casos del propietario
 router.get('/managed', async (req: AuthenticatedRequest, res) => {
   const cases = await prisma.case.findMany({
-    where: { ownerId: req.user!.id },
+    where: canSeeAllCases(req) ? undefined : { ownerId: req.user!.id },
     orderBy: { createdAt: 'desc' },
     include: {
+      owner: { select: { id: true, displayName: true, email: true } },
       package: true,
       accessSecret: { select: { id: true } },
       reviewRequests: {
@@ -132,19 +138,23 @@ router.get('/:id', async (req: AuthenticatedRequest, res) => {
   const caseItem = await prisma.case.findFirst({
     where: {
       id: req.params.id,
-      OR: [
-        { ownerId: req.user!.id },
-        {
-          reviewRequests: {
-            some: {
-              OR: [
-                { targetUserId: req.user!.id },
-                { requestedBy: req.user!.id },
-              ],
-            },
-          },
-        },
-      ],
+      ...(canSeeAllCases(req)
+        ? {}
+        : {
+            OR: [
+              { ownerId: req.user!.id },
+              {
+                reviewRequests: {
+                  some: {
+                    OR: [
+                      { targetUserId: req.user!.id },
+                      { requestedBy: req.user!.id },
+                    ],
+                  },
+                },
+              },
+            ],
+          }),
     },
     include: {
       owner: { select: { id: true, displayName: true, email: true } },

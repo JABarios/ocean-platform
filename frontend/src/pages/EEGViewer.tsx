@@ -642,6 +642,141 @@ function DSAHeatmap({
   )
 }
 
+function TimelineBar({
+  totalSeconds,
+  currentStartSec,
+  currentEndSec,
+  artifactStatuses,
+  artifactEpochSec,
+  onSeek,
+}: {
+  totalSeconds: number
+  currentStartSec: number
+  currentEndSec: number
+  artifactStatuses?: number[]
+  artifactEpochSec?: number
+  onSeek: (targetSec: number) => void
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  const redraw = useCallback(() => {
+    const canvas = canvasRef.current
+    const wrap = wrapRef.current
+    if (!canvas || !wrap) return
+
+    const width = wrap.clientWidth || 1200
+    const height = 58
+    canvas.width = width
+    canvas.height = height
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    ctx.fillStyle = '#fffdf4'
+    ctx.fillRect(0, 0, width, height)
+
+    const padX = 10
+    const trackX = padX
+    const trackY = 12
+    const trackW = Math.max(1, width - padX * 2)
+    const artifactH = artifactStatuses && artifactStatuses.length > 0 ? 10 : 0
+    const trackH = artifactH > 0 ? 16 : 22
+
+    if (artifactH > 0 && artifactEpochSec && artifactStatuses) {
+      for (let ep = 0; ep < artifactStatuses.length; ep++) {
+        const x1 = trackX + Math.floor((ep * trackW) / artifactStatuses.length)
+        const x2 = trackX + Math.floor(((ep + 1) * trackW) / artifactStatuses.length)
+        ctx.fillStyle = artifactColor(artifactStatuses[ep] ?? 0)
+        ctx.fillRect(x1, trackY, Math.max(1, x2 - x1), artifactH)
+      }
+    }
+
+    ctx.fillStyle = '#e2e8f0'
+    ctx.fillRect(trackX, trackY + artifactH, trackW, trackH)
+    ctx.strokeStyle = '#94a3b8'
+    ctx.strokeRect(trackX, trackY + artifactH, trackW, trackH)
+
+    const safeTotal = Math.max(totalSeconds, 1)
+    const viewX1 = trackX + (Math.max(0, currentStartSec) / safeTotal) * trackW
+    const viewX2 = trackX + (Math.min(safeTotal, currentEndSec) / safeTotal) * trackW
+    ctx.fillStyle = 'rgba(37,99,235,0.18)'
+    ctx.fillRect(viewX1, trackY + artifactH, Math.max(2, viewX2 - viewX1), trackH)
+    ctx.strokeStyle = 'rgba(37,99,235,0.95)'
+    ctx.lineWidth = 2
+    ctx.strokeRect(viewX1, trackY + artifactH, Math.max(2, viewX2 - viewX1), trackH)
+
+    ctx.beginPath()
+    ctx.moveTo(viewX1, trackY + artifactH - 4)
+    ctx.lineTo(viewX1, trackY + artifactH + trackH + 4)
+    ctx.strokeStyle = '#1d4ed8'
+    ctx.lineWidth = 2
+    ctx.stroke()
+
+    const approxTicks = Math.max(2, Math.floor(trackW / 90))
+    const tickStepSec = safeTotal / approxTicks
+    ctx.font = '10px monospace'
+    ctx.fillStyle = '#475569'
+    ctx.strokeStyle = '#64748b'
+    for (let i = 0; i <= approxTicks; i++) {
+      const tSec = Math.round(i * tickStepSec)
+      const x = trackX + (tSec / safeTotal) * trackW
+      ctx.beginPath()
+      ctx.moveTo(x, trackY + artifactH + trackH)
+      ctx.lineTo(x, trackY + artifactH + trackH + 4)
+      ctx.stroke()
+      ctx.fillText(fmtTimeGrid(tSec), x + 2, height - 6)
+    }
+
+    ctx.fillStyle = '#64748b'
+    ctx.fillText(
+      `${fmtTimeGrid(Math.max(0, Math.round(currentStartSec)))} / ${fmtTimeGrid(Math.max(0, Math.round(totalSeconds)))}`,
+      trackX,
+      9,
+    )
+  }, [artifactEpochSec, artifactStatuses, currentEndSec, currentStartSec, totalSeconds])
+
+  useEffect(() => {
+    redraw()
+  }, [redraw])
+
+  useEffect(() => {
+    const wrap = wrapRef.current
+    if (!wrap) return
+    const ro = new ResizeObserver(() => redraw())
+    ro.observe(wrap)
+    return () => ro.disconnect()
+  }, [redraw])
+
+  const handleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = e.clientX - rect.left
+    const padX = 10
+    const trackW = Math.max(1, rect.width - padX * 2)
+    const rel = Math.max(0, Math.min(0.999999, (x - padX) / trackW))
+    onSeek(rel * Math.max(totalSeconds, 1))
+  }, [onSeek, totalSeconds])
+
+  return (
+    <div
+      ref={wrapRef}
+      style={{
+        flexShrink: 0,
+        height: 58,
+        background: '#ffffff',
+        borderTop: '1px solid #e2e8f0',
+        padding: '0.15rem 0.5rem 0.2rem 0.5rem',
+      }}
+    >
+      <canvas
+        ref={canvasRef}
+        onClick={handleClick}
+        style={{ display: 'block', width: '100%', height: '100%', cursor: 'pointer' }}
+      />
+    </div>
+  )
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function EEGViewer() {
@@ -1272,12 +1407,28 @@ export default function EEGViewer() {
     setRecordOffset(nextRecordOffset)
   }, [recordsPerPage])
 
+  const goToSecondPosition = useCallback((targetSec: number, center = false) => {
+    const safePageDuration = Math.max(pageDuration, recordDurationSec)
+    const startSec = center
+      ? targetSec - safePageDuration / 2
+      : targetSec
+    const clampedStartSec = Math.max(0, Math.min(Math.max(0, totalSeconds - safePageDuration), startSec))
+    const nextRecordOffset = Math.max(0, Math.min(totalRecords - 1, Math.floor(clampedStartSec / Math.max(recordDurationSec, 1e-9))))
+    const e = kappaRef.current?.readEpoch(nextRecordOffset, recordsPerPage)
+    if (!e) return
+    setEpoch(e)
+    setRecordOffset(nextRecordOffset)
+  }, [pageDuration, recordDurationSec, recordsPerPage, totalRecords, totalSeconds])
+
+  const shiftBySeconds = useCallback((deltaSec: number) => {
+    const currentStartSec = recordOffset * recordDurationSec
+    goToSecondPosition(currentStartSec + deltaSec)
+  }, [goToSecondPosition, recordOffset, recordDurationSec])
+
   const goToDSAEpoch = useCallback((epochIndex: number, epochSec: number) => {
     const targetSec = Math.max(0, epochIndex * epochSec)
-    const targetRecordOffset = Math.floor(targetSec / Math.max(recordDurationSec, 1e-9))
-    const targetPage = Math.max(0, Math.min(maxPage, Math.floor(targetRecordOffset / recordsPerPage)))
-    goToPage(targetPage)
-  }, [goToPage, maxPage, recordDurationSec, recordsPerPage])
+    goToSecondPosition(targetSec, true)
+  }, [goToSecondPosition])
 
   const handleTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
     if (!compactToolbar) return
@@ -1477,6 +1628,16 @@ export default function EEGViewer() {
   useEffect(() => {
     if (phase !== 'viewing') return
     const onKey = (e: KeyboardEvent) => {
+      if (e.shiftKey && e.key === 'ArrowLeft') {
+        e.preventDefault()
+        shiftBySeconds(-1)
+        return
+      }
+      if (e.shiftKey && e.key === 'ArrowRight') {
+        e.preventDefault()
+        shiftBySeconds(1)
+        return
+      }
       if (e.key === 'ArrowLeft'  && currentPage > 0)        goToPage(currentPage - 1)
       if (e.key === 'ArrowRight' && currentPage < maxPage)  goToPage(currentPage + 1)
       if (e.key === 'ArrowUp') {
@@ -1496,7 +1657,7 @@ export default function EEGViewer() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [phase, currentPage, maxPage, goToPage])
+  }, [phase, currentPage, maxPage, goToPage, shiftBySeconds])
 
   // ── Cleanup ───────────────────────────────────────────────────────────────────
 
@@ -1957,11 +2118,13 @@ export default function EEGViewer() {
 
         <div style={{ display: 'flex', gap: compactToolbar ? '0.2rem' : '0.3rem', alignItems: 'center', flexShrink: 0 }}>
           <span style={{ color: '#94a3b8', fontSize: compactToolbar ? '0.6rem' : '0.7rem', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>t={timeOffsetSec}s</span>
+          <button onClick={() => shiftBySeconds(-1)} disabled={tStart <= 0} title="Retroceder 1 segundo (Shift+←)" style={navBtnStyle(tStart <= 0)}>-1s</button>
           <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 0} title="Anterior (←)" style={navBtnStyle(currentPage === 0)}>←</button>
           <span style={{ color: '#475569', fontSize: compactToolbar ? '0.66rem' : '0.75rem', fontFamily: 'monospace', minWidth: compactToolbar ? 38 : 54, textAlign: 'center', whiteSpace: 'nowrap' }}>
             {currentPage + 1} / {totalPages}
           </span>
           <button onClick={() => goToPage(currentPage + 1)} disabled={currentPage >= maxPage} title="Siguiente (→)" style={navBtnStyle(currentPage >= maxPage)}>→</button>
+          <button onClick={() => shiftBySeconds(1)} disabled={tStart + pageDuration >= totalSeconds} title="Avanzar 1 segundo (Shift+→)" style={navBtnStyle(tStart + pageDuration >= totalSeconds)}>+1s</button>
         </div>
       </div>
 
@@ -2293,7 +2456,7 @@ export default function EEGViewer() {
         </div>
       </div>
 
-      {dsaChannel !== 'off' && (
+      {dsaChannel !== 'off' ? (
         <DSAHeatmap
           data={dsaData}
           artifactEnabled={artifactReject}
@@ -2309,6 +2472,15 @@ export default function EEGViewer() {
             if (!dsaData) return
             goToDSAEpoch(epochIndex, dsaData.artifactEpochSec)
           }}
+        />
+      ) : (
+        <TimelineBar
+          totalSeconds={totalSeconds}
+          currentStartSec={tStart}
+          currentEndSec={Math.min(totalSeconds, tStart + pageDuration)}
+          artifactStatuses={artifactReject ? dsaData?.artifactStatuses : undefined}
+          artifactEpochSec={artifactReject ? dsaData?.artifactEpochSec : undefined}
+          onSeek={(targetSec) => goToSecondPosition(targetSec, true)}
         />
       )}
     </div>

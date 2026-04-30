@@ -659,6 +659,7 @@ function TimelineBar({
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
+  const draggingRef = useRef(false)
 
   const redraw = useCallback(() => {
     const canvas = canvasRef.current
@@ -757,6 +758,40 @@ function TimelineBar({
     onSeek(rel * Math.max(totalSeconds, 1))
   }, [onSeek, totalSeconds])
 
+  const seekFromClientX = useCallback((clientX: number) => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    const padX = 10
+    const trackW = Math.max(1, rect.width - padX * 2)
+    const rel = Math.max(0, Math.min(0.999999, (clientX - rect.left - padX) / trackW))
+    onSeek(rel * Math.max(totalSeconds, 1))
+  }, [onSeek, totalSeconds])
+
+  const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (e.button !== 0) return
+    draggingRef.current = true
+    seekFromClientX(e.clientX)
+    e.preventDefault()
+  }, [seekFromClientX])
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!draggingRef.current) return
+      seekFromClientX(e.clientX)
+    }
+    const handleMouseUp = () => {
+      draggingRef.current = false
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [seekFromClientX])
+
   return (
     <div
       ref={wrapRef}
@@ -771,7 +806,8 @@ function TimelineBar({
       <canvas
         ref={canvasRef}
         onClick={handleClick}
-        style={{ display: 'block', width: '100%', height: '100%', cursor: 'pointer' }}
+        onMouseDown={handleMouseDown}
+        style={{ display: 'block', width: '100%', height: '100%', cursor: 'ew-resize' }}
       />
     </div>
   )

@@ -56,6 +56,8 @@ export default function Galleries() {
         gallery.source,
         gallery.license,
         gallery.tags.join(' '),
+        gallery.metadata?.caseCode,
+        gallery.metadata?.sourceDataset,
       ].filter(Boolean).join(' ').toLowerCase()
       return haystack.includes(needle)
     })
@@ -115,6 +117,7 @@ export default function Galleries() {
           <div className="section-title">Importar galería desde directorio del servidor</div>
           <p className="ops-subtle">
             OCEAN no descarga datasets por sí mismo. El directorio debe contener EDFs ya preparados por scripts externos.
+            Si además incluyes ficheros auxiliares como <code>gallery-metadata.json</code>, <code>SUBJECT-INFO</code> o <code>chbNN-summary.txt</code>, la importación enriquecerá automáticamente la galería y cada registro.
           </p>
           <form className="gallery-import-form" onSubmit={handleImport}>
             <input
@@ -178,6 +181,18 @@ export default function Galleries() {
                 <div className="case-meta">
                   {gallery.source || 'Fuente —'} · {gallery.license || 'Licencia —'} · {formatDate(gallery.createdAt)}
                 </div>
+                {gallery.metadata && (
+                  <div className="case-meta">
+                    {gallery.metadata.caseCode ? `${gallery.metadata.caseCode} · ` : ''}
+                    {gallery.metadata.completeness === 'partial' && gallery.metadata.recordExpectedCount
+                      ? `${gallery.recordCount}/${gallery.metadata.recordExpectedCount} registros`
+                      : gallery.metadata.recordExpectedCount
+                        ? `${gallery.metadata.recordExpectedCount} registros esperados`
+                        : ''}
+                    {gallery.metadata.subject?.ageYears ? ` · ${gallery.metadata.subject.ageYears} años` : ''}
+                    {gallery.metadata.subject?.sex ? ` · ${gallery.metadata.subject.sex}` : ''}
+                  </div>
+                )}
               </div>
               <div className="usage-pill">
                 <strong>{gallery.recordCount}</strong>

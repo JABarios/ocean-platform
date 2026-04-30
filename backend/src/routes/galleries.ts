@@ -7,6 +7,7 @@ import { prisma } from '../utils/prisma'
 import { authMiddleware, AuthenticatedRequest, requireRole } from '../middleware/auth'
 import { uploadBlob, getBlobStream } from '../utils/storage'
 import { deleteBlob } from '../utils/storage'
+import { buildGalleryImportHints } from '../utils/galleryImport'
 
 const router = Router()
 
@@ -95,6 +96,7 @@ function toGalleryListItem(gallery: any) {
     license: gallery.license,
     visibility: gallery.visibility,
     tags: safeParseJson(gallery.tags, []),
+    metadata: safeParseJson(gallery.metadata, {}),
     createdAt: gallery.createdAt,
     updatedAt: gallery.updatedAt,
     createdBy: gallery.creator ? {
@@ -332,6 +334,7 @@ router.post('/import', requireRole(['Curator', 'Admin']), async (req: Authentica
 
   const data = parsed.data
   let directoryPath: string
+  const configuredRoot = process.env.GALLERY_IMPORT_ROOT
   try {
     directoryPath = resolveGalleryImportDirectory(data.directoryPath)
   } catch (err: any) {
@@ -367,14 +370,22 @@ router.post('/import', requireRole(['Curator', 'Admin']), async (req: Authentica
     return
   }
 
+  const hints = await buildGalleryImportHints(directoryPath, filenames)
+  const mergedTags = Array.from(new Set([...(hints.galleryDefaults.tags || []), ...data.tags]))
+  const importRelativePath = configuredRoot ? path.relative(path.resolve(configuredRoot), directoryPath) : undefined
+  if (importRelativePath && importRelativePath !== '.') {
+    hints.galleryMetadata.importRelativePath = importRelativePath
+  }
+
   const gallery = await prisma.gallery.create({
     data: {
-      title: data.title,
-      description: data.description,
-      source: data.source,
-      license: data.license,
-      visibility: data.visibility,
-      tags: JSON.stringify(data.tags),
+      title: data.title || hints.galleryDefaults.title || path.basename(directoryPath),
+      description: data.description || hints.galleryDefaults.description,
+      source: data.source || hints.galleryDefaults.source,
+      license: data.license || hints.galleryDefaults.license,
+      visibility: data.visibility || hints.galleryDefaults.visibility || 'Institutional',
+      tags: JSON.stringify(mergedTags),
+      metadata: JSON.stringify(hints.galleryMetadata),
       createdBy: req.user!.id,
     },
   })
@@ -385,6 +396,7 @@ router.post('/import', requireRole(['Curator', 'Admin']), async (req: Authentica
     const sourcePath = path.join(directoryPath, filename)
     const blobHash = await sha256ForFile(sourcePath)
     const sizeBytes = await fileSize(sourcePath)
+    const recordHint = hints.recordHints.get(filename)
 
     let eegRecord = await prisma.eegRecord.findUnique({ where: { blobHash } })
     if (!eegRecord) {
@@ -405,10 +417,10 @@ router.post('/import', requireRole(['Curator', 'Admin']), async (req: Authentica
       data: {
         galleryId: gallery.id,
         eegRecordId: eegRecord.id,
-        label: path.parse(filename).name,
+        label: recordHint?.label || path.parse(filename).name,
         sortOrder: index,
-        metadata: JSON.stringify({ originalFilename: filename }),
-        tags: JSON.stringify([]),
+        metadata: JSON.stringify(recordHint?.metadata || { originalFilename: filename }),
+        tags: JSON.stringify(recordHint?.tags || []),
       },
       include: {
         eegRecord: true,

@@ -16,6 +16,16 @@ function formatSize(bytes?: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
+function formatDuration(seconds?: number) {
+  if (!seconds && seconds !== 0) return '—'
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const remaining = seconds % 60
+  if (hours > 0) return `${hours}h ${minutes.toString().padStart(2, '0')}m`
+  if (minutes > 0) return `${minutes}m ${remaining.toString().padStart(2, '0')}s`
+  return `${remaining}s`
+}
+
 export default function GalleryDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -219,6 +229,21 @@ export default function GalleryDetail() {
             <div><strong>Licencia:</strong> {gallery.license || '—'}</div>
             <div><strong>Visibilidad:</strong> {gallery.visibility}</div>
             <div><strong>Creada:</strong> {formatDate(gallery.createdAt)}</div>
+            {gallery.metadata?.sourceDataset && <div><strong>Dataset:</strong> {gallery.metadata.sourceDataset}</div>}
+            {gallery.metadata?.caseCode && <div><strong>Caso / serie:</strong> {gallery.metadata.caseCode}</div>}
+            {gallery.metadata?.completeness && <div><strong>Completitud:</strong> {gallery.metadata.completeness}</div>}
+            {gallery.metadata?.recordExpectedCount && <div><strong>Registros esperados:</strong> {gallery.metadata.recordExpectedCount}</div>}
+            {gallery.metadata?.subject?.ageYears && <div><strong>Edad:</strong> {gallery.metadata.subject.ageYears} años</div>}
+            {gallery.metadata?.subject?.sex && <div><strong>Sexo:</strong> {gallery.metadata.subject.sex}</div>}
+            {gallery.metadata?.samplingRateHz && <div><strong>Muestreo:</strong> {gallery.metadata.samplingRateHz} Hz</div>}
+            {gallery.metadata?.channelCount && <div><strong>Canales:</strong> {gallery.metadata.channelCount}</div>}
+            {gallery.metadata?.montage && <div><strong>Montaje:</strong> {gallery.metadata.montage}</div>}
+            {gallery.metadata?.datasetUrl && (
+              <div>
+                <strong>Referencia:</strong>{' '}
+                <a href={gallery.metadata.datasetUrl} target="_blank" rel="noreferrer">Dataset origen</a>
+              </div>
+            )}
           </section>
 
           <section className="card gallery-filters">
@@ -241,6 +266,18 @@ export default function GalleryDetail() {
                     {typeof record.metadata?.originalFilename === 'string' && (
                       <div className="case-meta">Origen: {record.metadata.originalFilename}</div>
                     )}
+                    {(record.metadata?.startTime || record.metadata?.endTime || record.metadata?.durationSeconds !== undefined) && (
+                      <div className="case-meta">
+                        {record.metadata?.startTime || '—'} → {record.metadata?.endTime || '—'} · {formatDuration(record.metadata?.durationSeconds)}
+                      </div>
+                    )}
+                    {record.metadata?.seizureCount !== undefined && (
+                      <div className="case-meta">
+                        {record.metadata.seizureCount > 0
+                          ? `${record.metadata.seizureCount} crisis en este fichero`
+                          : 'Sin crisis anotadas'}
+                      </div>
+                    )}
                   </div>
                   <div className="hash-mini">
                     <span>Hash</span>
@@ -248,8 +285,9 @@ export default function GalleryDetail() {
                   </div>
                 </div>
 
-                {record.tags.length > 0 && (
+                {(record.tags.length > 0 || (record.metadata?.seizureCount ?? 0) > 0) && (
                   <div className="gallery-tag-row">
+                    {(record.metadata?.seizureCount ?? 0) > 0 && <span className="badge badge-alert">Crisis</span>}
                     {record.tags.map((tag) => <span key={tag} className="badge">{tag}</span>)}
                   </div>
                 )}

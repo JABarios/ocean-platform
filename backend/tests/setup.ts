@@ -88,6 +88,7 @@ CREATE TABLE "galleries" (
     "license" TEXT,
     "visibility" TEXT NOT NULL DEFAULT 'Institutional',
     "tags" TEXT DEFAULT '[]',
+    "metadata" TEXT DEFAULT '{}',
     "created_by" TEXT,
     "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" DATETIME NOT NULL,

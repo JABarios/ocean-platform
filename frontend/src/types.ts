@@ -51,12 +51,55 @@ export interface EegRecord {
   }>
 }
 
+export interface GalleryMetadata {
+  schemaVersion: 1
+  datasetId?: string
+  datasetVersion?: string
+  datasetUrl?: string
+  sourceDataset?: string
+  caseCode?: string
+  completeness?: 'unknown' | 'partial' | 'complete'
+  recordImportedCount: number
+  recordExpectedCount?: number
+  seizureFileCount?: number
+  subject?: {
+    sex?: string
+    ageYears?: number
+  }
+  samplingRateHz?: number
+  channelCount?: number
+  montage?: string
+  importDirectoryName?: string
+  importRelativePath?: string
+  importedAt?: string
+  notes?: string
+  [key: string]: unknown
+}
+
+export interface GalleryRecordMetadata {
+  schemaVersion: 1
+  originalFilename: string
+  sourceDataset?: string
+  sourceCaseCode?: string
+  startTime?: string
+  endTime?: string
+  durationSeconds?: number
+  seizureCount?: number
+  seizureWindows?: Array<{ startSec: number; endSec: number }>
+  samplingRateHz?: number
+  channelCount?: number
+  montage?: string
+  sourceUrl?: string
+  notes?: string
+  [key: string]: unknown
+}
+
 export interface GalleryRecord {
   id: string
   label: string
   sortOrder: number
   tags: string[]
-  metadata: Record<string, unknown>
+  metadata: GalleryRecordMetadata
   createdAt: string
   eegRecord?: {
     id: string
@@ -76,6 +119,7 @@ export interface Gallery {
   license?: string
   visibility: 'Institutional' | 'Public'
   tags: string[]
+  metadata?: GalleryMetadata
   createdAt: string
   updatedAt: string
   recordCount: number

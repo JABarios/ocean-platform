@@ -15,9 +15,34 @@ describe('Galleries', () => {
     })
     const token = generateToken(curator.id, curator.email, curator.role)
 
-    const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'ocean-gallery-'))
-    await fsPromises.writeFile(path.join(tmpDir, 'alpha.edf'), Buffer.from('fake-edf-alpha'))
-    await fsPromises.writeFile(path.join(tmpDir, 'beta.edf'), Buffer.from('fake-edf-beta'))
+    const tmpRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'ocean-gallery-'))
+    const tmpDir = path.join(tmpRoot, 'chb01')
+    await fsPromises.mkdir(tmpDir)
+    await fsPromises.writeFile(path.join(tmpDir, 'chb01_01.edf'), Buffer.from('fake-edf-alpha'))
+    await fsPromises.writeFile(path.join(tmpDir, 'chb01_02.edf'), Buffer.from('fake-edf-beta'))
+    await fsPromises.writeFile(
+      path.join(tmpDir, 'chb01-summary.txt'),
+      [
+        'Data Sampling Rate: 256 Hz',
+        'Channels in EDF Files:',
+        'Channel 1: FP1-F7',
+        'Channel 2: F7-T7',
+        'File Name: chb01_01.edf',
+        'File Start Time: 11:42:54',
+        'File End Time: 12:42:54',
+        'Number of Seizures in File: 0',
+        'File Name: chb01_02.edf',
+        'File Start Time: 12:42:57',
+        'File End Time: 13:42:57',
+        'Number of Seizures in File: 1',
+        'Seizure Start Time: 2996 seconds',
+        'Seizure End Time: 3036 seconds',
+      ].join('\n'),
+    )
+    await fsPromises.writeFile(
+      path.join(tmpRoot, 'SUBJECT-INFO'),
+      ['Case\tGender\tAge (years)', 'chb01\tF\t11'].join('\n'),
+    )
 
     const res = await request(app)
       .post('/galleries/import')
@@ -35,6 +60,13 @@ describe('Galleries', () => {
     expect(res.body.title).toBe('CHB-MIT chb01')
     expect(res.body.recordCount).toBe(2)
     expect(res.body.records).toHaveLength(2)
+    expect(res.body.metadata.caseCode).toBe('chb01')
+    expect(res.body.metadata.subject.sex).toBe('F')
+    expect(res.body.metadata.subject.ageYears).toBe(11)
+    expect(res.body.metadata.samplingRateHz).toBe(256)
+    expect(res.body.records[1].metadata.seizureCount).toBe(1)
+    expect(res.body.records[1].metadata.seizureWindows).toEqual([{ startSec: 2996, endSec: 3036 }])
+    expect(res.body.records[1].tags).toContain('seizure')
 
     const gallery = await prisma.gallery.findUnique({
       where: { id: res.body.id },
@@ -42,6 +74,7 @@ describe('Galleries', () => {
     })
     expect(gallery).not.toBeNull()
     expect(gallery?.records).toHaveLength(2)
+    expect(gallery?.metadata).toContain('"caseCode":"chb01"')
   })
 
   it('lista galerías y devuelve su detalle con registros', async () => {
@@ -94,6 +127,7 @@ describe('Galleries', () => {
     expect(recordRes.body.id).toBe(recordId)
     expect(recordRes.body.gallery.id).toBe(galleryId)
     expect(recordRes.body.eegRecord.encryptionMode).toBe('NONE')
+    expect(listRes.body[0].metadata.recordImportedCount).toBeGreaterThan(0)
   })
 
   it('permite actualizar y borrar una galería, limpiando EEGs huérfanos', async () => {

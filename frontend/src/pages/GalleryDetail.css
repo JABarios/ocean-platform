@@ -93,6 +93,11 @@
   gap: 0.8rem;
 }
 
+.badge-alert {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 .case-meta {
   color: var(--text-secondary);
   font-size: 0.86rem;

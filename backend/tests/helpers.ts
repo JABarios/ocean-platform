@@ -105,6 +105,7 @@ export async function createGallery(data: {
   license?: string
   visibility?: string
   tags?: string[]
+  metadata?: Record<string, unknown>
 }) {
   return prisma.gallery.create({
     data: {
@@ -114,6 +115,7 @@ export async function createGallery(data: {
       license: data.license,
       visibility: data.visibility || 'Institutional',
       tags: JSON.stringify(data.tags || []),
+      metadata: JSON.stringify(data.metadata || {}),
     },
   })
 }

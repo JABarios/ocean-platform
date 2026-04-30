@@ -37,6 +37,17 @@ export default function GalleryDetail() {
     tags: '',
   })
 
+  const resetForm = (data: Gallery) => {
+    setForm({
+      title: data.title,
+      description: data.description || '',
+      source: data.source || '',
+      license: data.license || '',
+      visibility: data.visibility,
+      tags: data.tags.join(', '),
+    })
+  }
+
   useEffect(() => {
     if (!id) return
     setLoading(true)
@@ -44,14 +55,7 @@ export default function GalleryDetail() {
     api.get<Gallery>(`/galleries/${id}`)
       .then((data) => {
         setGallery(data)
-        setForm({
-          title: data.title,
-          description: data.description || '',
-          source: data.source || '',
-          license: data.license || '',
-          visibility: data.visibility,
-          tags: data.tags.join(', '),
-        })
+        resetForm(data)
       })
       .catch((err) => setError(friendlyError(err)))
       .finally(() => setLoading(false))
@@ -109,6 +113,18 @@ export default function GalleryDetail() {
       <PageHeader
         title={gallery?.title || 'Galería'}
         subtitle={gallery?.description || 'Colección de EEGs preparada para navegación directa y apertura en visor.'}
+        actions={gallery && canManage ? (
+          <>
+            {!editing && (
+              <button className="btn-primary" type="button" onClick={() => setEditing(true)}>
+                Editar galería
+              </button>
+            )}
+            <button className="btn-danger" type="button" onClick={handleDelete} disabled={deleting}>
+              {deleting ? 'Borrando…' : 'Borrar galería'}
+            </button>
+          </>
+        ) : undefined}
         aside={gallery ? (
           <div className="gallery-detail-summary card">
             <strong>{gallery.recordCount}</strong>
@@ -125,40 +141,71 @@ export default function GalleryDetail() {
           {canManage && (
             <section className="card gallery-manage">
               <div className="gallery-manage-header">
-                <div className="section-title">Gestión de la galería</div>
-                <div className="case-links">
-                  {!editing && (
-                    <button className="btn-secondary" type="button" onClick={() => setEditing(true)}>
-                      Editar ficha
-                    </button>
-                  )}
-                  <button className="btn-danger" type="button" onClick={handleDelete} disabled={deleting}>
-                    {deleting ? 'Borrando…' : 'Borrar galería'}
-                  </button>
+                <div>
+                  <div className="section-title">Ficha editable</div>
+                  <div className="gallery-manage-note">
+                    Actualiza los campos descriptivos de la galería sin volver a importarla.
+                  </div>
                 </div>
               </div>
 
+              {!editing && (
+                <div className="gallery-manage-preview">
+                  <div><strong>Título:</strong> {gallery.title}</div>
+                  <div><strong>Descripción:</strong> {gallery.description || '—'}</div>
+                  <div><strong>Fuente:</strong> {gallery.source || '—'}</div>
+                  <div><strong>Licencia:</strong> {gallery.license || '—'}</div>
+                  <div><strong>Visibilidad:</strong> {gallery.visibility}</div>
+                  <div><strong>Tags:</strong> {gallery.tags.length > 0 ? gallery.tags.join(', ') : '—'}</div>
+                </div>
+              )}
+
               {editing && (
                 <form className="gallery-edit-form" onSubmit={handleSave}>
-                  <input value={form.title} onChange={(e) => setForm((current) => ({ ...current, title: e.target.value }))} required />
-                  <input value={form.source} onChange={(e) => setForm((current) => ({ ...current, source: e.target.value }))} placeholder="Fuente" />
-                  <input value={form.license} onChange={(e) => setForm((current) => ({ ...current, license: e.target.value }))} placeholder="Licencia" />
-                  <select value={form.visibility} onChange={(e) => setForm((current) => ({ ...current, visibility: e.target.value }))}>
-                    <option value="Institutional">Institutional</option>
-                    <option value="Public">Public</option>
-                  </select>
-                  <input value={form.tags} onChange={(e) => setForm((current) => ({ ...current, tags: e.target.value }))} placeholder="tags separados por comas" />
-                  <textarea
-                    value={form.description}
-                    onChange={(e) => setForm((current) => ({ ...current, description: e.target.value }))}
-                    rows={3}
-                    placeholder="Descripción"
-                  />
+                  <label>
+                    <span>Título</span>
+                    <input value={form.title} onChange={(e) => setForm((current) => ({ ...current, title: e.target.value }))} required />
+                  </label>
+                  <label>
+                    <span>Fuente</span>
+                    <input value={form.source} onChange={(e) => setForm((current) => ({ ...current, source: e.target.value }))} placeholder="Fuente" />
+                  </label>
+                  <label>
+                    <span>Licencia</span>
+                    <input value={form.license} onChange={(e) => setForm((current) => ({ ...current, license: e.target.value }))} placeholder="Licencia" />
+                  </label>
+                  <label>
+                    <span>Visibilidad</span>
+                    <select value={form.visibility} onChange={(e) => setForm((current) => ({ ...current, visibility: e.target.value }))}>
+                      <option value="Institutional">Institutional</option>
+                      <option value="Public">Public</option>
+                    </select>
+                  </label>
+                  <label className="gallery-edit-wide">
+                    <span>Tags</span>
+                    <input value={form.tags} onChange={(e) => setForm((current) => ({ ...current, tags: e.target.value }))} placeholder="tags separados por comas" />
+                  </label>
+                  <label className="gallery-edit-wide">
+                    <span>Descripción</span>
+                    <textarea
+                      value={form.description}
+                      onChange={(e) => setForm((current) => ({ ...current, description: e.target.value }))}
+                      rows={4}
+                      placeholder="Descripción"
+                    />
+                  </label>
                   <div className="case-links">
                     <button className="btn-primary" type="submit" disabled={saving}>
                       {saving ? 'Guardando…' : 'Guardar cambios'}
                     </button>
-                    <button className="btn-secondary" type="button" onClick={() => setEditing(false)}>
+                    <button
+                      className="btn-secondary"
+                      type="button"
+                      onClick={() => {
+                        resetForm(gallery)
+                        setEditing(false)
+                      }}
+                    >
                       Cancelar
                     </button>
                   </div>

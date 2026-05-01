@@ -747,7 +747,7 @@ function TimelineBar({
     if (!canvas || !wrap) return
 
     const width = wrap.clientWidth || 1200
-    const height = 58
+    const height = 72
     canvas.width = width
     canvas.height = height
 
@@ -759,10 +759,10 @@ function TimelineBar({
 
     const padX = 10
     const trackX = padX
-    const trackY = 12
+    const trackY = 10
     const trackW = Math.max(1, width - padX * 2)
-    const artifactH = artifactStatuses && artifactStatuses.length > 0 ? 10 : 0
-    const trackH = artifactH > 0 ? 16 : 22
+    const artifactH = artifactStatuses && artifactStatuses.length > 0 ? 12 : 0
+    const trackH = artifactH > 0 ? 24 : 30
 
     if (artifactH > 0 && artifactEpochSec && artifactStatuses) {
       for (let ep = 0; ep < artifactStatuses.length; ep++) {
@@ -817,16 +817,16 @@ function TimelineBar({
       const x = trackX + (tSec / safeTotal) * trackW
       ctx.beginPath()
       ctx.moveTo(x, trackY + artifactH + trackH)
-      ctx.lineTo(x, trackY + artifactH + trackH + 4)
+      ctx.lineTo(x, trackY + artifactH + trackH + 6)
       ctx.stroke()
-      ctx.fillText(fmtTimeGrid(tSec), x + 2, height - 6)
+      ctx.fillText(fmtTimeGrid(tSec), x + 2, height - 8)
     }
 
     ctx.fillStyle = '#64748b'
     ctx.fillText(
       `${fmtTimeGrid(Math.max(0, Math.round(currentStartSec)))} / ${fmtTimeGrid(Math.max(0, Math.round(totalSeconds)))}`,
       trackX,
-      9,
+      8,
     )
   }, [annotations, artifactEpochSec, artifactStatuses, currentEndSec, currentStartSec, totalSeconds])
 

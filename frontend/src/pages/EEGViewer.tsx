@@ -724,6 +724,7 @@ function TimelineBar({
   totalSeconds,
   currentStartSec,
   currentEndSec,
+  annotations,
   artifactStatuses,
   artifactEpochSec,
   onSeek,
@@ -731,6 +732,7 @@ function TimelineBar({
   totalSeconds: number
   currentStartSec: number
   currentEndSec: number
+  annotations?: EmbeddedAnnotation[]
   artifactStatuses?: number[]
   artifactEpochSec?: number
   onSeek: (targetSec: number) => void
@@ -778,6 +780,18 @@ function TimelineBar({
     ctx.strokeStyle = '#94a3b8'
     ctx.strokeRect(trackX, trackY + artifactH, trackW, trackH)
 
+    if (annotations && annotations.length > 0) {
+      ctx.strokeStyle = '#7c3aed'
+      ctx.lineWidth = 1
+      annotations.forEach((annotation) => {
+        const markerX = trackX + (Math.max(0, Math.min(safeTotal, annotation.onsetSec)) / safeTotal) * trackW
+        ctx.beginPath()
+        ctx.moveTo(markerX, 2)
+        ctx.lineTo(markerX, trackY - 2)
+        ctx.stroke()
+      })
+    }
+
     const viewX1 = trackX + (Math.max(0, currentStartSec) / safeTotal) * trackW
     const viewX2 = trackX + (Math.min(safeTotal, currentEndSec) / safeTotal) * trackW
     ctx.fillStyle = 'rgba(37,99,235,0.18)'
@@ -814,7 +828,7 @@ function TimelineBar({
       trackX,
       9,
     )
-  }, [artifactEpochSec, artifactStatuses, currentEndSec, currentStartSec, totalSeconds])
+  }, [annotations, artifactEpochSec, artifactStatuses, currentEndSec, currentStartSec, totalSeconds])
 
   useEffect(() => {
     redraw()
@@ -2621,6 +2635,7 @@ export default function EEGViewer() {
           totalSeconds={totalSeconds}
           currentStartSec={tStart}
           currentEndSec={Math.min(totalSeconds, tStart + pageDuration)}
+          annotations={edfAnnotations}
           artifactStatuses={artifactReject ? dsaData?.artifactStatuses : undefined}
           artifactEpochSec={artifactReject ? dsaData?.artifactEpochSec : undefined}
           onSeek={(targetSec) => goToSecondPosition(targetSec, true)}

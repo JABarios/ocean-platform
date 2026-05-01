@@ -1,0 +1,6 @@
+numpy>=1.26
+pyedflib>=0.1.39
+mne>=1.8
+pandas>=2.2
+matplotlib>=3.9
+yasa>=0.6

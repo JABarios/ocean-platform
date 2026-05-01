@@ -27,9 +27,11 @@
 }
 
 .viewer-main-row {
+  display: flex;
   flex: 1;
   min-height: 0;
   position: relative;
+  overflow: hidden;
 }
 
 .viewer-annotations-panel {

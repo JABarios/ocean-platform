@@ -2547,7 +2547,7 @@ export default function EEGViewer() {
       <div className="viewer-main-row">
         <div
           ref={wrapRef}
-          style={{ flex: 1, overflow: 'hidden', background: '#f1f5f9' }}
+          style={{ flex: 1, height: '100%', overflow: 'hidden', background: '#f1f5f9' }}
         >
           <div
             style={{ position: 'relative', lineHeight: 0, height: '100%' }}

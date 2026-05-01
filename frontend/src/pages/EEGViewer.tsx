@@ -724,7 +724,6 @@ function TimelineBar({
   totalSeconds,
   currentStartSec,
   currentEndSec,
-  annotations,
   artifactStatuses,
   artifactEpochSec,
   onSeek,
@@ -732,7 +731,6 @@ function TimelineBar({
   totalSeconds: number
   currentStartSec: number
   currentEndSec: number
-  annotations?: EmbeddedAnnotation[]
   artifactStatuses?: number[]
   artifactEpochSec?: number
   onSeek: (targetSec: number) => void
@@ -747,7 +745,7 @@ function TimelineBar({
     if (!canvas || !wrap) return
 
     const width = wrap.clientWidth || 1200
-    const height = 72
+    const height = 58
     canvas.width = width
     canvas.height = height
 
@@ -759,10 +757,10 @@ function TimelineBar({
 
     const padX = 10
     const trackX = padX
-    const trackY = 10
+    const trackY = 12
     const trackW = Math.max(1, width - padX * 2)
-    const artifactH = artifactStatuses && artifactStatuses.length > 0 ? 12 : 0
-    const trackH = artifactH > 0 ? 24 : 30
+    const artifactH = artifactStatuses && artifactStatuses.length > 0 ? 10 : 0
+    const trackH = artifactH > 0 ? 16 : 22
 
     if (artifactH > 0 && artifactEpochSec && artifactStatuses) {
       for (let ep = 0; ep < artifactStatuses.length; ep++) {
@@ -779,18 +777,6 @@ function TimelineBar({
     ctx.fillRect(trackX, trackY + artifactH, trackW, trackH)
     ctx.strokeStyle = '#94a3b8'
     ctx.strokeRect(trackX, trackY + artifactH, trackW, trackH)
-
-    if (annotations && annotations.length > 0) {
-      ctx.strokeStyle = '#7c3aed'
-      ctx.lineWidth = 1
-      annotations.forEach((annotation) => {
-        const markerX = trackX + (Math.max(0, Math.min(safeTotal, annotation.onsetSec)) / safeTotal) * trackW
-        ctx.beginPath()
-        ctx.moveTo(markerX, trackY + artifactH)
-        ctx.lineTo(markerX, trackY + artifactH + trackH)
-        ctx.stroke()
-      })
-    }
 
     const viewX1 = trackX + (Math.max(0, currentStartSec) / safeTotal) * trackW
     const viewX2 = trackX + (Math.min(safeTotal, currentEndSec) / safeTotal) * trackW
@@ -817,18 +803,18 @@ function TimelineBar({
       const x = trackX + (tSec / safeTotal) * trackW
       ctx.beginPath()
       ctx.moveTo(x, trackY + artifactH + trackH)
-      ctx.lineTo(x, trackY + artifactH + trackH + 6)
+      ctx.lineTo(x, trackY + artifactH + trackH + 4)
       ctx.stroke()
-      ctx.fillText(fmtTimeGrid(tSec), x + 2, height - 8)
+      ctx.fillText(fmtTimeGrid(tSec), x + 2, height - 6)
     }
 
     ctx.fillStyle = '#64748b'
     ctx.fillText(
       `${fmtTimeGrid(Math.max(0, Math.round(currentStartSec)))} / ${fmtTimeGrid(Math.max(0, Math.round(totalSeconds)))}`,
       trackX,
-      8,
+      9,
     )
-  }, [annotations, artifactEpochSec, artifactStatuses, currentEndSec, currentStartSec, totalSeconds])
+  }, [artifactEpochSec, artifactStatuses, currentEndSec, currentStartSec, totalSeconds])
 
   useEffect(() => {
     redraw()
@@ -2635,7 +2621,6 @@ export default function EEGViewer() {
           totalSeconds={totalSeconds}
           currentStartSec={tStart}
           currentEndSec={Math.min(totalSeconds, tStart + pageDuration)}
-          annotations={edfAnnotations}
           artifactStatuses={artifactReject ? dsaData?.artifactStatuses : undefined}
           artifactEpochSec={artifactReject ? dsaData?.artifactEpochSec : undefined}
           onSeek={(targetSec) => goToSecondPosition(targetSec, true)}

@@ -28,32 +28,18 @@
 
 .viewer-main-row {
   flex: 1;
+  display: flex;
   min-height: 0;
-  position: relative;
 }
 
 .viewer-annotations-panel {
-  position: absolute;
-  top: 0.65rem;
-  right: 0.65rem;
-  bottom: 0.65rem;
-  width: min(260px, 32vw);
+  width: 220px;
+  flex-shrink: 0;
   background: #f8fafc;
-  border: 1px solid #dbe4f0;
-  border-radius: 12px;
-  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.18);
+  border-right: 1px solid #dbe4f0;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  z-index: 3;
-  overflow: hidden;
-}
-
-.viewer-annotations-panel:not(.viewer-annotations-panel-open) {
-  width: 42px;
-  bottom: auto;
-  height: 144px;
-  background: rgba(248, 250, 252, 0.96);
 }
 
 .viewer-annotations-header {
@@ -68,42 +54,6 @@
   font-weight: 700;
   letter-spacing: 0.03em;
   text-transform: uppercase;
-}
-
-.viewer-annotations-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.3rem;
-  width: 100%;
-  border: 0;
-  border-bottom: 1px solid #dbe4f0;
-  background: linear-gradient(180deg, #ffffff 0%, #eef2ff 100%);
-  color: #312e81;
-  cursor: pointer;
-  padding: 0.5rem 0.35rem;
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.viewer-annotations-panel:not(.viewer-annotations-panel-open) .viewer-annotations-toggle {
-  height: 100%;
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
-  border-bottom: 0;
-  border-left: 1px solid #dbe4f0;
-  border-radius: 12px;
-}
-
-.viewer-annotations-toggle-arrow {
-  font-size: 0.9rem;
-  line-height: 1;
-}
-
-.viewer-annotations-toggle-label {
-  white-space: nowrap;
 }
 
 .viewer-annotations-list {
@@ -153,8 +103,14 @@
 }
 
 @media (max-width: 900px) {
+  .viewer-main-row {
+    flex-direction: column;
+  }
+
   .viewer-annotations-panel {
-    width: min(240px, calc(100vw - 2rem));
-    max-width: calc(100vw - 2rem);
+    width: auto;
+    max-height: 172px;
+    border-right: 0;
+    border-bottom: 1px solid #dbe4f0;
   }
 }

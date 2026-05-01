@@ -653,15 +653,11 @@ function AnnotationPanel({
   annotations,
   currentStartSec,
   currentEndSec,
-  isOpen,
-  onToggle,
   onSelect,
 }: {
   annotations: EmbeddedAnnotation[]
   currentStartSec: number
   currentEndSec: number
-  isOpen: boolean
-  onToggle: () => void
   onSelect: (targetSec: number) => void
 }) {
   const activeIndex = annotations.findIndex(
@@ -673,49 +669,34 @@ function AnnotationPanel({
   const visibleAnnotations = annotations.slice(startIndex, startIndex + 8)
 
   return (
-    <aside className={`viewer-annotations-panel${isOpen ? ' viewer-annotations-panel-open' : ''}`}>
-      <button
-        type="button"
-        className="viewer-annotations-toggle"
-        onClick={onToggle}
-        title={isOpen ? 'Ocultar anotaciones EDF+' : 'Mostrar anotaciones EDF+'}
-        aria-expanded={isOpen}
-      >
-        <span className="viewer-annotations-toggle-arrow">{isOpen ? '▸' : '◂'}</span>
-        <span className="viewer-annotations-toggle-label">EDF+</span>
-      </button>
-
-      {isOpen && (
-        <>
-          <div className="viewer-annotations-header">
-            <span>Anotaciones EDF+</span>
-            <span>{annotations.length}</span>
-          </div>
-          <div className="viewer-annotations-list">
-            {visibleAnnotations.map((annotation, visibleIndex) => {
-              const index = startIndex + visibleIndex
-              const onPage = annotation.onsetSec >= currentStartSec - 0.01 && annotation.onsetSec < currentEndSec + 0.01
-              return (
-                <button
-                  key={`${annotation.onsetSec}-${annotation.text}-${index}`}
-                  type="button"
-                  onClick={() => onSelect(annotation.onsetSec)}
-                  className={`viewer-annotation-item${onPage ? ' viewer-annotation-item-active' : ''}`}
-                  title={annotation.durationSec >= 0
-                    ? `${fmtTimeGrid(Math.max(0, Math.round(annotation.onsetSec)))} · ${annotation.text} · ${annotation.durationSec.toFixed(2)} s`
-                    : `${fmtTimeGrid(Math.max(0, Math.round(annotation.onsetSec)))} · ${annotation.text}`
-                  }
-                >
-                  <span className="viewer-annotation-time">
-                    {fmtTimeGrid(Math.max(0, Math.round(annotation.onsetSec)))}
-                  </span>
-                  <span className="viewer-annotation-text">{annotation.text}</span>
-                </button>
-              )
-            })}
-          </div>
-        </>
-      )}
+    <aside className="viewer-annotations-panel">
+      <div className="viewer-annotations-header">
+        <span>Anotaciones EDF+</span>
+        <span>{annotations.length}</span>
+      </div>
+      <div className="viewer-annotations-list">
+        {visibleAnnotations.map((annotation, visibleIndex) => {
+          const index = startIndex + visibleIndex
+          const onPage = annotation.onsetSec >= currentStartSec - 0.01 && annotation.onsetSec < currentEndSec + 0.01
+          return (
+            <button
+              key={`${annotation.onsetSec}-${annotation.text}-${index}`}
+              type="button"
+              onClick={() => onSelect(annotation.onsetSec)}
+              className={`viewer-annotation-item${onPage ? ' viewer-annotation-item-active' : ''}`}
+              title={annotation.durationSec >= 0
+                ? `${fmtTimeGrid(Math.max(0, Math.round(annotation.onsetSec)))} · ${annotation.text} · ${annotation.durationSec.toFixed(2)} s`
+                : `${fmtTimeGrid(Math.max(0, Math.round(annotation.onsetSec)))} · ${annotation.text}`
+              }
+            >
+              <span className="viewer-annotation-time">
+                {fmtTimeGrid(Math.max(0, Math.round(annotation.onsetSec)))}
+              </span>
+              <span className="viewer-annotation-text">{annotation.text}</span>
+            </button>
+          )
+        })}
+      </div>
     </aside>
   )
 }
@@ -928,7 +909,6 @@ export default function EEGViewer() {
   const [recordDurationSec, setRecordDurationSec] = useState(1)
   const [meta,         setMeta]         = useState<{ recordingDate: string } | null>(null)
   const [edfAnnotations, setEdfAnnotations] = useState<EmbeddedAnnotation[]>([])
-  const [annotationsOpen, setAnnotationsOpen] = useState(false)
   const [caseHoverMeta, setCaseHoverMeta] = useState<{ blobHash?: string; ageRange?: string; sizeBytes?: number; storedKeyAvailable?: boolean; encryptionMode?: string; label?: string } | null>(null)
   const [showMeta,     setShowMeta]     = useState(false)
 
@@ -1335,7 +1315,6 @@ export default function EEGViewer() {
     if (!sourceId) return
     try {
       setEdfAnnotations([])
-      setAnnotationsOpen(false)
       restoreInFlightRef.current = true
       viewerStateReadyRef.current = false
       if (persistTimerRef.current !== null) {
@@ -1402,13 +1381,10 @@ export default function EEGViewer() {
       }
 
       try {
-        const parsedAnnotations = extractEdfAnnotations(new Uint8Array(decryptedBuffer))
-        setEdfAnnotations(parsedAnnotations)
-        setAnnotationsOpen(parsedAnnotations.length > 0)
+        setEdfAnnotations(extractEdfAnnotations(new Uint8Array(decryptedBuffer)))
       } catch (err) {
         console.warn('[OCEAN EEG] No se pudieron leer las anotaciones EDF+ embebidas', err)
         setEdfAnnotations([])
-        setAnnotationsOpen(false)
       }
 
       setPhase('loading-module')
@@ -1496,7 +1472,6 @@ export default function EEGViewer() {
       restoreInFlightRef.current = false
       viewerStateReadyRef.current = false
       setEdfAnnotations([])
-      setAnnotationsOpen(false)
       setErrorMsg(isBadKey ? 'Clave incorrecta — el archivo no se pudo descifrar.' : msg)
       setPhase('error')
     }
@@ -2559,12 +2534,20 @@ export default function EEGViewer() {
 
       {/* Canvas area — overflow:hidden so canvas fills exact height */}
       <div className="viewer-main-row">
+        {edfAnnotations.length > 0 && (
+          <AnnotationPanel
+            annotations={edfAnnotations}
+            currentStartSec={tStart}
+            currentEndSec={Math.min(totalSeconds, tStart + pageDuration)}
+            onSelect={(targetSec) => goToSecondPosition(targetSec, true)}
+          />
+        )}
         <div
           ref={wrapRef}
           style={{ flex: 1, overflow: 'hidden', background: '#f1f5f9' }}
         >
           <div
-            style={{ position: 'relative', lineHeight: 0, height: '100%' }}
+            style={{ position: 'relative', lineHeight: 0 }}
             onMouseMove={handleMouseMove}
             onMouseLeave={handleMouseLeave}
             onMouseDown={handleMouseDown}
@@ -2596,16 +2579,6 @@ export default function EEGViewer() {
                 )}
                 <div>{meta.recordingDate}</div>
               </div>
-            )}
-            {edfAnnotations.length > 0 && (
-              <AnnotationPanel
-                annotations={edfAnnotations}
-                currentStartSec={tStart}
-                currentEndSec={Math.min(totalSeconds, tStart + pageDuration)}
-                isOpen={annotationsOpen}
-                onToggle={() => setAnnotationsOpen((open) => !open)}
-                onSelect={(targetSec) => goToSecondPosition(targetSec, true)}
-              />
             )}
             <canvas ref={canvasRef} style={{ display: 'block', width: '100%' }} />
             <canvas ref={overlayRef} style={{ position: 'absolute', top: 0, left: 0, width: '100%', pointerEvents: 'none' }} />

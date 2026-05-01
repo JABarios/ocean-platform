@@ -747,8 +747,7 @@ function TimelineBar({
     if (!canvas || !wrap) return
 
     const width = wrap.clientWidth || 1200
-    const hasAnnotations = Boolean(annotations && annotations.length > 0)
-    const height = hasAnnotations ? 76 : 58
+    const height = 58
     canvas.width = width
     canvas.height = height
 
@@ -760,9 +759,7 @@ function TimelineBar({
 
     const padX = 10
     const trackX = padX
-    const annotationLaneY = 12
-    const annotationLaneH = hasAnnotations ? 12 : 0
-    const trackY = hasAnnotations ? 28 : 12
+    const trackY = 12
     const trackW = Math.max(1, width - padX * 2)
     const artifactH = artifactStatuses && artifactStatuses.length > 0 ? 10 : 0
     const trackH = artifactH > 0 ? 16 : 22
@@ -778,26 +775,19 @@ function TimelineBar({
 
     const safeTotal = Math.max(totalSeconds, 1)
 
-    if (hasAnnotations) {
-      ctx.fillStyle = '#f3e8ff'
-      ctx.fillRect(trackX, annotationLaneY, trackW, annotationLaneH)
-      ctx.strokeStyle = '#d8b4fe'
-      ctx.strokeRect(trackX, annotationLaneY, trackW, annotationLaneH)
-    }
-
     ctx.fillStyle = '#e2e8f0'
     ctx.fillRect(trackX, trackY + artifactH, trackW, trackH)
     ctx.strokeStyle = '#94a3b8'
     ctx.strokeRect(trackX, trackY + artifactH, trackW, trackH)
 
-    if (hasAnnotations && annotations) {
-      ctx.strokeStyle = '#6d28d9'
-      ctx.lineWidth = 2
+    if (annotations && annotations.length > 0) {
+      ctx.strokeStyle = '#7c3aed'
+      ctx.lineWidth = 1
       annotations.forEach((annotation) => {
         const markerX = trackX + (Math.max(0, Math.min(safeTotal, annotation.onsetSec)) / safeTotal) * trackW
         ctx.beginPath()
-        ctx.moveTo(markerX, annotationLaneY + 1)
-        ctx.lineTo(markerX, annotationLaneY + annotationLaneH - 1)
+        ctx.moveTo(markerX, trackY + artifactH)
+        ctx.lineTo(markerX, trackY + artifactH + trackH)
         ctx.stroke()
       })
     }
@@ -900,7 +890,7 @@ function TimelineBar({
       ref={wrapRef}
       style={{
         flexShrink: 0,
-        height: annotations && annotations.length > 0 ? 76 : 58,
+        height: 58,
         background: '#ffffff',
         borderTop: '1px solid #e2e8f0',
         padding: '0.15rem 0.5rem 0.2rem 0.5rem',

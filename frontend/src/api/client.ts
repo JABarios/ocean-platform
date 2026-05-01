@@ -1,3 +1,6 @@
+import { clearPersistedAuth, readPersistedAuthToken } from '../store/authStorage'
+import { reloadApplication } from '../utils/navigation'
+
 // Si VITE_API_URL está definida en build-time, la usamos.
 // Si no, inferimos desde window.location (misma IP que el frontend, puerto 4000).
 // Esto evita recompilar cuando cambia la IP de la máquina.
@@ -26,7 +29,7 @@ async function request<T>(
     'Content-Type': 'application/json',
   }
 
-  const token = localStorage.getItem('ocean_token')
+  const token = readPersistedAuthToken()
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
   }
@@ -63,8 +66,8 @@ async function request<T>(
   }
 
   if (response.status === 401) {
-    localStorage.removeItem('ocean_token')
-    window.location.reload()
+    clearPersistedAuth()
+    reloadApplication()
     return Promise.reject(new ApiError('Unauthorized', 401))
   }
 

@@ -60,7 +60,8 @@ if (process.env.NODE_ENV !== 'test') {
 const app = express()
 const PORT = process.env.PORT || 4000
 const shouldLogRequests =
-  process.env.NODE_ENV !== 'production' || process.env.LOG_REQUESTS === 'true'
+  (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test')
+  || process.env.LOG_REQUESTS === 'true'
 
 const corsOrigin = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN === '*'
@@ -68,8 +69,9 @@ const corsOrigin = process.env.CORS_ORIGIN
     : process.env.CORS_ORIGIN.split(',').map(o => o.trim())
   : ['http://localhost:5173', 'http://127.0.0.1:5173']
 
-// Log de configuración al arrancar
-console.log(`[OCEAN] CORS_ORIGIN configurado: ${JSON.stringify(corsOrigin)}`)
+if (process.env.NODE_ENV !== 'test') {
+  console.log(`[OCEAN] CORS_ORIGIN configurado: ${JSON.stringify(corsOrigin)}`)
+}
 
 if (shouldLogRequests) {
   app.use((req, _res, next) => {

@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { api } from '../api/client'
 import type { User } from '../types'
+import { AUTH_STORAGE_KEY, clearPersistedAuth } from './authStorage'
 
 interface AuthState {
   token: string | null
@@ -31,11 +32,6 @@ export const useAuthStore = create<AuthState>()(
 
       setToken: (token) => {
         set({ token })
-        if (token) {
-          localStorage.setItem('ocean_token', token)
-        } else {
-          localStorage.removeItem('ocean_token')
-        }
       },
 
       login: async (email, password) => {
@@ -45,7 +41,6 @@ export const useAuthStore = create<AuthState>()(
             email,
             password,
           })
-          localStorage.setItem('ocean_token', res.token)
           set({ token: res.token, user: res.user })
         } catch (err) {
           set({ isLoading: false })
@@ -59,7 +54,6 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true })
         try {
           const res = await api.post<{ token: string; user: User }>('/auth/register', data)
-          localStorage.setItem('ocean_token', res.token)
           set({ token: res.token, user: res.user })
         } catch (err) {
           set({ isLoading: false })
@@ -70,19 +64,19 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: () => {
-        localStorage.removeItem('ocean_token')
+        clearPersistedAuth()
         set({ token: null, user: null })
       },
 
       fetchMe: async () => {
-        const token = get().token || localStorage.getItem('ocean_token')
+        const token = get().token
         if (!token) return
         set({ isLoading: true })
         try {
           const user = await api.get<User>('/auth/me')
           set({ user, token })
         } catch {
-          localStorage.removeItem('ocean_token')
+          clearPersistedAuth()
           set({ token: null, user: null })
         } finally {
           set({ isLoading: false })
@@ -90,7 +84,7 @@ export const useAuthStore = create<AuthState>()(
       },
     }),
     {
-      name: 'ocean-auth',
+      name: AUTH_STORAGE_KEY,
       partialize: (state) => ({ token: state.token }),
     }
   )

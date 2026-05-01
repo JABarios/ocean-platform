@@ -20,6 +20,7 @@ import {
 import type { EpochData, MontageName, PersistedViewerState } from './eegViewerUtils'
 import type { CaseItem } from '../types'
 import { getEncryptedPackageFromCache, saveEncryptedPackageToCache } from './encryptedPackageCache'
+import { extractEdfAnnotations } from '../utils/edfAnnotations'
 import './EEGViewer.css'
 
 // ─── WASM types ───────────────────────────────────────────────────────────────
@@ -134,6 +135,12 @@ interface DSAData {
   freqMax: number
   freqStep: number
   epochSec: number
+}
+
+interface EmbeddedAnnotation {
+  onsetSec: number
+  durationSec: number
+  text: string
 }
 
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
@@ -642,10 +649,63 @@ function DSAHeatmap({
   )
 }
 
+function AnnotationPanel({
+  annotations,
+  currentStartSec,
+  currentEndSec,
+  onSelect,
+}: {
+  annotations: EmbeddedAnnotation[]
+  currentStartSec: number
+  currentEndSec: number
+  onSelect: (targetSec: number) => void
+}) {
+  const activeIndex = annotations.findIndex(
+    (annotation) => annotation.onsetSec >= currentStartSec - 0.01 && annotation.onsetSec < currentEndSec + 0.01,
+  )
+  const focusIndex = activeIndex >= 0 ? activeIndex : annotations.findIndex((annotation) => annotation.onsetSec >= currentStartSec)
+  const centerIndex = focusIndex >= 0 ? focusIndex : Math.max(annotations.length - 1, 0)
+  const startIndex = Math.max(0, Math.min(Math.max(annotations.length - 8, 0), centerIndex - 2))
+  const visibleAnnotations = annotations.slice(startIndex, startIndex + 8)
+
+  return (
+    <aside className="viewer-annotations-panel">
+      <div className="viewer-annotations-header">
+        <span>Anotaciones EDF+</span>
+        <span>{annotations.length}</span>
+      </div>
+      <div className="viewer-annotations-list">
+        {visibleAnnotations.map((annotation, visibleIndex) => {
+          const index = startIndex + visibleIndex
+          const onPage = annotation.onsetSec >= currentStartSec - 0.01 && annotation.onsetSec < currentEndSec + 0.01
+          return (
+            <button
+              key={`${annotation.onsetSec}-${annotation.text}-${index}`}
+              type="button"
+              onClick={() => onSelect(annotation.onsetSec)}
+              className={`viewer-annotation-item${onPage ? ' viewer-annotation-item-active' : ''}`}
+              title={annotation.durationSec >= 0
+                ? `${fmtTimeGrid(Math.max(0, Math.round(annotation.onsetSec)))} · ${annotation.text} · ${annotation.durationSec.toFixed(2)} s`
+                : `${fmtTimeGrid(Math.max(0, Math.round(annotation.onsetSec)))} · ${annotation.text}`
+              }
+            >
+              <span className="viewer-annotation-time">
+                {fmtTimeGrid(Math.max(0, Math.round(annotation.onsetSec)))}
+              </span>
+              <span className="viewer-annotation-text">{annotation.text}</span>
+            </button>
+          )
+        })}
+      </div>
+    </aside>
+  )
+}
+
 function TimelineBar({
   totalSeconds,
   currentStartSec,
   currentEndSec,
+  annotations,
   artifactStatuses,
   artifactEpochSec,
   onSeek,
@@ -653,6 +713,7 @@ function TimelineBar({
   totalSeconds: number
   currentStartSec: number
   currentEndSec: number
+  annotations?: EmbeddedAnnotation[]
   artifactStatuses?: number[]
   artifactEpochSec?: number
   onSeek: (targetSec: number) => void
@@ -693,12 +754,25 @@ function TimelineBar({
       }
     }
 
+    const safeTotal = Math.max(totalSeconds, 1)
+
     ctx.fillStyle = '#e2e8f0'
     ctx.fillRect(trackX, trackY + artifactH, trackW, trackH)
     ctx.strokeStyle = '#94a3b8'
     ctx.strokeRect(trackX, trackY + artifactH, trackW, trackH)
 
-    const safeTotal = Math.max(totalSeconds, 1)
+    if (annotations && annotations.length > 0) {
+      ctx.strokeStyle = '#7c3aed'
+      ctx.lineWidth = 1
+      annotations.forEach((annotation) => {
+        const markerX = trackX + (Math.max(0, Math.min(safeTotal, annotation.onsetSec)) / safeTotal) * trackW
+        ctx.beginPath()
+        ctx.moveTo(markerX, trackY + artifactH)
+        ctx.lineTo(markerX, trackY + artifactH + trackH)
+        ctx.stroke()
+      })
+    }
+
     const viewX1 = trackX + (Math.max(0, currentStartSec) / safeTotal) * trackW
     const viewX2 = trackX + (Math.min(safeTotal, currentEndSec) / safeTotal) * trackW
     ctx.fillStyle = 'rgba(37,99,235,0.18)'
@@ -735,7 +809,7 @@ function TimelineBar({
       trackX,
       9,
     )
-  }, [artifactEpochSec, artifactStatuses, currentEndSec, currentStartSec, totalSeconds])
+  }, [annotations, artifactEpochSec, artifactStatuses, currentEndSec, currentStartSec, totalSeconds])
 
   useEffect(() => {
     redraw()
@@ -834,6 +908,7 @@ export default function EEGViewer() {
   const [totalSeconds, setTotalSeconds] = useState(0)
   const [recordDurationSec, setRecordDurationSec] = useState(1)
   const [meta,         setMeta]         = useState<{ recordingDate: string } | null>(null)
+  const [edfAnnotations, setEdfAnnotations] = useState<EmbeddedAnnotation[]>([])
   const [caseHoverMeta, setCaseHoverMeta] = useState<{ blobHash?: string; ageRange?: string; sizeBytes?: number; storedKeyAvailable?: boolean; encryptionMode?: string; label?: string } | null>(null)
   const [showMeta,     setShowMeta]     = useState(false)
 
@@ -1239,6 +1314,7 @@ export default function EEGViewer() {
   const startViewer = useCallback(async (key: string) => {
     if (!sourceId) return
     try {
+      setEdfAnnotations([])
       restoreInFlightRef.current = true
       viewerStateReadyRef.current = false
       if (persistTimerRef.current !== null) {
@@ -1302,6 +1378,13 @@ export default function EEGViewer() {
       } else {
         setPhase('decrypting')
         decryptedBuffer = await decryptFile(encryptedBuffer, key)
+      }
+
+      try {
+        setEdfAnnotations(extractEdfAnnotations(new Uint8Array(decryptedBuffer)))
+      } catch (err) {
+        console.warn('[OCEAN EEG] No se pudieron leer las anotaciones EDF+ embebidas', err)
+        setEdfAnnotations([])
       }
 
       setPhase('loading-module')
@@ -1388,6 +1471,7 @@ export default function EEGViewer() {
       const isBadKey = (err instanceof DOMException && err.name === 'OperationError') || msg.includes('autenticación')
       restoreInFlightRef.current = false
       viewerStateReadyRef.current = false
+      setEdfAnnotations([])
       setErrorMsg(isBadKey ? 'Clave incorrecta — el archivo no se pudo descifrar.' : msg)
       setPhase('error')
     }
@@ -2449,46 +2533,56 @@ export default function EEGViewer() {
       )}
 
       {/* Canvas area — overflow:hidden so canvas fills exact height */}
-      <div
-        ref={wrapRef}
-        style={{ flex: 1, overflow: 'hidden', background: '#f1f5f9' }}
-      >
+      <div className="viewer-main-row">
+        {edfAnnotations.length > 0 && (
+          <AnnotationPanel
+            annotations={edfAnnotations}
+            currentStartSec={tStart}
+            currentEndSec={Math.min(totalSeconds, tStart + pageDuration)}
+            onSelect={(targetSec) => goToSecondPosition(targetSec, true)}
+          />
+        )}
         <div
-          style={{ position: 'relative', lineHeight: 0 }}
-          onMouseMove={handleMouseMove}
-          onMouseLeave={handleMouseLeave}
-          onMouseDown={handleMouseDown}
-          onTouchStart={handleTouchStart}
-          onTouchEnd={handleTouchEnd}
+          ref={wrapRef}
+          style={{ flex: 1, overflow: 'hidden', background: '#f1f5f9' }}
         >
-          {meta && showMeta && (
-            <div style={{
-              position: 'absolute',
-              top: 10,
-              left: 10,
-              zIndex: 2,
-              background: 'rgba(255,255,255,0.88)',
-              border: '1px solid rgba(203,213,225,0.9)',
-              borderRadius: 6,
-              padding: '0.3rem 0.45rem',
-              color: '#475569',
-              fontSize: '0.68rem',
-              fontFamily: 'monospace',
-              lineHeight: 1.35,
-              pointerEvents: 'none',
-              backdropFilter: 'blur(2px)',
-            }}>
-              <div>
-                Hash: {caseHoverMeta?.blobHash?.trim() || `${sourceKind}-${sourceId}`}
+          <div
+            style={{ position: 'relative', lineHeight: 0 }}
+            onMouseMove={handleMouseMove}
+            onMouseLeave={handleMouseLeave}
+            onMouseDown={handleMouseDown}
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+          >
+            {meta && showMeta && (
+              <div style={{
+                position: 'absolute',
+                top: 10,
+                left: 10,
+                zIndex: 2,
+                background: 'rgba(255,255,255,0.88)',
+                border: '1px solid rgba(203,213,225,0.9)',
+                borderRadius: 6,
+                padding: '0.3rem 0.45rem',
+                color: '#475569',
+                fontSize: '0.68rem',
+                fontFamily: 'monospace',
+                lineHeight: 1.35,
+                pointerEvents: 'none',
+                backdropFilter: 'blur(2px)',
+              }}>
+                <div>
+                  Hash: {caseHoverMeta?.blobHash?.trim() || `${sourceKind}-${sourceId}`}
+                </div>
+                {caseHoverMeta?.ageRange && (
+                  <div>Edad: {caseHoverMeta.ageRange}</div>
+                )}
+                <div>{meta.recordingDate}</div>
               </div>
-              {caseHoverMeta?.ageRange && (
-                <div>Edad: {caseHoverMeta.ageRange}</div>
-              )}
-              <div>{meta.recordingDate}</div>
-            </div>
-          )}
-          <canvas ref={canvasRef} style={{ display: 'block', width: '100%' }} />
-          <canvas ref={overlayRef} style={{ position: 'absolute', top: 0, left: 0, width: '100%', pointerEvents: 'none' }} />
+            )}
+            <canvas ref={canvasRef} style={{ display: 'block', width: '100%' }} />
+            <canvas ref={overlayRef} style={{ position: 'absolute', top: 0, left: 0, width: '100%', pointerEvents: 'none' }} />
+          </div>
         </div>
       </div>
 
@@ -2514,6 +2608,7 @@ export default function EEGViewer() {
           totalSeconds={totalSeconds}
           currentStartSec={tStart}
           currentEndSec={Math.min(totalSeconds, tStart + pageDuration)}
+          annotations={edfAnnotations}
           artifactStatuses={artifactReject ? dsaData?.artifactStatuses : undefined}
           artifactEpochSec={artifactReject ? dsaData?.artifactEpochSec : undefined}
           onSeek={(targetSec) => goToSecondPosition(targetSec, true)}

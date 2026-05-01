@@ -411,7 +411,11 @@ def write_report(output_dir: Path, results: list[ConversionResult]) -> None:
 
 
 def collect_local_edfs(download_dir: Path) -> list[Path]:
-    return sorted(download_dir.glob("*.edf"))
+    return sorted(
+        path
+        for path in download_dir.glob("*.edf")
+        if not path.name.startswith("._") and not path.name.startswith(".")
+    )
 
 
 def parse_args() -> argparse.Namespace:

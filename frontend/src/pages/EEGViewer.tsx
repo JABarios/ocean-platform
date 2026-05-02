@@ -1100,9 +1100,13 @@ export default function EEGViewer() {
   const pageDuration = processedEpoch
     ? processedEpoch.nSamples / processedEpoch.sfreq
     : windowSecs
+  const pageStepSec = Math.max(
+    recordDurationSec,
+    getRecordsPerPage(windowSecs, recordDurationSec) * recordDurationSec,
+  )
 
-  const currentPage = getPageIndexForSecond(recordOffset, windowSecs)
-  const maxPage = Math.max(0, Math.ceil(totalSeconds / Math.max(windowSecs, 1)) - 1)
+  const currentPage = getPageIndexForSecond(recordOffset, pageStepSec)
+  const maxPage = Math.max(0, Math.ceil(totalSeconds / Math.max(pageStepSec, 1)) - 1)
   const dsaChannels = useMemo(() => getDsaChannels(epoch), [epoch])
 
   useEffect(() => {
@@ -1639,14 +1643,14 @@ export default function EEGViewer() {
   // ── Pagination ────────────────────────────────────────────────────────────────
 
   const goToPage = useCallback((newPage: number) => {
-    const nextStartSec = newPage * windowSecs
+    const nextStartSec = newPage * pageStepSec
     const kappa = kappaRef.current
     if (!kappa) return
     const result = readEpochWindow(kappa, nextStartSec, windowSecs, totalSeconds, recordDurationSec)
     if (!result) return
     setEpoch(result.epoch)
     setRecordOffset(result.startSec)
-  }, [recordDurationSec, totalSeconds, windowSecs])
+  }, [pageStepSec, recordDurationSec, totalSeconds, windowSecs])
 
   const goToSecondPosition = useCallback((targetSec: number, center = false) => {
     const nextStartSec = getSecondBasedPageStart(targetSec, totalSeconds, windowSecs, pageDuration, center)
@@ -1710,8 +1714,12 @@ export default function EEGViewer() {
   }
   const handleWindowChange = (val: string) => {
     const newWin = parseInt(val)
-    const nextPage = getPageIndexForSecond(recordOffset, newWin)
-    const nextStartSec = nextPage * newWin
+    const nextStepSec = Math.max(
+      recordDurationSec,
+      getRecordsPerPage(newWin, recordDurationSec) * recordDurationSec,
+    )
+    const nextPage = getPageIndexForSecond(recordOffset, nextStepSec)
+    const nextStartSec = nextPage * nextStepSec
     setWindowSecs(newWin)
     const kappa = kappaRef.current
     if (!kappa) return

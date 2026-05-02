@@ -1384,7 +1384,7 @@ export default function EEGViewer() {
           : sourceKind === 'gallery'
             ? `${API_BASE}/galleries/records/${sourceId}/download`
             : `${API_BASE}/shared-links/${sourceId}/download`
-        const headers = sourceKind === 'shared'
+        const headers: Record<string, string> = sourceKind === 'shared'
           ? { 'Cache-Control': 'no-store' }
           : { Authorization: `Bearer ${token ?? ''}` }
         const res = await fetch(downloadPath, { headers })

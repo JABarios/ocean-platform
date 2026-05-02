@@ -100,6 +100,27 @@ export function getRecordsPerPage(windowSecs: number, recordDurationSec: number)
   return Math.max(1, Math.round(windowSecs / recordDurationSec))
 }
 
+export function getPageIndexForSecond(positionSec: number, windowSecs: number): number {
+  const safeWindowSecs = Math.max(windowSecs, 1)
+  return Math.floor(Math.max(0, positionSec) / safeWindowSecs)
+}
+
+export function getSecondBasedPageStart(
+  targetSec: number,
+  totalSeconds: number,
+  windowSecs: number,
+  pageDuration: number,
+  center = false,
+): number {
+  const safePageDuration = Math.max(pageDuration, windowSecs)
+  const startSec = center
+    ? targetSec - safePageDuration / 2
+    : targetSec
+  const maxStartSec = Math.max(0, totalSeconds - safePageDuration)
+  const clampedStartSec = Math.max(0, Math.min(maxStartSec, startSec))
+  return Math.floor(clampedStartSec)
+}
+
 export function getDsaChannels(epoch: EpochData | null): Array<{ index: number; name: string }> {
   if (!epoch) return []
   return epoch.channelNames

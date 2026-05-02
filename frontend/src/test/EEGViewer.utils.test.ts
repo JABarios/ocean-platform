@@ -6,7 +6,9 @@ import {
   getChannelColor,
   getMontageHiddenCandidates,
   getNextArtifactRejectState,
+  getPageIndexForSecond,
   getRecordsPerPage,
+  getSecondBasedPageStart,
   sanitizePersistedViewerState,
   shouldShowMetadataForPointer,
 } from '../pages/eegViewerUtils'
@@ -44,6 +46,21 @@ describe('EEG viewer utils', () => {
     expect(getRecordsPerPage(10, 0.5)).toBe(20)
     expect(getRecordsPerPage(10, 2)).toBe(5)
     expect(getRecordsPerPage(10, 0)).toBe(10)
+  })
+
+  it('calcula la página actual usando segundos reales y no records EDF', () => {
+    expect(getPageIndexForSecond(0, 10)).toBe(0)
+    expect(getPageIndexForSecond(9.9, 10)).toBe(0)
+    expect(getPageIndexForSecond(10, 10)).toBe(1)
+    expect(getPageIndexForSecond(21, 10)).toBe(2)
+  })
+
+  it('calcula el inicio de página por segundos reales para la navegación fina', () => {
+    expect(getSecondBasedPageStart(1, 120, 10, 10, false)).toBe(1)
+    expect(getSecondBasedPageStart(21, 120, 10, 10, false)).toBe(21)
+    expect(getSecondBasedPageStart(21.8, 120, 10, 10, false)).toBe(21)
+    expect(getSecondBasedPageStart(30, 120, 10, 10, true)).toBe(25)
+    expect(getSecondBasedPageStart(119, 120, 10, 10, false)).toBe(110)
   })
 
   it('colorea canales izquierdos, derechos y de línea media como está definido', () => {

@@ -1,3 +1,6 @@
+import { MONTAGES, MONTAGE_OPTIONS } from './montages'
+import type { MontageName } from './montages'
+
 export interface EpochData {
   nChannels: number
   nSamples: number
@@ -23,54 +26,8 @@ const LEFT_CHANNEL_COLOR = '#1d4ed8'
 const RIGHT_CHANNEL_COLOR = '#b91c1c'
 const CENTER_CHANNEL_COLOR = '#475569'
 
-export const MONTAGES = {
-  raw: [],
-  doble_banana: [
-    ['Fp1', 'F7'], ['F7', 'T3'], ['T3', 'T5'], ['T5', 'O1'],
-    ['Fp2', 'F8'], ['F8', 'T4'], ['T4', 'T6'], ['T6', 'O2'],
-    ['Fp1', 'F3'], ['F3', 'C3'], ['C3', 'P3'], ['P3', 'O1'],
-    ['Fp2', 'F4'], ['F4', 'C4'], ['C4', 'P4'], ['P4', 'O2'],
-    ['Fz', 'Cz'], ['Cz', 'Pz'],
-  ],
-  transversal: [
-    ['A1', 'Fp1'], ['F7', 'F3'], ['A1', 'T3'], ['T3', 'C3'], ['T5', 'P3'],
-    ['F3', 'Fz'], ['C3', 'Cz'], ['P3', 'Pz'],
-    ['Fz', 'F4'], ['Cz', 'C4'], ['Pz', 'P4'], ['A2', 'Fp2'], ['F4', 'F8'], ['A2', 'T4'], ['C4', 'T4'], ['P4', 'T6'],
-  ],
-  promedio: [
-    ['Fp1', 'AVG'], ['F7', 'AVG'], ['F3', 'AVG'], ['T3', 'AVG'], ['C3', 'AVG'], ['T5', 'AVG'], ['P3', 'AVG'], ['O1', 'AVG'],
-    ['Fz', 'AVG'], ['Cz', 'AVG'], ['Pz', 'AVG'],
-    ['Fp2', 'AVG'], ['F4', 'AVG'], ['F8', 'AVG'], ['C4', 'AVG'], ['T4', 'AVG'], ['P4', 'AVG'], ['T6', 'AVG'], ['O2', 'AVG'],
-  ],
-  linked_mastoids: [
-    ['Fp1', 'LM'], ['F7', 'LM'], ['F3', 'LM'], ['T3', 'LM'], ['C3', 'LM'], ['T5', 'LM'], ['P3', 'LM'], ['O1', 'LM'],
-    ['Fz', 'LM'], ['Cz', 'LM'], ['Pz', 'LM'],
-    ['Fp2', 'LM'], ['F4', 'LM'], ['F8', 'LM'], ['C4', 'LM'], ['T4', 'LM'], ['P4', 'LM'], ['T6', 'LM'], ['O2', 'LM'],
-  ],
-  hjorth: [
-    ['Fp1', 'F3', 'F7', 'Fz'],
-    ['F3', 'Fp1', 'F7', 'C3', 'Fz'],
-    ['C3', 'F3', 'T3', 'P3', 'Cz'],
-    ['P3', 'C3', 'T5', 'O1', 'Pz'],
-    ['O1', 'P3', 'T5'],
-    ['Fp2', 'F4', 'F8', 'Fz'],
-    ['F4', 'Fp2', 'F8', 'C4', 'Fz'],
-    ['C4', 'F4', 'T4', 'P4', 'Cz'],
-    ['P4', 'C4', 'T6', 'O2', 'Pz'],
-    ['O2', 'P4', 'T6'],
-  ],
-} as const
-
-export type MontageName = keyof typeof MONTAGES
-
-export const MONTAGE_OPTIONS: MontageName[] = [
-  'promedio',
-  'doble_banana',
-  'raw',
-  'transversal',
-  'linked_mastoids',
-  'hjorth',
-]
+export { MONTAGES, MONTAGE_OPTIONS }
+export type { MontageName }
 
 export interface PersistedViewerState {
   positionSec: number
@@ -174,7 +131,7 @@ function averageSignals(signals: Float32Array[], nSamples: number): Float32Array
 
 function getAverageReferenceSourceNames(epoch: EpochData): string[] {
   const names = new Set<string>()
-  for (const definition of MONTAGES.promedio) {
+  for (const definition of MONTAGES.promedio.channels) {
     const [channelA] = definition
     names.add(channelA)
   }
@@ -194,7 +151,7 @@ function getVisibleSourceNamesForMontage(montageName: MontageName): Set<string> 
   if (montageName === 'raw') return new Set()
 
   const names = new Set<string>()
-  for (const definition of MONTAGES[montageName]) {
+  for (const definition of MONTAGES[montageName].channels) {
     const [channelA] = definition as readonly string[]
     names.add(channelA)
   }
@@ -218,7 +175,8 @@ export function applyMontage(
 ): EpochData {
   if (montageName === 'raw') return epoch
 
-  const definitions = MONTAGES[montageName]
+  const montageDefinition = MONTAGES[montageName]
+  const definitions = montageDefinition.channels
   const byName = new Map<string, { data: Float32Array; type: string }>()
   epoch.channelNames.forEach((name, i) => {
     byName.set(canonicalizeChannelName(name), {
@@ -231,7 +189,7 @@ export function applyMontage(
   const getSignal = (name: string) => byName.get(canonicalizeChannelName(name))?.data ?? zero
   const getType = (name: string) => byName.get(canonicalizeChannelName(name))?.type ?? 'EEG'
 
-  const avgReference = montageName === 'promedio'
+  const avgReference = montageDefinition.kind === 'average_reference'
     ? averageSignals(
         getAverageReferenceSourceNames(epoch)
           .filter((name) => !options?.excludedAverageReferenceChannels?.has(name))
@@ -240,7 +198,7 @@ export function applyMontage(
       )
     : null
 
-  const linkedMastoidsReference = montageName === 'linked_mastoids'
+  const linkedMastoidsReference = montageDefinition.kind === 'linked_mastoids'
     ? averageSignals([getSignal('A1'), getSignal('A2')], epoch.nSamples)
     : null
 
@@ -249,7 +207,7 @@ export function applyMontage(
   const data: Float32Array[] = []
 
   for (const definition of definitions) {
-    if (montageName === 'hjorth') {
+    if (montageDefinition.kind === 'hjorth') {
       const [active, ...neighbors] = definition as readonly string[]
       const neighborMean = averageSignals(neighbors.map(getSignal), epoch.nSamples)
       channelNames.push(`${active} - AVG(${neighbors.join(',')})`)

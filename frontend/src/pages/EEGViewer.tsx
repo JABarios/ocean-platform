@@ -958,6 +958,7 @@ export default function EEGViewer() {
   const wrapRef    = useRef<HTMLDivElement>(null)    // outer flex container (for height)
   const kappaRef   = useRef<KappaInstance | null>(null)
   const moduleRef  = useRef<KappaModuleInstance | null>(null)
+  const currentEdfPathRef = useRef<string | null>(null)
   const dsaCacheRef = useRef<Map<string, DSAData>>(new Map())
   const avgRefButtonRef = useRef<HTMLButtonElement>(null)
   const avgRefMenuRef = useRef<HTMLDivElement>(null)
@@ -1112,6 +1113,10 @@ export default function EEGViewer() {
       persistTimerRef.current = null
     }
     try { moduleRef.current?.FS.unlink('/tmp/file.edf') } catch { /* noop */ }
+    try {
+      if (currentEdfPathRef.current) moduleRef.current?.FS.unlink(currentEdfPathRef.current)
+    } catch { /* noop */ }
+    currentEdfPathRef.current = null
     kappaRef.current = null
     dsaCacheRef.current.clear()
     renderMetaRef.current = null
@@ -1485,8 +1490,13 @@ export default function EEGViewer() {
 
       setPhase('opening')
       const kappa = new Module.KappaWasm()
-      Module.FS.writeFile('/tmp/file.edf', new Uint8Array(decryptedBuffer))
-      if (!kappa.openEDF('/tmp/file.edf')) throw new Error('openEDF devolvió false — archivo inválido')
+      const memfsPath = `/tmp/file-${Date.now()}-${Math.random().toString(36).slice(2)}.edf`
+      try {
+        if (currentEdfPathRef.current) Module.FS.unlink(currentEdfPathRef.current)
+      } catch { /* noop */ }
+      Module.FS.writeFile(memfsPath, new Uint8Array(decryptedBuffer))
+      currentEdfPathRef.current = memfsPath
+      if (!kappa.openEDF(memfsPath)) throw new Error('openEDF devolvió false — archivo inválido')
 
       const info = kappa.getMeta()
       kappaRef.current = kappa
@@ -1896,7 +1906,10 @@ export default function EEGViewer() {
         window.clearTimeout(persistTimerRef.current)
         persistTimerRef.current = null
       }
-      try { moduleRef.current?.FS.unlink('/tmp/file.edf') } catch { /* already gone */ }
+      try {
+        if (currentEdfPathRef.current) moduleRef.current?.FS.unlink(currentEdfPathRef.current)
+      } catch { /* already gone */ }
+      currentEdfPathRef.current = null
     }
   }, [])
 

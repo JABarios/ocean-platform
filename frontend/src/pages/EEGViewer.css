@@ -37,7 +37,7 @@
 .viewer-annotations-panel {
   position: absolute;
   top: 0.65rem;
-  right: 0.65rem;
+  left: 0.65rem;
   bottom: 0.65rem;
   width: min(320px, 36vw);
   background: #f8fafc;

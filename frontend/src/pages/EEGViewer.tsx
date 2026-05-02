@@ -11,10 +11,11 @@ import {
   getAverageReferenceCandidates,
   getChannelColor,
   getDsaChannels,
+  getEpochReadRequest,
   getMontageHiddenCandidates,
   getNextArtifactRejectState,
   getPageIndexForSecond,
-  getRecordsPerPage,
+  getPageStepSeconds,
   getSecondBasedPageStart,
   sanitizePersistedViewerState,
   shouldShowMetadataForPointer,
@@ -132,19 +133,17 @@ function readEpochWindow(
   totalSeconds: number,
   recordDurationSec: number,
 ): { epoch: EpochData; startSec: number } | null {
-  const safeWindowSecs = Math.max(1, Math.round(windowSecs))
-  const safeRecordDurationSec = Number.isFinite(recordDurationSec) && recordDurationSec > 0
-    ? recordDurationSec
-    : 1
-  const maxStartSec = Math.max(0, totalSeconds - safeWindowSecs)
-  const clampedStartSec = Math.max(0, Math.min(maxStartSec, Math.floor(startSec)))
-  const offsetRecords = Math.max(0, Math.floor(clampedStartSec / safeRecordDurationSec))
-  const numRecords = getRecordsPerPage(safeWindowSecs, safeRecordDurationSec)
+  const { startSec: normalizedStartSec, offsetRecords, numRecords } = getEpochReadRequest(
+    startSec,
+    windowSecs,
+    totalSeconds,
+    recordDurationSec,
+  )
   const epoch = kappa.readEpoch(offsetRecords, numRecords)
   if (!epoch) return null
   return {
     epoch,
-    startSec: offsetRecords * safeRecordDurationSec,
+    startSec: normalizedStartSec,
   }
 }
 
@@ -274,6 +273,7 @@ function drawEpoch(
   tStart: number,
   pageDuration: number,   // actual seconds — derived from nSamples / sfreq
   containerH: number,
+  annotations?: EmbeddedAnnotation[],
 ): number {                // returns chanH used
   canvas.width  = canvas.offsetWidth || 1200
   const chanH   = Math.max(MIN_CHAN_H, Math.floor(containerH / Math.max(epoch.nChannels, 1)))
@@ -375,6 +375,40 @@ function drawEpoch(
     }
     ctx.stroke()
     ctx.globalAlpha = 1
+  }
+
+  // ── Embedded annotations on current page ───────────────────────────────────
+  if (annotations && annotations.length > 0 && pageDuration > 0) {
+    const visibleAnnotations = annotations.filter(
+      (annotation) => annotation.onsetSec >= tStart && annotation.onsetSec < tStart + pageDuration,
+    )
+
+    if (visibleAnnotations.length > 0) {
+      ctx.save()
+      ctx.strokeStyle = 'rgba(220,38,38,0.82)'
+      ctx.fillStyle = 'rgba(185,28,28,0.95)'
+      ctx.lineWidth = 1
+      ctx.font = '9px monospace'
+      ctx.textAlign = 'left'
+      ctx.textBaseline = 'top'
+
+      visibleAnnotations.forEach((annotation, index) => {
+        const x = LABEL_WIDTH + ((annotation.onsetSec - tStart) / pageDuration) * waveW
+        if (x <= LABEL_WIDTH + 1 || x >= W - 2) return
+        const textY = 12 + (index % 3) * 10
+        const label = annotation.text.trim().slice(0, 28)
+
+        ctx.beginPath()
+        ctx.moveTo(x, 0)
+        ctx.lineTo(x, canvas.height)
+        ctx.stroke()
+
+        if (label) {
+          ctx.fillText(label, Math.min(x + 3, W - 120), textY)
+        }
+      })
+      ctx.restore()
+    }
   }
 
   return chanH
@@ -1100,10 +1134,7 @@ export default function EEGViewer() {
   const pageDuration = processedEpoch
     ? processedEpoch.nSamples / processedEpoch.sfreq
     : windowSecs
-  const pageStepSec = Math.max(
-    recordDurationSec,
-    getRecordsPerPage(windowSecs, recordDurationSec) * recordDurationSec,
-  )
+  const pageStepSec = getPageStepSeconds(windowSecs, recordDurationSec)
 
   const currentPage = getPageIndexForSecond(recordOffset, pageStepSec)
   const maxPage = Math.max(0, Math.ceil(totalSeconds / Math.max(pageStepSec, 1)) - 1)
@@ -1257,7 +1288,7 @@ export default function EEGViewer() {
 
     const containerH = container.clientHeight || processedEpoch.nChannels * 60
     const tStart     = recordOffset
-    const chanH      = drawEpoch(canvas, processedEpoch, scales, tStart, pageDuration, containerH)
+    const chanH      = drawEpoch(canvas, processedEpoch, scales, tStart, pageDuration, containerH, edfAnnotations)
     const { sbMuV, sbPxH } = computeSBSize(chanH, canvas.height)
 
     renderMetaRef.current = {
@@ -1268,7 +1299,7 @@ export default function EEGViewer() {
     }
     refreshOverlay()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [processedEpoch, scales, refRange, gainMult, recordOffset, pageDuration, refreshOverlay])
+  }, [processedEpoch, scales, refRange, gainMult, recordOffset, pageDuration, refreshOverlay, edfAnnotations])
 
   // ── Draw effect ───────────────────────────────────────────────────────────────
 
@@ -1714,10 +1745,7 @@ export default function EEGViewer() {
   }
   const handleWindowChange = (val: string) => {
     const newWin = parseInt(val)
-    const nextStepSec = Math.max(
-      recordDurationSec,
-      getRecordsPerPage(newWin, recordDurationSec) * recordDurationSec,
-    )
+    const nextStepSec = getPageStepSeconds(newWin, recordDurationSec)
     const nextPage = getPageIndexForSecond(recordOffset, nextStepSec)
     const nextStartSec = nextPage * nextStepSec
     setWindowSecs(newWin)

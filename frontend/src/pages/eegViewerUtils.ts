@@ -60,6 +60,12 @@ export interface SanitizedViewerState {
   artifactReject: boolean
 }
 
+export interface EpochReadRequest {
+  startSec: number
+  offsetRecords: number
+  numRecords: number
+}
+
 function canonicalizeChannelName(name: string): string {
   const trimmed = name.trim()
   if (!trimmed) return trimmed
@@ -98,6 +104,36 @@ export function getChannelColor(name: string, type: string): string {
 export function getRecordsPerPage(windowSecs: number, recordDurationSec: number): number {
   if (recordDurationSec <= 0) return Math.max(1, windowSecs)
   return Math.max(1, Math.round(windowSecs / recordDurationSec))
+}
+
+export function getPageStepSeconds(windowSecs: number, recordDurationSec: number): number {
+  const safeRecordDurationSec = Number.isFinite(recordDurationSec) && recordDurationSec > 0
+    ? recordDurationSec
+    : 1
+  return Math.max(
+    safeRecordDurationSec,
+    getRecordsPerPage(windowSecs, safeRecordDurationSec) * safeRecordDurationSec,
+  )
+}
+
+export function getEpochReadRequest(
+  startSec: number,
+  windowSecs: number,
+  totalSeconds: number,
+  recordDurationSec: number,
+): EpochReadRequest {
+  const safeWindowSecs = Math.max(1, Math.round(windowSecs))
+  const safeRecordDurationSec = Number.isFinite(recordDurationSec) && recordDurationSec > 0
+    ? recordDurationSec
+    : 1
+  const maxStartSec = Math.max(0, totalSeconds - safeWindowSecs)
+  const clampedStartSec = Math.max(0, Math.min(maxStartSec, Math.floor(startSec)))
+  const offsetRecords = Math.max(0, Math.floor(clampedStartSec / safeRecordDurationSec))
+  return {
+    startSec: offsetRecords * safeRecordDurationSec,
+    offsetRecords,
+    numRecords: getRecordsPerPage(safeWindowSecs, safeRecordDurationSec),
+  }
 }
 
 export function getPageIndexForSecond(positionSec: number, windowSecs: number): number {

@@ -5,8 +5,10 @@ import {
   getAverageReferenceCandidates,
   getChannelColor,
   getMontageHiddenCandidates,
+  getEpochReadRequest,
   getNextArtifactRejectState,
   getPageIndexForSecond,
+  getPageStepSeconds,
   getRecordsPerPage,
   getSecondBasedPageStart,
   sanitizePersistedViewerState,
@@ -48,11 +50,37 @@ describe('EEG viewer utils', () => {
     expect(getRecordsPerPage(10, 0)).toBe(10)
   })
 
+  it('calcula el paso real de página según el span de records EDF', () => {
+    expect(getPageStepSeconds(20, 1)).toBe(20)
+    expect(getPageStepSeconds(20, 4.5)).toBe(18)
+    expect(getPageStepSeconds(10, 30)).toBe(30)
+  })
+
   it('calcula la página actual usando segundos reales y no records EDF', () => {
     expect(getPageIndexForSecond(0, 10)).toBe(0)
     expect(getPageIndexForSecond(9.9, 10)).toBe(0)
     expect(getPageIndexForSecond(10, 10)).toBe(1)
     expect(getPageIndexForSecond(21, 10)).toBe(2)
+  })
+
+  it('traduce segundos a offsetRecords y numRecords sin repetir página al final del registro', () => {
+    expect(getEpochReadRequest(20, 20, 95, 4.5)).toEqual({
+      startSec: 18,
+      offsetRecords: 4,
+      numRecords: 4,
+    })
+
+    expect(getEpochReadRequest(90, 20, 95, 4.5)).toEqual({
+      startSec: 72,
+      offsetRecords: 16,
+      numRecords: 4,
+    })
+
+    expect(getEpochReadRequest(500, 20, 95, 4.5)).toEqual({
+      startSec: 72,
+      offsetRecords: 16,
+      numRecords: 4,
+    })
   })
 
   it('calcula el inicio de página por segundos reales para la navegación fina', () => {

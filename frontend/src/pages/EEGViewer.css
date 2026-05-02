@@ -39,7 +39,7 @@
   top: 0.65rem;
   right: 0.65rem;
   bottom: 0.65rem;
-  width: min(260px, 32vw);
+  width: min(320px, 36vw);
   background: #f8fafc;
   border: 1px solid #dbe4f0;
   border-radius: 12px;
@@ -51,82 +51,79 @@
   overflow: hidden;
 }
 
-.viewer-annotations-panel:not(.viewer-annotations-panel-open) {
-  width: 42px;
-  bottom: auto;
-  height: 144px;
-  background: rgba(248, 250, 252, 0.96);
-}
-
 .viewer-annotations-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  padding: 0.55rem 0.7rem 0.45rem 0.7rem;
+  padding: 0.45rem 0.55rem 0.4rem 0.6rem;
   border-bottom: 1px solid #dbe4f0;
   color: #334155;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.03em;
   text-transform: uppercase;
 }
 
-.viewer-annotations-toggle {
+.viewer-annotations-header-actions {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.3rem;
-  width: 100%;
-  border: 0;
-  border-bottom: 1px solid #dbe4f0;
-  background: linear-gradient(180deg, #ffffff 0%, #eef2ff 100%);
-  color: #312e81;
-  cursor: pointer;
-  padding: 0.5rem 0.35rem;
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  gap: 0.45rem;
 }
 
-.viewer-annotations-panel:not(.viewer-annotations-panel-open) .viewer-annotations-toggle {
-  height: 100%;
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
-  border-bottom: 0;
-  border-left: 1px solid #dbe4f0;
-  border-radius: 12px;
-}
-
-.viewer-annotations-toggle-arrow {
-  font-size: 0.9rem;
+.viewer-annotations-close {
+  border: 1px solid #d8b4fe;
+  background: #faf5ff;
+  color: #6b21a8;
+  border-radius: 999px;
+  width: 22px;
+  height: 22px;
   line-height: 1;
+  font-size: 0.78rem;
+  cursor: pointer;
+  padding: 0;
 }
 
-.viewer-annotations-toggle-label {
-  white-space: nowrap;
+.viewer-annotations-summary {
+  padding: 0.25rem 0.6rem 0.18rem 0.6rem;
+  color: #64748b;
+  font-size: 0.64rem;
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .viewer-annotations-list {
   display: flex;
   flex-direction: column;
-  gap: 0.18rem;
-  padding: 0.35rem;
+  gap: 0.08rem;
+  padding: 0.22rem 0.24rem 0.3rem 0.24rem;
   overflow-y: auto;
+}
+
+.viewer-annotation-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 0.08rem;
+}
+
+.viewer-annotation-position-marker {
+  height: 1px;
+  background: #dc2626;
+  box-shadow: 0 0 0 1px rgba(220, 38, 38, 0.18);
+  margin: 0.04rem 0 0.02rem 0;
 }
 
 .viewer-annotation-item {
   display: grid;
-  grid-template-columns: 54px 1fr;
+  grid-template-columns: 48px 1fr;
   align-items: start;
-  gap: 0.45rem;
+  gap: 0.3rem;
   width: 100%;
   border: 1px solid #dbe4f0;
-  border-radius: 8px;
+  border-radius: 6px;
   background: #ffffff;
   color: #1e293b;
-  padding: 0.45rem 0.5rem;
+  padding: 0.24rem 0.34rem;
   text-align: left;
   cursor: pointer;
 }
@@ -144,19 +141,19 @@
 .viewer-annotation-time {
   color: #4338ca;
   font-family: monospace;
-  font-size: 0.72rem;
+  font-size: 0.64rem;
   font-weight: 700;
 }
 
 .viewer-annotation-text {
   color: #334155;
-  font-size: 0.76rem;
-  line-height: 1.25;
+  font-size: 0.68rem;
+  line-height: 1.12;
 }
 
 @media (max-width: 900px) {
   .viewer-annotations-panel {
-    width: min(240px, calc(100vw - 2rem));
+    width: min(260px, calc(100vw - 1.5rem));
     max-width: calc(100vw - 2rem);
   }
 }

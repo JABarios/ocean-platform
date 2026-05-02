@@ -653,15 +653,13 @@ function AnnotationPanel({
   annotations,
   currentStartSec,
   currentEndSec,
-  isOpen,
-  onToggle,
+  onClose,
   onSelect,
 }: {
   annotations: EmbeddedAnnotation[]
   currentStartSec: number
   currentEndSec: number
-  isOpen: boolean
-  onToggle: () => void
+  onClose: () => void
   onSelect: (targetSec: number) => void
 }) {
   const activeIndex = annotations.findIndex(
@@ -669,53 +667,69 @@ function AnnotationPanel({
   )
   const focusIndex = activeIndex >= 0 ? activeIndex : annotations.findIndex((annotation) => annotation.onsetSec >= currentStartSec)
   const centerIndex = focusIndex >= 0 ? focusIndex : Math.max(annotations.length - 1, 0)
-  const startIndex = Math.max(0, Math.min(Math.max(annotations.length - 8, 0), centerIndex - 2))
-  const visibleAnnotations = annotations.slice(startIndex, startIndex + 8)
+  const maxRenderedAnnotations = 400
+  const startIndex = annotations.length > maxRenderedAnnotations
+    ? Math.max(
+        0,
+        Math.min(
+          Math.max(annotations.length - maxRenderedAnnotations, 0),
+          centerIndex - Math.floor(maxRenderedAnnotations / 2),
+        ),
+      )
+    : 0
+  const visibleAnnotations = annotations.slice(startIndex, startIndex + maxRenderedAnnotations)
+  const currentMarkerIndex = (() => {
+    const localIndex = visibleAnnotations.findIndex((annotation) => annotation.onsetSec >= currentStartSec - 0.01)
+    return localIndex >= 0 ? localIndex : visibleAnnotations.length
+  })()
 
   return (
-    <aside className={`viewer-annotations-panel${isOpen ? ' viewer-annotations-panel-open' : ''}`}>
-      <button
-        type="button"
-        className="viewer-annotations-toggle"
-        onClick={onToggle}
-        title={isOpen ? 'Ocultar anotaciones EDF+' : 'Mostrar anotaciones EDF+'}
-        aria-expanded={isOpen}
-      >
-        <span className="viewer-annotations-toggle-arrow">{isOpen ? '▸' : '◂'}</span>
-        <span className="viewer-annotations-toggle-label">EDF+</span>
-      </button>
-
-      {isOpen && (
-        <>
-          <div className="viewer-annotations-header">
-            <span>Anotaciones EDF+</span>
-            <span>{annotations.length}</span>
-          </div>
-          <div className="viewer-annotations-list">
-            {visibleAnnotations.map((annotation, visibleIndex) => {
-              const index = startIndex + visibleIndex
-              const onPage = annotation.onsetSec >= currentStartSec - 0.01 && annotation.onsetSec < currentEndSec + 0.01
-              return (
-                <button
-                  key={`${annotation.onsetSec}-${annotation.text}-${index}`}
-                  type="button"
-                  onClick={() => onSelect(annotation.onsetSec)}
-                  className={`viewer-annotation-item${onPage ? ' viewer-annotation-item-active' : ''}`}
-                  title={annotation.durationSec >= 0
-                    ? `${fmtTimeGrid(Math.max(0, Math.round(annotation.onsetSec)))} · ${annotation.text} · ${annotation.durationSec.toFixed(2)} s`
-                    : `${fmtTimeGrid(Math.max(0, Math.round(annotation.onsetSec)))} · ${annotation.text}`
-                  }
-                >
-                  <span className="viewer-annotation-time">
-                    {fmtTimeGrid(Math.max(0, Math.round(annotation.onsetSec)))}
-                  </span>
-                  <span className="viewer-annotation-text">{annotation.text}</span>
-                </button>
-              )
-            })}
-          </div>
-        </>
+    <aside className="viewer-annotations-panel viewer-annotations-panel-open">
+      <div className="viewer-annotations-header">
+        <span>Anotaciones EDF+</span>
+        <div className="viewer-annotations-header-actions">
+          <span>{annotations.length}</span>
+          <button
+            type="button"
+            className="viewer-annotations-close"
+            onClick={onClose}
+            title="Ocultar anotaciones EDF+"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+      {annotations.length > maxRenderedAnnotations && (
+        <div className="viewer-annotations-summary">
+          Mostrando {visibleAnnotations.length} de {annotations.length}
+        </div>
       )}
+      <div className="viewer-annotations-list">
+        {visibleAnnotations.map((annotation, visibleIndex) => {
+          const index = startIndex + visibleIndex
+          const onPage = annotation.onsetSec >= currentStartSec - 0.01 && annotation.onsetSec < currentEndSec + 0.01
+          return (
+            <div key={`${annotation.onsetSec}-${annotation.text}-${index}`} className="viewer-annotation-entry">
+              {currentMarkerIndex === visibleIndex && <div className="viewer-annotation-position-marker" />}
+              <button
+                type="button"
+                onClick={() => onSelect(annotation.onsetSec)}
+                className={`viewer-annotation-item${onPage ? ' viewer-annotation-item-active' : ''}`}
+                title={annotation.durationSec >= 0
+                  ? `${fmtTimeGrid(Math.max(0, Math.round(annotation.onsetSec)))} · ${annotation.text} · ${annotation.durationSec.toFixed(2)} s`
+                  : `${fmtTimeGrid(Math.max(0, Math.round(annotation.onsetSec)))} · ${annotation.text}`
+                }
+              >
+                <span className="viewer-annotation-time">
+                  {fmtTimeGrid(Math.max(0, Math.round(annotation.onsetSec)))}
+                </span>
+                <span className="viewer-annotation-text">{annotation.text}</span>
+              </button>
+            </div>
+          )
+        })}
+        {currentMarkerIndex === visibleAnnotations.length && <div className="viewer-annotation-position-marker" />}
+      </div>
     </aside>
   )
 }
@@ -2261,6 +2275,27 @@ export default function EEGViewer() {
           </button>
         )}
 
+        {edfAnnotations.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setAnnotationsOpen((open) => !open)}
+            title={annotationsOpen ? 'Ocultar anotaciones EDF+' : 'Mostrar anotaciones EDF+'}
+            style={{
+              background: annotationsOpen ? '#ede9fe' : '#f8fafc',
+              border: `1px solid ${annotationsOpen ? '#c4b5fd' : '#cbd5e1'}`,
+              borderRadius: 4,
+              color: annotationsOpen ? '#5b21b6' : '#334155',
+              fontSize: compactToolbar ? '0.72rem' : '0.75rem',
+              padding: compactToolbar ? '0.18rem 0.38rem' : '0.16rem 0.48rem',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              fontWeight: annotationsOpen ? 700 : 500,
+            }}
+          >
+            {compactToolbar ? '📝' : `📝 EDF+ (${edfAnnotations.length})`}
+          </button>
+        )}
+
         <div style={{ flex: 1, minWidth: 8 }} />
 
         <div style={{ display: 'flex', gap: compactToolbar ? '0.2rem' : '0.3rem', alignItems: 'center', flexShrink: 0 }}>
@@ -2599,13 +2634,12 @@ export default function EEGViewer() {
                 <div>{meta.recordingDate}</div>
               </div>
             )}
-            {edfAnnotations.length > 0 && (
+            {edfAnnotations.length > 0 && annotationsOpen && (
               <AnnotationPanel
                 annotations={edfAnnotations}
                 currentStartSec={tStart}
                 currentEndSec={Math.min(totalSeconds, tStart + pageDuration)}
-                isOpen={annotationsOpen}
-                onToggle={() => setAnnotationsOpen((open) => !open)}
+                onClose={() => setAnnotationsOpen(false)}
                 onSelect={(targetSec) => goToSecondPosition(targetSec, true)}
               />
             )}

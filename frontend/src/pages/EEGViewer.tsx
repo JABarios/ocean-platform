@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
-import { useParams } from 'react-router-dom'
+import { useLocation, useParams } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { useCrypto } from '../hooks/useCrypto'
 import { API_BASE, api } from '../api/client'
@@ -13,11 +13,13 @@ import {
   getDsaChannels,
   getMontageHiddenCandidates,
   getNextArtifactRejectState,
+  getPageIndexForSecond,
+  getSecondBasedPageStart,
   sanitizePersistedViewerState,
   shouldShowMetadataForPointer,
 } from './eegViewerUtils'
 import type { EpochData, MontageName, PersistedViewerState } from './eegViewerUtils'
-import type { CaseItem } from '../types'
+import type { CaseItem, SharedLinkBlobInfo } from '../types'
 import { getEncryptedPackageFromCache, saveEncryptedPackageToCache } from './encryptedPackageCache'
 import { extractEdfAnnotations } from '../utils/edfAnnotations'
 import './EEGViewer.css'
@@ -882,9 +884,10 @@ function TimelineBar({
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function EEGViewer() {
-  const { id, recordId } = useParams<{ id?: string; recordId?: string }>()
-  const sourceKind = recordId ? 'gallery' : 'case'
-  const sourceId = recordId || id || ''
+  const { id, recordId, sharedId } = useParams<{ id?: string; recordId?: string; sharedId?: string }>()
+  const location = useLocation()
+  const sourceKind: 'case' | 'gallery' | 'shared' = sharedId ? 'shared' : recordId ? 'gallery' : 'case'
+  const sourceId = sharedId || recordId || id || ''
   const token           = useAuthStore((s) => s.token)
   const { decryptFile } = useCrypto()
 
@@ -1072,7 +1075,7 @@ export default function EEGViewer() {
     ? processedEpoch.nSamples / processedEpoch.sfreq
     : windowSecs
 
-  const currentPage = Math.floor(recordOffset / Math.max(windowSecs, 1))
+  const currentPage = getPageIndexForSecond(recordOffset, windowSecs)
   const maxPage = Math.max(0, Math.ceil(totalSeconds / Math.max(windowSecs, 1)) - 1)
   const dsaChannels = useMemo(() => getDsaChannels(epoch), [epoch])
 
@@ -1089,6 +1092,22 @@ export default function EEGViewer() {
           encryptionMode: caseItem.package ? 'AES256-GCM' : undefined,
           label: caseItem.title || `Caso ${sourceId}`,
         }))
+      : sourceKind === 'shared'
+        ? fetch(`${API_BASE}/shared-links/${sourceId}`, {
+            headers: {
+              'Cache-Control': 'no-store',
+            },
+          }).then(async (res) => {
+            if (!res.ok) throw new Error(`Error al cargar shared link (${res.status})`)
+            return res.json() as Promise<SharedLinkBlobInfo>
+          }).then((sharedLink) => ({
+            blobHash: undefined,
+            ageRange: undefined,
+            sizeBytes: sharedLink.sizeBytes,
+            storedKeyAvailable: false,
+            encryptionMode: sharedLink.encryptionMode,
+            label: sharedLink.label || sharedLink.originalFilename || `Shared link ${sourceId}`,
+          }))
       : api.get<any>(`/galleries/records/${sourceId}`).then((record) => ({
           blobHash: record.eegRecord?.blobHash,
           ageRange: typeof record.metadata?.ageRange === 'string' ? record.metadata.ageRange : undefined,
@@ -1104,6 +1123,12 @@ export default function EEGViewer() {
         setCaseHoverMeta(meta)
       })
       .catch((err) => {
+        if (cancelled) return
+        if (sourceKind === 'shared') {
+          setErrorMsg(err instanceof Error ? err.message : 'No se pudo abrir el shared link')
+          setPhase('error')
+          return
+        }
         console.warn('[OCEAN EEG] No se pudo cargar la metadata del origen para el hover', err)
       })
 
@@ -1323,13 +1348,25 @@ export default function EEGViewer() {
                 encryptionMode: caseItem.package ? 'AES256-GCM' : undefined,
                 label: caseItem.title || `Caso ${sourceId}`,
               }))
-            : await api.get<any>(`/galleries/records/${sourceId}`).then((record) => ({
-                blobHash: record.eegRecord?.blobHash,
-                ageRange: typeof record.metadata?.ageRange === 'string' ? record.metadata.ageRange : undefined,
-                sizeBytes: record.eegRecord?.sizeBytes,
-                encryptionMode: record.eegRecord?.encryptionMode,
-                label: record.label || `Registro ${sourceId}`,
-              }))
+            : sourceKind === 'gallery'
+              ? await api.get<any>(`/galleries/records/${sourceId}`).then((record) => ({
+                  blobHash: record.eegRecord?.blobHash,
+                  ageRange: typeof record.metadata?.ageRange === 'string' ? record.metadata.ageRange : undefined,
+                  sizeBytes: record.eegRecord?.sizeBytes,
+                  encryptionMode: record.eegRecord?.encryptionMode,
+                  label: record.label || `Registro ${sourceId}`,
+                }))
+              : await fetch(`${API_BASE}/shared-links/${sourceId}`, {
+                  headers: { 'Cache-Control': 'no-store' },
+                }).then(async (res) => {
+                  if (!res.ok) throw new Error(`Error al cargar shared link (${res.status})`)
+                  return res.json() as Promise<SharedLinkBlobInfo>
+                }).then((sharedLink) => ({
+                  ageRange: undefined,
+                  sizeBytes: sharedLink.sizeBytes,
+                  encryptionMode: sharedLink.encryptionMode,
+                  label: sharedLink.label || sharedLink.originalFilename || `Shared link ${sourceId}`,
+                }))
           setCaseHoverMeta(packageMeta)
         } catch (err) {
           console.warn('[OCEAN EEG] No se pudo refrescar la metadata del origen antes de abrir el visor', err)
@@ -1344,10 +1381,13 @@ export default function EEGViewer() {
         setPhase('downloading')
         const downloadPath = sourceKind === 'case'
           ? `${API_BASE}/packages/download/${sourceId}`
-          : `${API_BASE}/galleries/records/${sourceId}/download`
-        const res = await fetch(downloadPath, {
-          headers: { Authorization: `Bearer ${token ?? ''}` },
-        })
+          : sourceKind === 'gallery'
+            ? `${API_BASE}/galleries/records/${sourceId}/download`
+            : `${API_BASE}/shared-links/${sourceId}/download`
+        const headers = sourceKind === 'shared'
+          ? { 'Cache-Control': 'no-store' }
+          : { Authorization: `Bearer ${token ?? ''}` }
+        const res = await fetch(downloadPath, { headers })
         if (!res.ok) throw new Error(`Error al descargar (${res.status})`)
         encryptedBuffer = await res.arrayBuffer()
 
@@ -1404,13 +1444,15 @@ export default function EEGViewer() {
       const probeEpoch = kappa.readEpoch(0, 1)
       if (!probeEpoch) throw new Error('readEpoch(0, 1) devolvió null')
       let persistedState: PersistedViewerState | null = null
-      try {
+      if (sourceKind !== 'shared') {
+        try {
           const viewerStatePath = sourceKind === 'case'
             ? `/viewer-state/${sourceId}`
             : `/viewer-state/gallery/${sourceId}`
           persistedState = await api.get<PersistedViewerState | null>(viewerStatePath)
-      } catch (err) {
-        console.warn('[OCEAN EEG] No se pudo recuperar el estado guardado del visor', err)
+        } catch (err) {
+          console.warn('[OCEAN EEG] No se pudo recuperar el estado guardado del visor', err)
+        }
       }
 
       const restoredState = sanitizePersistedViewerState(persistedState, probeEpoch, totalDurationSec)
@@ -1474,9 +1516,19 @@ export default function EEGViewer() {
       startViewer('')
       return
     }
+    if (sourceKind === 'shared') {
+      const fromHash = location.hash.startsWith('#')
+        ? decodeURIComponent(location.hash.slice(1))
+        : ''
+      if (fromHash) {
+        setKeyInput(fromHash)
+        startViewer(fromHash)
+        return
+      }
+    }
     const saved = sessionStorage.getItem(`ocean_eeg_key_${sourceKind}_${sourceId}`)
     if (saved) { setKeyInput(saved); startViewer(saved) }
-  }, [sourceId, sourceKind, caseHoverMeta?.encryptionMode, phase, startViewer])
+  }, [sourceId, sourceKind, caseHoverMeta?.encryptionMode, phase, startViewer, location.hash])
 
   const recoverStoredKey = useCallback(async () => {
     if (!sourceId || !storedPassword.trim() || sourceKind !== 'case') return
@@ -1517,12 +1569,7 @@ export default function EEGViewer() {
   }, [windowSecs])
 
   const goToSecondPosition = useCallback((targetSec: number, center = false) => {
-    const safePageDuration = Math.max(pageDuration, windowSecs)
-    const startSec = center
-      ? targetSec - safePageDuration / 2
-      : targetSec
-    const clampedStartSec = Math.max(0, Math.min(Math.max(0, totalSeconds - safePageDuration), startSec))
-    const nextStartSec = Math.floor(clampedStartSec)
+    const nextStartSec = getSecondBasedPageStart(targetSec, totalSeconds, windowSecs, pageDuration, center)
     const e = kappaRef.current?.readEpoch(nextStartSec, windowSecs)
     if (!e) return
     setEpoch(e)
@@ -1581,7 +1628,7 @@ export default function EEGViewer() {
   }
   const handleWindowChange = (val: string) => {
     const newWin = parseInt(val)
-    const nextPage = Math.floor(recordOffset / Math.max(newWin, 1))
+    const nextPage = getPageIndexForSecond(recordOffset, newWin)
     const nextStartSec = nextPage * newWin
     setWindowSecs(newWin)
     const e = kappaRef.current?.readEpoch(nextStartSec, newWin)
@@ -1677,7 +1724,7 @@ export default function EEGViewer() {
   }, [phase, dsaChannel, hp, lp, notch, artifactReject])
 
   useEffect(() => {
-    if (!sourceId || phase !== 'viewing' || restoreInFlightRef.current || !viewerStateReadyRef.current) return
+    if (!sourceId || sourceKind === 'shared' || phase !== 'viewing' || restoreInFlightRef.current || !viewerStateReadyRef.current) return
 
     const payload: PersistedViewerState = {
       positionSec: Math.max(0, Math.round(recordOffset)),
@@ -1794,7 +1841,11 @@ export default function EEGViewer() {
           <div>
             <div style={{ color: '#2563eb', fontWeight: 700, fontSize: '1.1rem', marginBottom: 4 }}>Visor EEG</div>
             <div style={{ color: '#94a3b8', fontSize: '0.8rem' }}>
-              {sourceKind === 'case' ? `Caso ${sourceId}` : (caseHoverMeta?.label || `Registro ${sourceId}`)}
+              {sourceKind === 'case'
+                ? `Caso ${sourceId}`
+                : sourceKind === 'gallery'
+                  ? (caseHoverMeta?.label || `Registro ${sourceId}`)
+                  : (caseHoverMeta?.label || `Shared link ${sourceId}`)}
             </div>
           </div>
           {phase === 'error' && (
@@ -1807,7 +1858,9 @@ export default function EEGViewer() {
             <p style={{ margin: '0.4rem 0 0 0' }}>
               {sourceKind === 'case'
                 ? 'Si ya tienes la clave, pégala aquí. Si eres un usuario invitado de confianza, puedes recuperarla con tu contraseña de OCEAN.'
-                : 'Este EEG de galería debería abrirse sin clave manual. Si ves esta pantalla, revisa el formato del registro importado.'}
+                : sourceKind === 'gallery'
+                  ? 'Este EEG de galería debería abrirse sin clave manual. Si ves esta pantalla, revisa el formato del registro importado.'
+                  : 'La clave viaja en el fragmento del enlace. Si no ha entrado sola, pégala aquí manualmente.'}
             </p>
           </div>
           <form

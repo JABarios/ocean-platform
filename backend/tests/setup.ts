@@ -217,6 +217,23 @@ CREATE TABLE "eeg_access_secrets" (
 );
 CREATE UNIQUE INDEX "eeg_access_secrets_case_id_key" ON "eeg_access_secrets"("case_id");
 
+CREATE TABLE "shared_link_blobs" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "created_by" TEXT,
+    "blob_location" TEXT NOT NULL,
+    "blob_hash" TEXT,
+    "iv_base64" TEXT,
+    "size_bytes" INTEGER,
+    "original_filename" TEXT,
+    "label" TEXT,
+    "encryption_mode" TEXT NOT NULL DEFAULT 'AES256-GCM',
+    "expires_at" DATETIME NOT NULL,
+    "revoked_at" DATETIME,
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" DATETIME NOT NULL,
+    CONSTRAINT "shared_link_blobs_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "users" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+
 CREATE TABLE "viewer_states" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "user_id" TEXT NOT NULL,
@@ -245,6 +262,7 @@ beforeAll(async () => {
   const drops = [
     'DROP TABLE IF EXISTS "audit_events"',
     'DROP TABLE IF EXISTS "eeg_access_secrets"',
+    'DROP TABLE IF EXISTS "shared_link_blobs"',
     'DROP TABLE IF EXISTS "teaching_recommendations"',
     'DROP TABLE IF EXISTS "teaching_proposals"',
     'DROP TABLE IF EXISTS "comments"',
@@ -275,6 +293,7 @@ afterEach(async () => {
   const tables = [
     'audit_events',
     'eeg_access_secrets',
+    'shared_link_blobs',
     'viewer_states',
     'teaching_recommendations',
     'teaching_proposals',

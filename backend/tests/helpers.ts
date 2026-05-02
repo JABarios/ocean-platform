@@ -98,6 +98,34 @@ export async function createEegRecord(data?: {
   })
 }
 
+export async function createSharedLinkBlob(data?: {
+  createdBy?: string
+  blobLocation?: string
+  blobHash?: string
+  ivBase64?: string
+  sizeBytes?: number
+  originalFilename?: string
+  label?: string
+  encryptionMode?: string
+  expiresAt?: Date
+  revokedAt?: Date | null
+}) {
+  return prisma.sharedLinkBlob.create({
+    data: {
+      createdBy: data?.createdBy,
+      blobLocation: data?.blobLocation || `shared-links/${Math.random().toString(36).slice(2)}.enc`,
+      blobHash: data?.blobHash || `shared-hash-${Math.random().toString(36).slice(2)}`,
+      ivBase64: data?.ivBase64 || 'ZmFrZS1pdi1iYXNlNjQ=',
+      sizeBytes: data?.sizeBytes,
+      originalFilename: data?.originalFilename || 'shared.edf',
+      label: data?.label || 'EEG compartido',
+      encryptionMode: data?.encryptionMode || 'AES256-GCM',
+      expiresAt: data?.expiresAt || new Date(Date.now() + 24 * 60 * 60 * 1000),
+      revokedAt: data?.revokedAt ?? null,
+    },
+  })
+}
+
 export async function createGallery(data: {
   title: string
   createdBy?: string

@@ -34,6 +34,7 @@ model User {
   createdSecrets     EegAccessSecret[] @relation("CreatedSecrets")
   uploadedEegRecords EegRecord[]       @relation("UploadedEegRecords")
   createdGalleries   Gallery[]         @relation("CreatedGalleries")
+  sharedLinks        SharedLinkBlob[]  @relation("CreatedSharedLinks")
 
   @@map("users")
 }
@@ -301,4 +302,24 @@ model EegAccessSecret {
   creator User @relation("CreatedSecrets", fields: [createdBy], references: [id])
 
   @@map("eeg_access_secrets")
+}
+
+model SharedLinkBlob {
+  id               String    @id @default(uuid())
+  createdBy        String?   @map("created_by")
+  blobLocation     String    @map("blob_location")
+  blobHash         String?   @map("blob_hash")
+  ivBase64         String?   @map("iv_base64")
+  sizeBytes        Int?      @map("size_bytes")
+  originalFilename String?   @map("original_filename")
+  label            String?
+  encryptionMode   String    @default("AES256-GCM") @map("encryption_mode")
+  expiresAt        DateTime  @map("expires_at")
+  revokedAt        DateTime? @map("revoked_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  creator User? @relation("CreatedSharedLinks", fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@map("shared_link_blobs")
 }

@@ -3,7 +3,7 @@ import path from 'path'
 import { promises as fs } from 'fs'
 import request from 'supertest'
 import app from '../src/index'
-import { createCase, createCasePackage, createReviewRequest, createUser, generateToken, prisma } from './helpers'
+import { createCase, createCasePackage, createReviewRequest, createSharedLinkBlob, createUser, generateToken, prisma } from './helpers'
 
 describe('cleanup admin endpoints', () => {
   it('solo Admin puede pedir el reporte', async () => {
@@ -47,6 +47,12 @@ describe('cleanup admin endpoints', () => {
         updatedAt: new Date(Date.now() - 190 * 24 * 60 * 60 * 1000),
       },
     })
+    await createSharedLinkBlob({
+      createdBy: owner.id,
+      blobLocation: '/tmp/fake-shared-expired.enc',
+      expiresAt: new Date(Date.now() - 60 * 60 * 1000),
+      sizeBytes: 321,
+    })
 
     const token = generateToken(admin.id, admin.email, admin.role)
     const res = await request(app)
@@ -56,6 +62,7 @@ describe('cleanup admin endpoints', () => {
     expect(res.status).toBe(200)
     expect(res.body.tasks.expiredRequests.count).toBe(1)
     expect(res.body.tasks.expiredPackages.count).toBe(1)
+    expect(res.body.tasks.expiredSharedLinks.count).toBe(1)
     expect(res.body.tasks.staleViewerStates.count).toBe(1)
     expect(res.body.tasks.oldDraftCases.items.some((item: { id: string }) => item.id === draftCase.id)).toBe(true)
   })
@@ -133,6 +140,34 @@ describe('cleanup admin endpoints', () => {
       ]),
     )
     expect(await prisma.casePackage.count()).toBe(0)
+    await expect(fs.access(tempPath)).rejects.toThrow()
+  })
+
+  it('elimina shared links caducados y borra su blob', async () => {
+    const admin = await createUser({ email: 'cleanup-shared-admin@ocean.local', displayName: 'Shared Admin', role: 'Admin' })
+    const owner = await createUser({ email: 'cleanup-shared-owner@ocean.local', displayName: 'Shared Owner', password: 'pass' })
+    const tempPath = path.join(os.tmpdir(), `ocean-cleanup-shared-${Date.now()}.enc`)
+    await fs.writeFile(tempPath, 'shared-encrypted')
+    await createSharedLinkBlob({
+      createdBy: owner.id,
+      blobLocation: tempPath,
+      sizeBytes: 16,
+      expiresAt: new Date(Date.now() - 60 * 60 * 1000),
+    })
+
+    const token = generateToken(admin.id, admin.email, admin.role)
+    const res = await request(app)
+      .post('/cleanup/run')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ tasks: ['expiredSharedLinks'] })
+
+    expect(res.status).toBe(200)
+    expect(res.body.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ task: 'expiredSharedLinks', affected: 1, freedBytes: 16 }),
+      ]),
+    )
+    expect(await prisma.sharedLinkBlob.count()).toBe(0)
     await expect(fs.access(tempPath)).rejects.toThrow()
   })
 })

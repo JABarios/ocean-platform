@@ -16,6 +16,7 @@ import EegRecords from './pages/EegRecords'
 import Galleries from './pages/Galleries'
 import GalleryDetail from './pages/GalleryDetail'
 import AdminHome from './pages/AdminHome'
+import SharedLinkNew from './pages/SharedLinkNew'
 
 export default function App() {
   return (
@@ -38,6 +39,16 @@ export default function App() {
           <ProtectedRoute>
             <Layout>
               <CaseNew />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/shared/new"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <SharedLinkNew />
             </Layout>
           </ProtectedRoute>
         }
@@ -92,6 +103,7 @@ export default function App() {
           </ProtectedRoute>
         }
       />
+      <Route path="/v/:sharedId" element={<EEGViewer />} />
       <Route path="/galleries/records/:recordId/eeg" element={<EEGViewer />} />
       <Route
         path="/cases/:id"

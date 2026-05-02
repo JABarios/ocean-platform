@@ -10,6 +10,7 @@ export type CleanupTaskName =
   | 'expiredRequests'
   | 'expiredPackages'
   | 'archivedPackages'
+  | 'expiredSharedLinks'
   | 'staleViewerStates'
   | 'oldDraftCases'
 
@@ -17,6 +18,7 @@ export const SAFE_CLEANUP_TASKS: CleanupTaskName[] = [
   'expiredRequests',
   'expiredPackages',
   'archivedPackages',
+  'expiredSharedLinks',
   'staleViewerStates',
 ]
 
@@ -77,7 +79,7 @@ async function safeDeleteBlob(blobLocation: string) {
 export async function getCleanupReport() {
   const now = new Date()
 
-  const [expiredRequests, expiredPackages, archivedPackages, staleViewerStates, oldDraftCases] = await Promise.all([
+  const [expiredRequests, expiredPackages, archivedPackages, expiredSharedLinks, staleViewerStates, oldDraftCases] = await Promise.all([
     prisma.reviewRequest.findMany({
       where: { status: 'Pending', expiresAt: { lt: now } },
       select: { id: true, caseId: true, expiresAt: true, targetUserId: true, targetGroupId: true },
@@ -106,6 +108,22 @@ export async function getCleanupReport() {
         case: { select: { title: true, statusClinical: true, statusTeaching: true } },
       },
       orderBy: { updatedAt: 'asc' },
+    }),
+    prisma.sharedLinkBlob.findMany({
+      where: {
+        OR: [
+          { expiresAt: { lt: now } },
+          { revokedAt: { not: null } },
+        ],
+      },
+      select: {
+        id: true,
+        label: true,
+        sizeBytes: true,
+        expiresAt: true,
+        revokedAt: true,
+      },
+      orderBy: { expiresAt: 'asc' },
     }),
     prisma.viewerState.findMany({
       where: { updatedAt: { lt: daysAgo(STALE_VIEWER_STATE_DAYS) } },
@@ -147,6 +165,17 @@ export async function getCleanupReport() {
         count: archivedPackages.length,
         totalBytes: archivedPackages.reduce((sum, pkg) => sum + (pkg.sizeBytes ?? 0), 0),
         items: archivedPackages.map(summarizeCasePackage),
+      },
+      expiredSharedLinks: {
+        count: expiredSharedLinks.length,
+        totalBytes: expiredSharedLinks.reduce((sum, item) => sum + (item.sizeBytes ?? 0), 0),
+        items: expiredSharedLinks.map((item) => ({
+          id: item.id,
+          label: item.label,
+          sizeBytes: item.sizeBytes ?? 0,
+          expiresAt: item.expiresAt.toISOString(),
+          revokedAt: item.revokedAt?.toISOString() ?? null,
+        })),
       },
       staleViewerStates: {
         count: staleViewerStates.length,
@@ -271,6 +300,48 @@ export async function cleanupArchivedPackages(actorId?: string) {
   })
 }
 
+export async function cleanupExpiredSharedLinks(actorId?: string) {
+  const items = await prisma.sharedLinkBlob.findMany({
+    where: {
+      OR: [
+        { expiresAt: { lt: new Date() } },
+        { revokedAt: { not: null } },
+      ],
+    },
+    select: {
+      id: true,
+      blobLocation: true,
+      sizeBytes: true,
+      label: true,
+    },
+  })
+
+  let deleted = 0
+  let freedBytes = 0
+
+  for (const item of items) {
+    await safeDeleteBlob(item.blobLocation)
+    await prisma.sharedLinkBlob.delete({ where: { id: item.id } })
+    deleted += 1
+    freedBytes += item.sizeBytes ?? 0
+  }
+
+  if (deleted > 0) {
+    await writeCleanupAudit({
+      actorId,
+      action: 'CleanupDeletedExpiredSharedLinks',
+      target: 'shared_link_blobs',
+      metadata: {
+        count: deleted,
+        freedBytes,
+        sharedLinkIds: items.map((item) => item.id),
+      },
+    })
+  }
+
+  return { task: 'expiredSharedLinks' as const, affected: deleted, freedBytes }
+}
+
 export async function cleanupStaleViewerStates(actorId?: string) {
   const states = await prisma.viewerState.findMany({
     where: { updatedAt: { lt: daysAgo(STALE_VIEWER_STATE_DAYS) } },
@@ -305,6 +376,7 @@ export async function runCleanupTasks(tasks: CleanupTaskName[], actorId?: string
     if (task === 'expiredRequests') results.push(await expirePendingRequests(actorId))
     if (task === 'expiredPackages') results.push(await cleanupExpiredPackages(actorId))
     if (task === 'archivedPackages') results.push(await cleanupArchivedPackages(actorId))
+    if (task === 'expiredSharedLinks') results.push(await cleanupExpiredSharedLinks(actorId))
     if (task === 'staleViewerStates') results.push(await cleanupStaleViewerStates(actorId))
   }
 
@@ -318,7 +390,7 @@ export async function runCleanupTasks(tasks: CleanupTaskName[], actorId?: string
 export function startCleanupJob() {
   cron.schedule('0 * * * *', async () => {
     try {
-      const result = await runCleanupTasks(['expiredRequests', 'expiredPackages'])
+      const result = await runCleanupTasks(['expiredRequests', 'expiredPackages', 'expiredSharedLinks'])
       console.log('[cleanup] Ejecución horaria:', JSON.stringify(result))
     } catch (err) {
       console.error('[cleanup] Error en la limpieza horaria:', err)

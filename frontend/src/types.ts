@@ -127,6 +127,17 @@ export interface Gallery {
   records?: GalleryRecord[]
 }
 
+export interface SharedLinkBlobInfo {
+  id: string
+  label?: string
+  sizeBytes?: number
+  originalFilename?: string
+  encryptionMode: string
+  expiresAt: string
+  ivBase64?: string
+  createdAt: string
+}
+
 export interface CaseItem {
   id: string
   title: string

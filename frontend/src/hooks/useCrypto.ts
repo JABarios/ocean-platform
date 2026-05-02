@@ -4,6 +4,7 @@ import forge from 'node-forge'
 export interface EncryptionResult {
   encryptedWithIv: Blob
   keyBase64: string
+  ivBase64: string
   originalSize: number
 }
 
@@ -56,6 +57,7 @@ async function encryptWithSubtle(fileBuffer: ArrayBuffer): Promise<EncryptionRes
   return {
     encryptedWithIv: new Blob([combined]),
     keyBase64,
+    ivBase64: arrayBufferToBase64(iv.buffer.slice(iv.byteOffset, iv.byteOffset + iv.byteLength)),
     originalSize: fileBuffer.byteLength,
   }
 }
@@ -108,6 +110,7 @@ function encryptWithForge(fileBuffer: ArrayBuffer): Promise<EncryptionResult> {
       resolve({
         encryptedWithIv: new Blob([combined]),
         keyBase64,
+        ivBase64: forge.util.encode64(iv),
         originalSize: fileBuffer.byteLength,
       })
     } catch (err) {

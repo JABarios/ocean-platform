@@ -1578,7 +1578,18 @@ export default function EEGViewer() {
 
   const shiftBySeconds = useCallback((deltaSec: number) => {
     const currentStartSec = recordOffset * recordDurationSec
-    goToSecondPosition(currentStartSec + deltaSec)
+    const safeRecordDurationSec = Math.max(recordDurationSec, 1e-9)
+    const currentRecordIndex = Math.floor(currentStartSec / safeRecordDurationSec)
+    const requestedTargetSec = currentStartSec + deltaSec
+    const requestedRecordIndex = Math.floor(Math.max(0, requestedTargetSec) / safeRecordDurationSec)
+
+    if (requestedRecordIndex === currentRecordIndex && deltaSec !== 0) {
+      const fallbackRecordIndex = currentRecordIndex + (deltaSec > 0 ? 1 : -1)
+      goToSecondPosition(fallbackRecordIndex * safeRecordDurationSec)
+      return
+    }
+
+    goToSecondPosition(requestedTargetSec)
   }, [goToSecondPosition, recordOffset, recordDurationSec])
 
   const goToDSAEpoch = useCallback((epochIndex: number, epochSec: number) => {
@@ -2041,7 +2052,7 @@ export default function EEGViewer() {
 
       {/* Toolbar */}
       <div style={{
-        display: 'flex', alignItems: compactToolbar ? 'center' : 'flex-end', gap: compactToolbar ? '0.32rem' : '0.65rem', flexWrap: 'nowrap',
+        display: 'flex', alignItems: 'center', gap: compactToolbar ? '0.32rem' : '0.65rem', flexWrap: 'nowrap',
         overflowX: compactToolbar ? 'hidden' : 'auto',
         padding: compactToolbar ? '0.22rem 0.42rem' : '0.35rem 0.6rem', background: '#ffffff',
         borderBottom: '1px solid #e2e8f0', flexShrink: 0,
@@ -2067,7 +2078,7 @@ export default function EEGViewer() {
           {WINDOW_OPTIONS.map((s) => <option key={s} value={s}>{`Vent ${s}s`}</option>)}
         </ToolbarSelect>
         <ToolbarSelect label="Mont" value={montage} onChange={(v) => setMontage(v as MontageName)} width={compactToolbar ? 82 : 108} compact={compactToolbar}>
-          {MONTAGE_OPTIONS.map((name) => <option key={name} value={name}>{`Mont ${name}`}</option>)}
+          {MONTAGE_OPTIONS.map((name) => <option key={name} value={name}>{name}</option>)}
         </ToolbarSelect>
         {!compactToolbar && showAvgRefControl && (
           <div>
@@ -2076,46 +2087,22 @@ export default function EEGViewer() {
               type="button"
               onClick={() => setAvgRefOpen((open) => !open)}
               style={{
-                background: 'transparent',
-                border: 'none',
-                padding: 0,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 2,
-                cursor: 'pointer',
-                userSelect: 'none',
-                alignItems: 'flex-start',
-              }}
-            >
-              <span style={{
+                background: '#f8fafc',
+                border: '1px solid #cbd5e1',
+                borderRadius: 4,
+                padding: '0.16rem 0.42rem',
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 6,
-              }}>
-                <span style={{
-                  color: '#64748b',
-                  fontSize: '0.68rem',
-                  lineHeight: 1.1,
-                  whiteSpace: 'nowrap',
-                }}>
-                  {averageReferenceCandidates.length - excludedAverageReferenceChannels.length}/{averageReferenceCandidates.length}
-                </span>
-                <span style={{
-                  background: '#f8fafc',
-                  border: '1px solid #cbd5e1',
-                  borderRadius: 4,
-                  color: '#1e293b',
-                  fontSize: '0.75rem',
-                  padding: '0.16rem 0.42rem',
-                  whiteSpace: 'nowrap',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                }}>
-                <span>{`AVG ${averageReferenceCandidates.length - excludedAverageReferenceChannels.length}/${averageReferenceCandidates.length}`}</span>
-                <span style={{ color: '#64748b' }}>{avgRefOpen ? '▴' : '▾'}</span>
-              </span>
-              </span>
+                cursor: 'pointer',
+                userSelect: 'none',
+                color: '#1e293b',
+                fontSize: '0.75rem',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <span>{`AVG ${averageReferenceCandidates.length - excludedAverageReferenceChannels.length}/${averageReferenceCandidates.length}`}</span>
+              <span style={{ color: '#64748b' }}>{avgRefOpen ? '▴' : '▾'}</span>
             </button>
           </div>
         )}
@@ -2126,46 +2113,22 @@ export default function EEGViewer() {
               type="button"
               onClick={() => setExtrasOpen((open) => !open)}
               style={{
-                background: 'transparent',
-                border: 'none',
-                padding: 0,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 2,
-                cursor: 'pointer',
-                userSelect: 'none',
-                alignItems: 'flex-start',
-              }}
-            >
-              <span style={{
+                background: '#f8fafc',
+                border: '1px solid #cbd5e1',
+                borderRadius: 4,
+                padding: '0.16rem 0.42rem',
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 6,
-              }}>
-                <span style={{
-                  color: '#64748b',
-                  fontSize: '0.68rem',
-                  lineHeight: 1.1,
-                  whiteSpace: 'nowrap',
-                }}>
-                  {includedHiddenChannels.length}/{hiddenMontageCandidates.length}
-                </span>
-                <span style={{
-                  background: '#f8fafc',
-                  border: '1px solid #cbd5e1',
-                  borderRadius: 4,
-                  color: '#1e293b',
-                  fontSize: '0.75rem',
-                  padding: '0.16rem 0.42rem',
-                  whiteSpace: 'nowrap',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                }}>
-                  <span>{`Extras ${includedHiddenChannels.length}/${hiddenMontageCandidates.length}`}</span>
-                  <span style={{ color: '#64748b' }}>{extrasOpen ? '▴' : '▾'}</span>
-                </span>
-              </span>
+                cursor: 'pointer',
+                userSelect: 'none',
+                color: '#1e293b',
+                fontSize: '0.75rem',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <span>{`Extras ${includedHiddenChannels.length}/${hiddenMontageCandidates.length}`}</span>
+              <span style={{ color: '#64748b' }}>{extrasOpen ? '▴' : '▾'}</span>
             </button>
           </div>
         )}
@@ -2364,46 +2327,22 @@ export default function EEGViewer() {
                 type="button"
                 onClick={() => setAvgRefOpen((open) => !open)}
                 style={{
-                  background: 'transparent',
-                  border: 'none',
-                  padding: 0,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 2,
-                  cursor: 'pointer',
-                  userSelect: 'none',
-                  alignItems: 'flex-start',
-                }}
-              >
-                <span style={{
+                  background: '#f8fafc',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: 4,
+                  padding: '0.16rem 0.42rem',
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: 6,
-                }}>
-                  <span style={{
-                    color: '#64748b',
-                    fontSize: '0.68rem',
-                    lineHeight: 1.1,
-                    whiteSpace: 'nowrap',
-                  }}>
-                    {averageReferenceCandidates.length - excludedAverageReferenceChannels.length}/{averageReferenceCandidates.length}
-                  </span>
-                  <span style={{
-                    background: '#f8fafc',
-                    border: '1px solid #cbd5e1',
-                    borderRadius: 4,
-                    color: '#1e293b',
-                    fontSize: '0.75rem',
-                    padding: '0.16rem 0.42rem',
-                    whiteSpace: 'nowrap',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}>
-                    <span>{`AVG ${averageReferenceCandidates.length - excludedAverageReferenceChannels.length}/${averageReferenceCandidates.length}`}</span>
-                    <span style={{ color: '#64748b' }}>{avgRefOpen ? '▴' : '▾'}</span>
-                  </span>
-                </span>
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                  color: '#1e293b',
+                  fontSize: '0.75rem',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <span>{`AVG ${averageReferenceCandidates.length - excludedAverageReferenceChannels.length}/${averageReferenceCandidates.length}`}</span>
+                <span style={{ color: '#64748b' }}>{avgRefOpen ? '▴' : '▾'}</span>
               </button>
             </div>
           )}
@@ -2415,46 +2354,22 @@ export default function EEGViewer() {
                 type="button"
                 onClick={() => setExtrasOpen((open) => !open)}
                 style={{
-                  background: 'transparent',
-                  border: 'none',
-                  padding: 0,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 2,
-                  cursor: 'pointer',
-                  userSelect: 'none',
-                  alignItems: 'flex-start',
-                }}
-              >
-                <span style={{
+                  background: '#f8fafc',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: 4,
+                  padding: '0.16rem 0.42rem',
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: 6,
-                }}>
-                  <span style={{
-                    color: '#64748b',
-                    fontSize: '0.68rem',
-                    lineHeight: 1.1,
-                    whiteSpace: 'nowrap',
-                  }}>
-                    {includedHiddenChannels.length}/{hiddenMontageCandidates.length}
-                  </span>
-                  <span style={{
-                    background: '#f8fafc',
-                    border: '1px solid #cbd5e1',
-                    borderRadius: 4,
-                    color: '#1e293b',
-                    fontSize: '0.75rem',
-                    padding: '0.16rem 0.42rem',
-                    whiteSpace: 'nowrap',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}>
-                    <span>{`Extras ${includedHiddenChannels.length}/${hiddenMontageCandidates.length}`}</span>
-                    <span style={{ color: '#64748b' }}>{extrasOpen ? '▴' : '▾'}</span>
-                  </span>
-                </span>
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                  color: '#1e293b',
+                  fontSize: '0.75rem',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <span>{`Extras ${includedHiddenChannels.length}/${hiddenMontageCandidates.length}`}</span>
+                <span style={{ color: '#64748b' }}>{extrasOpen ? '▴' : '▾'}</span>
               </button>
             </div>
           )}

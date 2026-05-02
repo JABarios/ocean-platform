@@ -14,6 +14,7 @@ import {
   getMontageHiddenCandidates,
   getNextArtifactRejectState,
   getPageIndexForSecond,
+  getRecordsPerPage,
   getSecondBasedPageStart,
   sanitizePersistedViewerState,
   shouldShowMetadataForPointer,
@@ -122,6 +123,29 @@ interface RenderMeta {
   H: number
   sbMuV: number
   sbPxH: number
+}
+
+function readEpochWindow(
+  kappa: KappaInstance,
+  startSec: number,
+  windowSecs: number,
+  totalSeconds: number,
+  recordDurationSec: number,
+): { epoch: EpochData; startSec: number } | null {
+  const safeWindowSecs = Math.max(1, Math.round(windowSecs))
+  const safeRecordDurationSec = Number.isFinite(recordDurationSec) && recordDurationSec > 0
+    ? recordDurationSec
+    : 1
+  const maxStartSec = Math.max(0, totalSeconds - safeWindowSecs)
+  const clampedStartSec = Math.max(0, Math.min(maxStartSec, Math.floor(startSec)))
+  const offsetRecords = Math.max(0, Math.floor(clampedStartSec / safeRecordDurationSec))
+  const numRecords = getRecordsPerPage(safeWindowSecs, safeRecordDurationSec)
+  const epoch = kappa.readEpoch(offsetRecords, numRecords)
+  if (!epoch) return null
+  return {
+    epoch,
+    startSec: offsetRecords * safeRecordDurationSec,
+  }
 }
 
 interface DSAData {
@@ -900,6 +924,7 @@ export default function EEGViewer() {
 
   const [epoch,        setEpoch]        = useState<EpochData | null>(null)
   const [recordOffset, setRecordOffset] = useState(0)
+  const [recordDurationSec, setRecordDurationSec] = useState(1)
   const [totalSeconds, setTotalSeconds] = useState(0)
   const [meta,         setMeta]         = useState<{ recordingDate: string } | null>(null)
   const [edfAnnotations, setEdfAnnotations] = useState<EmbeddedAnnotation[]>([])
@@ -1439,10 +1464,12 @@ export default function EEGViewer() {
       setDsaLoading(false)
       setDsaError('')
       setMeta({ recordingDate: info.recordingDate })
-      const totalDurationSec = Math.floor(info.numSamples / info.sampleRate)
+      const totalDurationSec = info.numSamples / info.sampleRate
       setTotalSeconds(totalDurationSec)
       const probeEpoch = kappa.readEpoch(0, 1)
       if (!probeEpoch) throw new Error('readEpoch(0, 1) devolvió null')
+      const detectedRecordDurationSec = probeEpoch.nSamples / probeEpoch.sfreq
+      setRecordDurationSec(detectedRecordDurationSec)
       let persistedState: PersistedViewerState | null = null
       if (sourceKind !== 'shared') {
         try {
@@ -1470,11 +1497,14 @@ export default function EEGViewer() {
       const nextPositionSec = restoredState?.positionSec ?? 0
 
       kappa.setFilters(nextHp, nextLp, nextNotch ? 50 : 0)
-      const maxStartSec = Math.max(0, totalDurationSec - nextWindowSecs)
-      const nextStartSec = Math.max(0, Math.min(maxStartSec, Math.floor(nextPositionSec)))
-
-      const firstEpoch = kappa.readEpoch(nextStartSec, nextWindowSecs)
-      if (!firstEpoch) throw new Error('readEpoch devolvió null')
+      const firstRead = readEpochWindow(
+        kappa,
+        nextPositionSec,
+        nextWindowSecs,
+        totalDurationSec,
+        detectedRecordDurationSec,
+      )
+      if (!firstRead) throw new Error('readEpoch devolvió null')
       setWindowSecs(nextWindowSecs)
       setHp(nextHp)
       setLp(nextLp)
@@ -1486,8 +1516,8 @@ export default function EEGViewer() {
       setIncludedHiddenChannels(nextIncludedHiddenChannels)
       setDsaChannel(nextDsaChannel)
       setArtifactReject(nextArtifactReject)
-      setEpoch(firstEpoch)
-      setRecordOffset(nextStartSec)
+      setEpoch(firstRead.epoch)
+      setRecordOffset(firstRead.startSec)
       if (packageMeta?.encryptionMode !== 'NONE') {
         sessionStorage.setItem(`ocean_eeg_key_${sourceKind}_${sourceId}`, key)
       }
@@ -1554,27 +1584,35 @@ export default function EEGViewer() {
   // ── Filter & window handlers ──────────────────────────────────────────────────
 
   const refreshEpoch = useCallback((nextStartSec: number, nextWindowSecs: number) => {
-    const e = kappaRef.current?.readEpoch(nextStartSec, nextWindowSecs)
-    if (e) setEpoch(e)
-  }, [])
+    const kappa = kappaRef.current
+    if (!kappa) return
+    const result = readEpochWindow(kappa, nextStartSec, nextWindowSecs, totalSeconds, recordDurationSec)
+    if (!result) return
+    setEpoch(result.epoch)
+    setRecordOffset(result.startSec)
+  }, [recordDurationSec, totalSeconds])
 
   // ── Pagination ────────────────────────────────────────────────────────────────
 
   const goToPage = useCallback((newPage: number) => {
     const nextStartSec = newPage * windowSecs
-    const e = kappaRef.current?.readEpoch(nextStartSec, windowSecs)
-    if (!e) return
-    setEpoch(e)
-    setRecordOffset(nextStartSec)
-  }, [windowSecs])
+    const kappa = kappaRef.current
+    if (!kappa) return
+    const result = readEpochWindow(kappa, nextStartSec, windowSecs, totalSeconds, recordDurationSec)
+    if (!result) return
+    setEpoch(result.epoch)
+    setRecordOffset(result.startSec)
+  }, [recordDurationSec, totalSeconds, windowSecs])
 
   const goToSecondPosition = useCallback((targetSec: number, center = false) => {
     const nextStartSec = getSecondBasedPageStart(targetSec, totalSeconds, windowSecs, pageDuration, center)
-    const e = kappaRef.current?.readEpoch(nextStartSec, windowSecs)
-    if (!e) return
-    setEpoch(e)
-    setRecordOffset(nextStartSec)
-  }, [pageDuration, totalSeconds, windowSecs])
+    const kappa = kappaRef.current
+    if (!kappa) return
+    const result = readEpochWindow(kappa, nextStartSec, windowSecs, totalSeconds, recordDurationSec)
+    if (!result) return
+    setEpoch(result.epoch)
+    setRecordOffset(result.startSec)
+  }, [pageDuration, recordDurationSec, totalSeconds, windowSecs])
 
   const shiftBySeconds = useCallback((deltaSec: number) => {
     const currentStartSec = recordOffset
@@ -1631,10 +1669,12 @@ export default function EEGViewer() {
     const nextPage = getPageIndexForSecond(recordOffset, newWin)
     const nextStartSec = nextPage * newWin
     setWindowSecs(newWin)
-    const e = kappaRef.current?.readEpoch(nextStartSec, newWin)
-    if (!e) return
-    setEpoch(e)
-    setRecordOffset(nextStartSec)
+    const kappa = kappaRef.current
+    if (!kappa) return
+    const result = readEpochWindow(kappa, nextStartSec, newWin, totalSeconds, recordDurationSec)
+    if (!result) return
+    setEpoch(result.epoch)
+    setRecordOffset(result.startSec)
   }
 
   const resetViewerState = useCallback(() => {
@@ -1646,10 +1686,13 @@ export default function EEGViewer() {
     const defaultMontage: MontageName = 'promedio'
     kappaRef.current?.setFilters(defaultHp, defaultLp, defaultNotch ? 50 : 0)
 
-    const firstEpoch = kappaRef.current?.readEpoch(0, defaultWindowSecs)
-    if (firstEpoch) {
-      setEpoch(firstEpoch)
-      setRecordOffset(0)
+    const kappa = kappaRef.current
+    if (kappa) {
+      const firstRead = readEpochWindow(kappa, 0, defaultWindowSecs, totalSeconds, recordDurationSec)
+      if (firstRead) {
+        setEpoch(firstRead.epoch)
+        setRecordOffset(firstRead.startSec)
+      }
     }
 
     setWindowSecs(defaultWindowSecs)
@@ -1670,7 +1713,7 @@ export default function EEGViewer() {
     setDsaError('')
     setMobileControlsOpen(false)
     dsaCacheRef.current.clear()
-  }, [])
+  }, [recordDurationSec, totalSeconds])
 
   useEffect(() => {
     if (phase !== 'viewing' || dsaChannel === 'off') {

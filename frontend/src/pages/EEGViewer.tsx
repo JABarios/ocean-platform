@@ -441,12 +441,7 @@ function ToolbarSelect({
   compact?: boolean
 }) {
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      {!compact && (
-        <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>
-          {label}
-        </span>
-      )}
+    <label style={{ display: 'flex' }}>
       <select value={value} title={label} aria-label={label} onChange={(e) => onChange(e.target.value)} style={{
         background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 4,
         color: '#1e293b', fontSize: compact ? '0.72rem' : '0.75rem', padding: compact ? '0.14rem 0.28rem' : '0.16rem 0.35rem',
@@ -2054,14 +2049,14 @@ export default function EEGViewer() {
         {!compactToolbar && (
           <>
             <ToolbarSelect label="HP" value={hp} onChange={handleHpChange}>
-              {HP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              {HP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{`HP ${o.label}`}</option>)}
             </ToolbarSelect>
             <ToolbarSelect label="LP" value={lp} onChange={handleLpChange}>
-              {LP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              {LP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{`LP ${o.label}`}</option>)}
             </ToolbarSelect>
             <ToolbarSelect label="Notch" value={notch ? '1' : '0'} onChange={handleNotchChange}>
-              <option value="1">50 Hz</option>
-              <option value="0">Off</option>
+              <option value="1">Notch 50 Hz</option>
+              <option value="0">Notch Off</option>
             </ToolbarSelect>
 
             <div style={{ width: 1, height: 36, background: '#e2e8f0', flexShrink: 0 }} />
@@ -2069,10 +2064,10 @@ export default function EEGViewer() {
         )}
 
         <ToolbarSelect label="Vent" value={windowSecs} onChange={handleWindowChange} width={compactToolbar ? 62 : undefined} compact={compactToolbar}>
-          {WINDOW_OPTIONS.map((s) => <option key={s} value={s}>{s}s</option>)}
+          {WINDOW_OPTIONS.map((s) => <option key={s} value={s}>{`Vent ${s}s`}</option>)}
         </ToolbarSelect>
         <ToolbarSelect label="Mont" value={montage} onChange={(v) => setMontage(v as MontageName)} width={compactToolbar ? 82 : 108} compact={compactToolbar}>
-          {MONTAGE_OPTIONS.map((name) => <option key={name} value={name}>{name}</option>)}
+          {MONTAGE_OPTIONS.map((name) => <option key={name} value={name}>{`Mont ${name}`}</option>)}
         </ToolbarSelect>
         {!compactToolbar && showAvgRefControl && (
           <div>
@@ -2092,9 +2087,6 @@ export default function EEGViewer() {
                 alignItems: 'flex-start',
               }}
             >
-              <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>
-                Ref AVG
-              </span>
               <span style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -2120,7 +2112,7 @@ export default function EEGViewer() {
                   alignItems: 'center',
                   gap: 6,
                 }}>
-                <span>Canales AVG</span>
+                <span>{`AVG ${averageReferenceCandidates.length - excludedAverageReferenceChannels.length}/${averageReferenceCandidates.length}`}</span>
                 <span style={{ color: '#64748b' }}>{avgRefOpen ? '▴' : '▾'}</span>
               </span>
               </span>
@@ -2145,9 +2137,6 @@ export default function EEGViewer() {
                 alignItems: 'flex-start',
               }}
             >
-              <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>
-                Extras
-              </span>
               <span style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -2173,7 +2162,7 @@ export default function EEGViewer() {
                   alignItems: 'center',
                   gap: 6,
                 }}>
-                  <span>Canales</span>
+                  <span>{`Extras ${includedHiddenChannels.length}/${hiddenMontageCandidates.length}`}</span>
                   <span style={{ color: '#64748b' }}>{extrasOpen ? '▴' : '▾'}</span>
                 </span>
               </span>
@@ -2181,15 +2170,14 @@ export default function EEGViewer() {
           </div>
         )}
         <ToolbarSelect label="DSA" value={dsaChannel} onChange={handleDsaChannelChange} width={compactToolbar ? 84 : 112} compact={compactToolbar}>
-          <option value="off">Desactivado</option>
-          {dsaChannels.map((channel) => <option key={channel.index} value={channel.index}>{channel.name}</option>)}
+          <option value="off">DSA OFF</option>
+          {dsaChannels.map((channel) => <option key={channel.index} value={channel.index}>{`DSA ${channel.name}`}</option>)}
         </ToolbarSelect>
 
         {!compactToolbar && (
           <>
             {showArtifactControl && (
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 2, cursor: dsaChannel === 'off' ? 'not-allowed' : 'pointer' }}>
-                <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>Artefactos</span>
+              <label style={{ display: 'flex', cursor: dsaChannel === 'off' ? 'not-allowed' : 'pointer' }}>
                 <button
                   onClick={() => { if (dsaChannel !== 'off') setArtifactReject((v) => !v) }}
                   disabled={dsaChannel === 'off'}
@@ -2204,19 +2192,18 @@ export default function EEGViewer() {
                     opacity: dsaChannel === 'off' ? 0.6 : 1,
                   }}
                 >
-                  {artifactReject ? 'on ✓' : 'off'}
+                  {artifactReject ? 'Artef ✓' : 'Artef Off'}
                 </button>
               </label>
             )}
 
             <ToolbarSelect label="Ganancia" value={gainMult} onChange={(v) => setGainMult(parseFloat(v))}>
-              {GAIN_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              {GAIN_OPTIONS.map((o) => <option key={o.value} value={o.value}>{`Gan ${o.label}`}</option>)}
             </ToolbarSelect>
 
             <div style={{ width: 1, height: 32, background: '#e2e8f0', flexShrink: 0 }} />
 
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 2, cursor: 'pointer' }}>
-              <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>Norm</span>
+            <label style={{ display: 'flex', cursor: 'pointer' }}>
               <button
                 onClick={() => setNormalizeNonEEG((v) => !v)}
                 title="Normalizar canales no-EEG a z-score (media=0, σ=1)"
@@ -2229,12 +2216,11 @@ export default function EEGViewer() {
                   minWidth: 66,
                 }}
               >
-                {normalizeNonEEG ? 'z ✓' : 'z'}
+                {normalizeNonEEG ? 'Norm z ✓' : 'Norm z'}
               </button>
             </label>
 
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>Reset</span>
+            <label style={{ display: 'flex' }}>
               <button
                 onClick={resetViewerState}
                 title="Restaurar montaje y controles por defecto para este EEG"
@@ -2322,21 +2308,20 @@ export default function EEGViewer() {
           flexShrink: 0,
         }}>
           <ToolbarSelect label="HP" value={hp} onChange={handleHpChange}>
-            {HP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            {HP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{`HP ${o.label}`}</option>)}
           </ToolbarSelect>
           <ToolbarSelect label="LP" value={lp} onChange={handleLpChange}>
-            {LP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            {LP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{`LP ${o.label}`}</option>)}
           </ToolbarSelect>
           <ToolbarSelect label="Notch" value={notch ? '1' : '0'} onChange={handleNotchChange}>
-            <option value="1">50 Hz</option>
-            <option value="0">Off</option>
+            <option value="1">Notch 50 Hz</option>
+            <option value="0">Notch Off</option>
           </ToolbarSelect>
           <ToolbarSelect label="Gan" value={gainMult} onChange={(v) => setGainMult(parseFloat(v))}>
-            {GAIN_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            {GAIN_OPTIONS.map((o) => <option key={o.value} value={o.value}>{`Gan ${o.label}`}</option>)}
           </ToolbarSelect>
 
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 2, cursor: 'pointer' }}>
-            <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>Norm</span>
+          <label style={{ display: 'flex', cursor: 'pointer' }}>
             <button
               onClick={() => setNormalizeNonEEG((v) => !v)}
               title="Normalizar canales no-EEG a z-score (media=0, σ=1)"
@@ -2349,13 +2334,12 @@ export default function EEGViewer() {
                 minWidth: 58,
               }}
             >
-              {normalizeNonEEG ? 'z ✓' : 'z'}
+              {normalizeNonEEG ? 'Norm z ✓' : 'Norm z'}
             </button>
           </label>
 
           {showArtifactControl && (
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 2, cursor: 'pointer' }}>
-              <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>Artef</span>
+            <label style={{ display: 'flex', cursor: 'pointer' }}>
               <button
                 onClick={() => setArtifactReject((v) => !v)}
                 title="Excluir épocas con artefacto del DSA y mostrar barra de artefactos"
@@ -2368,7 +2352,7 @@ export default function EEGViewer() {
                   fontWeight: artifactReject ? 600 : 400,
                 }}
               >
-                {artifactReject ? 'on ✓' : 'off'}
+                {artifactReject ? 'Artef ✓' : 'Artef Off'}
               </button>
             </label>
           )}
@@ -2391,9 +2375,6 @@ export default function EEGViewer() {
                   alignItems: 'flex-start',
                 }}
               >
-                <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>
-                  Ref AVG
-                </span>
                 <span style={{
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -2419,7 +2400,7 @@ export default function EEGViewer() {
                     alignItems: 'center',
                     gap: 6,
                   }}>
-                    <span>Canales AVG</span>
+                    <span>{`AVG ${averageReferenceCandidates.length - excludedAverageReferenceChannels.length}/${averageReferenceCandidates.length}`}</span>
                     <span style={{ color: '#64748b' }}>{avgRefOpen ? '▴' : '▾'}</span>
                   </span>
                 </span>
@@ -2445,9 +2426,6 @@ export default function EEGViewer() {
                   alignItems: 'flex-start',
                 }}
               >
-                <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>
-                  Extras
-                </span>
                 <span style={{
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -2473,7 +2451,7 @@ export default function EEGViewer() {
                     alignItems: 'center',
                     gap: 6,
                   }}>
-                    <span>Canales</span>
+                    <span>{`Extras ${includedHiddenChannels.length}/${hiddenMontageCandidates.length}`}</span>
                     <span style={{ color: '#64748b' }}>{extrasOpen ? '▴' : '▾'}</span>
                   </span>
                 </span>
@@ -2481,8 +2459,7 @@ export default function EEGViewer() {
             </div>
           )}
 
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', lineHeight: 1.1 }}>Reset</span>
+          <label style={{ display: 'flex' }}>
             <button
               onClick={resetViewerState}
               title="Restaurar montaje y controles por defecto para este EEG"

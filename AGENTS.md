@@ -227,7 +227,7 @@ sudo bash ocean-platform/scripts/install-new-machine.sh
 ## 7. Flujo de autenticación y autorización
 
 1. JWT firmado con `JWT_SECRET` (7 días de expiración).
-2. Token dual: Zustand persist (`ocean-auth`) + `localStorage` (`ocean_token`) para compatibilidad api/client.
+2. El token se persiste con Zustand bajo la clave `ocean-auth` en `localStorage`. `api/client.ts` lo lee desde ahí mediante `authStorage.ts`; no se usa ya una clave separada `ocean_token`.
 3. `authMiddleware` verifica JWT **y re-valida rol + status contra la DB** en cada petición. Rechaza tokens de usuarios inactivos o roles degradados.
 4. `requireRole` protege endpoints sensibles (validación docente).
 5. Respuesta 401 → limpia token y recarga página.
@@ -270,6 +270,7 @@ Suites: Login, Dashboard, CaseNew, CaseDetail, api.client, EEGViewer.utils y edf
 - La barra de amplitud usa una escala discreta clínica (`1, 2, 5, 10... µV`) y cambia de tamaño junto con la ganancia visible.
 - El visor incluye selector DSA bajo demanda por canal EEG. Al activarlo, `Artefactos` se enciende por defecto, aunque luego puede desactivarse.
 - El panel DSA permite click para saltar a la época correspondiente; la barra de artefactos encima del DSA también permite navegar a épocas marcadas.
+- El visor lee anotaciones EDF+ embebidas (`extractEdfAnnotations`) y puede mostrarlas en un panel lateral, además de marcarlas con ticks en la barra temporal inferior.
 - La subida web anonimiza cabeceras EDF antes del cifrado.
 - Parte de la lógica pura del visor vive en `frontend/src/pages/eegViewerUtils.ts` y está cubierta con tests unitarios (montajes, colores, tiempo real, hover de metadata, regla DSA→Artefactos).
 - Si se cambia `src/wasm/kappa_wasm.cpp` en `kappa`, hay que recompilar con `./build_wasm.sh` y refrescar los binarios de `frontend/public/wasm/`.
@@ -322,7 +323,7 @@ Página fullscreen sin Layout ni ProtectedRoute. Valida el token internamente al
    └─ poll window.KappaModule cada 50ms, timeout 10s
 5. Module.FS.writeFile('/tmp/file.edf', bytes)
 6. kappa.openEDF('/tmp/file.edf')
-7. getMeta() → setFilters(hp, lp, notch) → `readEpoch(0, recordsPerPage)` usando `windowSecs / recordDurationSec`
+7. getMeta() → setFilters(hp, lp, notch) → `readEpoch(0, windowSecs)` usando semántica de **segundos reales** para offset y duración
 8. Render canvas
 ```
 
@@ -334,7 +335,7 @@ const k = new Module.KappaWasm()
 k.openEDF('/tmp/file.edf')                // → bool
 k.getMeta()                               // → { numChannels, sampleRate, numSamples, subjectId, recordingDate, channelLabels }
 k.setFilters(hp, lp, notch)              // Hz; 0 = desactivado
-k.readEpoch(offsetRecords, numRecords)   // → { nChannels, nSamples, sfreq, channelNames, channelTypes, data: Float32Array[] }
+k.readEpoch(offsetSec, durationSec)      // → { nChannels, nSamples, sfreq, channelNames, channelTypes, data: Float32Array[] }
 k.computeDSAForChannel(channelIndex, artifactRejectEnabled)
                                           // → { normPow, stages, artifactStatuses, epochSec, artifactEpochSec, ... }
 ```
@@ -356,6 +357,8 @@ k.computeDSAForChannel(channelIndex, artifactRejectEnabled)
 - Barra de artefactos encima del DSA, coloreada por estado de época, con click para navegar.
 - Heatmap DSA navegable por click.
 - Tooltip temporal del cursor y barra de amplitud arrastrable.
+- Botones `-1s` / `+1s` y atajos `Shift+←` / `Shift+→` con navegación fina por segundos reales.
+- Panel lateral para anotaciones EDF+ embebidas, con apertura desde la toolbar y salto directo a cada anotación.
 
 ### Controles de teclado
 
@@ -388,7 +391,7 @@ Sirve una página vanilla-JS que:
 2. Lee el archivo EDF vía endpoint `/edf` (sin cifrado).
 3. Monta el EDF en MEMFS y renderiza con la misma lógica de canvas que la app React.
 
-Incluye filtros HP/LP/notch, ventana, ganancia, normalización z-score, cursor, barra de escala arrastrable, navegación por teclado y los montajes clínicos principales. No replica todavía el panel DSA ni la barra de artefactos de la app React.
+Incluye filtros HP/LP/notch, ventana, ganancia, normalización z-score, cursor, barra de escala arrastrable, navegación por teclado y los montajes clínicos principales. Su llamada buena a KAPPA para la paginación fina es `readEpoch(page * windowSecs, windowSecs)`, es decir, por segundos. No replica todavía el panel DSA ni la barra de artefactos de la app React.
 
 Archivos:
 - `server.py` — servidor Python sin dependencias (sirve HTML, JS, WASM y el EDF)

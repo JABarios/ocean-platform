@@ -158,17 +158,17 @@ export async function getCleanupReport() {
       },
       expiredPackages: {
         count: expiredPackages.length,
-        totalBytes: expiredPackages.reduce((sum, pkg) => sum + (pkg.sizeBytes ?? 0), 0),
+        totalBytes: expiredPackages.reduce((sum: number, pkg) => sum + (pkg.sizeBytes ?? 0), 0),
         items: expiredPackages.map(summarizeCasePackage),
       },
       archivedPackages: {
         count: archivedPackages.length,
-        totalBytes: archivedPackages.reduce((sum, pkg) => sum + (pkg.sizeBytes ?? 0), 0),
+        totalBytes: archivedPackages.reduce((sum: number, pkg) => sum + (pkg.sizeBytes ?? 0), 0),
         items: archivedPackages.map(summarizeCasePackage),
       },
       expiredSharedLinks: {
         count: expiredSharedLinks.length,
-        totalBytes: expiredSharedLinks.reduce((sum, item) => sum + (item.sizeBytes ?? 0), 0),
+        totalBytes: expiredSharedLinks.reduce((sum: number, item) => sum + (item.sizeBytes ?? 0), 0),
         items: expiredSharedLinks.map((item) => ({
           id: item.id,
           label: item.label,

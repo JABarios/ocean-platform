@@ -69,4 +69,4 @@ describe('shared links', () => {
     const publicRes = await request(app).get(`/shared-links/${link.id}`)
     expect(publicRes.status).toBe(410)
   })
-}
+})

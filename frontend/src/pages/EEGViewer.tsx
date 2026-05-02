@@ -1105,6 +1105,40 @@ export default function EEGViewer() {
   const dsaChannels = useMemo(() => getDsaChannels(epoch), [epoch])
 
   useEffect(() => {
+    restoreInFlightRef.current = false
+    viewerStateReadyRef.current = false
+    if (persistTimerRef.current !== null) {
+      window.clearTimeout(persistTimerRef.current)
+      persistTimerRef.current = null
+    }
+    try { moduleRef.current?.FS.unlink('/tmp/file.edf') } catch { /* noop */ }
+    kappaRef.current = null
+    dsaCacheRef.current.clear()
+    renderMetaRef.current = null
+    sbPosRef.current = null
+    sbDragRef.current = null
+    mousePosRef.current = null
+    mouseOnRef.current = false
+    metaHoverRef.current = false
+    touchSwipeRef.current = null
+
+    setPhase('key-input')
+    setErrorMsg('')
+    setEpoch(null)
+    setRecordOffset(0)
+    setRecordDurationSec(1)
+    setTotalSeconds(0)
+    setMeta(null)
+    setEdfAnnotations([])
+    setAnnotationsOpen(false)
+    setCaseHoverMeta(null)
+    setShowMeta(false)
+    setDsaData(null)
+    setDsaLoading(false)
+    setDsaError('')
+  }, [sourceId, sourceKind])
+
+  useEffect(() => {
     if (!sourceId) return
     let cancelled = false
 
@@ -1362,8 +1396,8 @@ export default function EEGViewer() {
         window.clearTimeout(persistTimerRef.current)
         persistTimerRef.current = null
       }
-      let packageMeta = caseHoverMeta
-      if (!packageMeta?.blobHash) {
+      let packageMeta = sourceKind === 'shared' ? null : caseHoverMeta
+      if (sourceKind === 'shared' || !packageMeta?.blobHash) {
         try {
           packageMeta = sourceKind === 'case'
             ? await api.get<CaseItem>(`/cases/${sourceId}`).then((caseItem) => ({

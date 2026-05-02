@@ -1578,18 +1578,7 @@ export default function EEGViewer() {
 
   const shiftBySeconds = useCallback((deltaSec: number) => {
     const currentStartSec = recordOffset * recordDurationSec
-    const safeRecordDurationSec = Math.max(recordDurationSec, 1e-9)
-    const currentRecordIndex = Math.floor(currentStartSec / safeRecordDurationSec)
-    const requestedTargetSec = currentStartSec + deltaSec
-    const requestedRecordIndex = Math.floor(Math.max(0, requestedTargetSec) / safeRecordDurationSec)
-
-    if (requestedRecordIndex === currentRecordIndex && deltaSec !== 0) {
-      const fallbackRecordIndex = currentRecordIndex + (deltaSec > 0 ? 1 : -1)
-      goToSecondPosition(fallbackRecordIndex * safeRecordDurationSec)
-      return
-    }
-
-    goToSecondPosition(requestedTargetSec)
+    goToSecondPosition(currentStartSec + deltaSec)
   }, [goToSecondPosition, recordOffset, recordDurationSec])
 
   const goToDSAEpoch = useCallback((epochIndex: number, epochSec: number) => {

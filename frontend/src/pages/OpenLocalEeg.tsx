@@ -18,17 +18,18 @@ export default function OpenLocalEeg() {
   }
 
   const handleOpenLocal = async () => {
-    if (!selectedFile) {
+    const currentFile = fileInputRef.current?.files?.[0] ?? selectedFile
+    if (!currentFile) {
       setError('Selecciona primero un archivo EDF.')
       return
     }
     setOpening(true)
     setError('')
     try {
-      const buffer = await selectedFile.arrayBuffer()
+      const buffer = await currentFile.arrayBuffer()
       const session = createLocalEegSession({
-        filename: selectedFile.name,
-        sizeBytes: selectedFile.size,
+        filename: currentFile.name,
+        sizeBytes: currentFile.size,
         buffer,
       })
       navigate(`/open/${session.id}`)

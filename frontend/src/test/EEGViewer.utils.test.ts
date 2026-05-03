@@ -52,8 +52,8 @@ describe('EEG viewer utils', () => {
 
   it('calcula el paso real de página según el span de records EDF', () => {
     expect(getPageStepSeconds(20, 1)).toBe(20)
-    expect(getPageStepSeconds(20, 4.5)).toBe(18)
-    expect(getPageStepSeconds(10, 30)).toBe(30)
+    expect(getPageStepSeconds(20, 4.5)).toBe(20)
+    expect(getPageStepSeconds(10, 30)).toBe(10)
   })
 
   it('calcula la página actual usando segundos reales y no records EDF', () => {
@@ -63,22 +63,31 @@ describe('EEG viewer utils', () => {
     expect(getPageIndexForSecond(21, 10)).toBe(2)
   })
 
-  it('traduce segundos a offset y duración reales sin repetir página al final del registro', () => {
-    expect(getEpochReadRequest(20, 20, 95)).toEqual({
+  it('traduce segundos a records más recorte interno sin repetir página al final del registro', () => {
+    expect(getEpochReadRequest(20, 20, 95, 4.5)).toEqual({
       startSec: 20,
-      offsetSec: 20,
+      recordStartSec: 18,
+      cropStartSec: 2,
+      offsetRecords: 4,
+      numRecords: 5,
       durationSec: 20,
     })
 
-    expect(getEpochReadRequest(90, 20, 95)).toEqual({
+    expect(getEpochReadRequest(90, 20, 95, 4.5)).toEqual({
       startSec: 75,
-      offsetSec: 75,
+      recordStartSec: 72,
+      cropStartSec: 3,
+      offsetRecords: 16,
+      numRecords: 6,
       durationSec: 20,
     })
 
-    expect(getEpochReadRequest(500, 20, 95)).toEqual({
+    expect(getEpochReadRequest(500, 20, 95, 4.5)).toEqual({
       startSec: 75,
-      offsetSec: 75,
+      recordStartSec: 72,
+      cropStartSec: 3,
+      offsetRecords: 16,
+      numRecords: 6,
       durationSec: 20,
     })
   })

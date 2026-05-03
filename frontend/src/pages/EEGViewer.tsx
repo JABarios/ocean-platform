@@ -132,16 +132,32 @@ function readEpochWindow(
   startSec: number,
   windowSecs: number,
   totalSeconds: number,
+  recordDurationSec: number,
 ): { epoch: EpochData; startSec: number } | null {
-  const { startSec: normalizedStartSec, offsetSec, durationSec } = getEpochReadRequest(
+  const {
+    startSec: normalizedStartSec,
+    cropStartSec,
+    offsetRecords,
+    numRecords,
+    durationSec,
+  } = getEpochReadRequest(
     startSec,
     windowSecs,
     totalSeconds,
+    recordDurationSec,
   )
-  const epoch = kappa.readEpoch(offsetSec, durationSec)
+  const epoch = kappa.readEpoch(offsetRecords, numRecords)
   if (!epoch) return null
+  const cropStartSample = Math.max(0, Math.round(cropStartSec * epoch.sfreq))
+  const cropSampleCount = Math.max(1, Math.round(durationSec * epoch.sfreq))
+  const cropEndSample = Math.min(epoch.nSamples, cropStartSample + cropSampleCount)
+  const croppedEpoch: EpochData = {
+    ...epoch,
+    nSamples: Math.max(0, cropEndSample - cropStartSample),
+    data: epoch.data.map((channel) => channel.slice(cropStartSample, cropEndSample)),
+  }
   return {
-    epoch,
+    epoch: croppedEpoch,
     startSec: normalizedStartSec,
   }
 }
@@ -1605,7 +1621,7 @@ export default function EEGViewer() {
       const nextPositionSec = restoredState?.positionSec ?? 0
 
       kappa.setFilters(nextHp, nextLp, nextNotch ? 50 : 0)
-      const firstRead = readEpochWindow(kappa, nextPositionSec, nextWindowSecs, totalDurationSec)
+      const firstRead = readEpochWindow(kappa, nextPositionSec, nextWindowSecs, totalDurationSec, detectedRecordDurationSec)
       if (!firstRead) throw new Error('readEpoch devolvió null')
       setWindowSecs(nextWindowSecs)
       setHp(nextHp)
@@ -1692,11 +1708,11 @@ export default function EEGViewer() {
   const refreshEpoch = useCallback((nextStartSec: number, nextWindowSecs: number) => {
     const kappa = kappaRef.current
     if (!kappa) return
-    const result = readEpochWindow(kappa, nextStartSec, nextWindowSecs, totalSeconds)
+    const result = readEpochWindow(kappa, nextStartSec, nextWindowSecs, totalSeconds, recordDurationSec)
     if (!result) return
     setEpoch(result.epoch)
     setRecordOffset(result.startSec)
-  }, [totalSeconds])
+  }, [recordDurationSec, totalSeconds])
 
   // ── Pagination ────────────────────────────────────────────────────────────────
 
@@ -1704,7 +1720,7 @@ export default function EEGViewer() {
     const nextStartSec = newPage * pageStepSec
     const kappa = kappaRef.current
     if (!kappa) return
-    const result = readEpochWindow(kappa, nextStartSec, windowSecs, totalSeconds)
+    const result = readEpochWindow(kappa, nextStartSec, windowSecs, totalSeconds, recordDurationSec)
     if (!result) return
     setEpoch(result.epoch)
     setRecordOffset(result.startSec)
@@ -1714,7 +1730,7 @@ export default function EEGViewer() {
     const nextStartSec = getSecondBasedPageStart(targetSec, totalSeconds, windowSecs, pageDuration, center)
     const kappa = kappaRef.current
     if (!kappa) return
-    const result = readEpochWindow(kappa, nextStartSec, windowSecs, totalSeconds)
+    const result = readEpochWindow(kappa, nextStartSec, windowSecs, totalSeconds, recordDurationSec)
     if (!result) return
     setEpoch(result.epoch)
     setRecordOffset(result.startSec)
@@ -1778,7 +1794,7 @@ export default function EEGViewer() {
     setWindowSecs(newWin)
     const kappa = kappaRef.current
     if (!kappa) return
-    const result = readEpochWindow(kappa, nextStartSec, newWin, totalSeconds)
+    const result = readEpochWindow(kappa, nextStartSec, newWin, totalSeconds, recordDurationSec)
     if (!result) return
     setEpoch(result.epoch)
     setRecordOffset(result.startSec)
@@ -1795,7 +1811,7 @@ export default function EEGViewer() {
 
     const kappa = kappaRef.current
     if (kappa) {
-      const firstRead = readEpochWindow(kappa, 0, defaultWindowSecs, totalSeconds)
+      const firstRead = readEpochWindow(kappa, 0, defaultWindowSecs, totalSeconds, recordDurationSec)
       if (firstRead) {
         setEpoch(firstRead.epoch)
         setRecordOffset(firstRead.startSec)

@@ -62,7 +62,10 @@ export interface SanitizedViewerState {
 
 export interface EpochReadRequest {
   startSec: number
-  offsetSec: number
+  recordStartSec: number
+  cropStartSec: number
+  offsetRecords: number
+  numRecords: number
   durationSec: number
 }
 
@@ -106,27 +109,31 @@ export function getRecordsPerPage(windowSecs: number, recordDurationSec: number)
   return Math.max(1, Math.round(windowSecs / recordDurationSec))
 }
 
-export function getPageStepSeconds(windowSecs: number, recordDurationSec: number): number {
-  const safeRecordDurationSec = Number.isFinite(recordDurationSec) && recordDurationSec > 0
-    ? recordDurationSec
-    : 1
-  return Math.max(
-    safeRecordDurationSec,
-    getRecordsPerPage(windowSecs, safeRecordDurationSec) * safeRecordDurationSec,
-  )
+export function getPageStepSeconds(windowSecs: number, _recordDurationSec: number): number {
+  return Math.max(1, Math.round(windowSecs))
 }
 
 export function getEpochReadRequest(
   startSec: number,
   windowSecs: number,
   totalSeconds: number,
+  recordDurationSec: number,
 ): EpochReadRequest {
   const safeWindowSecs = Math.max(1, Math.round(windowSecs))
+  const safeRecordDurationSec = Number.isFinite(recordDurationSec) && recordDurationSec > 0
+    ? recordDurationSec
+    : 1
   const maxStartSec = Math.max(0, totalSeconds - safeWindowSecs)
   const clampedStartSec = Math.max(0, Math.min(maxStartSec, Math.floor(startSec)))
+  const offsetRecords = Math.max(0, Math.floor(clampedStartSec / safeRecordDurationSec))
+  const recordStartSec = offsetRecords * safeRecordDurationSec
+  const cropStartSec = Math.max(0, clampedStartSec - recordStartSec)
   return {
     startSec: clampedStartSec,
-    offsetSec: clampedStartSec,
+    recordStartSec,
+    cropStartSec,
+    offsetRecords,
+    numRecords: Math.max(1, Math.ceil((cropStartSec + safeWindowSecs) / safeRecordDurationSec)),
     durationSec: safeWindowSecs,
   }
 }

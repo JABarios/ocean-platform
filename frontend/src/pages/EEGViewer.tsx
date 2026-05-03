@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
-import { useLocation, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { useCrypto } from '../hooks/useCrypto'
 import { API_BASE, api } from '../api/client'
@@ -24,7 +24,7 @@ import type { EpochData, MontageName, PersistedViewerState } from './eegViewerUt
 import type { CaseItem, SharedLinkBlobInfo } from '../types'
 import { getEncryptedPackageFromCache, saveEncryptedPackageToCache } from './encryptedPackageCache'
 import { extractEdfAnnotations } from '../utils/edfAnnotations'
-import { getLocalEegSession } from './localEegSession'
+import { clearLocalEegSession, createLocalEegSession, getLocalEegSession } from './localEegSession'
 import './EEGViewer.css'
 
 // ─── WASM types ───────────────────────────────────────────────────────────────
@@ -959,6 +959,7 @@ function TimelineBar({
 export default function EEGViewer() {
   const { id, recordId, sharedId, localId } = useParams<{ id?: string; recordId?: string; sharedId?: string; localId?: string }>()
   const location = useLocation()
+  const navigate = useNavigate()
   const sourceKind: 'case' | 'gallery' | 'shared' | 'local' = localId ? 'local' : sharedId ? 'shared' : recordId ? 'gallery' : 'case'
   const sourceId = localId || sharedId || recordId || id || ''
   const token           = useAuthStore((s) => s.token)
@@ -978,7 +979,7 @@ export default function EEGViewer() {
   const [meta,         setMeta]         = useState<{ recordingDate: string } | null>(null)
   const [edfAnnotations, setEdfAnnotations] = useState<EmbeddedAnnotation[]>([])
   const [annotationsOpen, setAnnotationsOpen] = useState(false)
-  const [caseHoverMeta, setCaseHoverMeta] = useState<{ blobHash?: string; ageRange?: string; sizeBytes?: number; storedKeyAvailable?: boolean; encryptionMode?: string; label?: string } | null>(null)
+  const [caseHoverMeta, setCaseHoverMeta] = useState<{ blobHash?: string; cacheKey?: string; ageRange?: string; sizeBytes?: number; storedKeyAvailable?: boolean; encryptionMode?: string; label?: string } | null>(null)
   const [showMeta,     setShowMeta]     = useState(false)
 
   const [windowSecs,      setWindowSecs]      = useState(10)
@@ -1001,10 +1002,12 @@ export default function EEGViewer() {
   const [dsaError,        setDsaError]        = useState('')
   const [compactToolbar,  setCompactToolbar]  = useState(false)
   const [mobileControlsOpen, setMobileControlsOpen] = useState(false)
+  const [localPickerError, setLocalPickerError] = useState('')
 
   const canvasRef  = useRef<HTMLCanvasElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)
   const wrapRef    = useRef<HTMLDivElement>(null)    // outer flex container (for height)
+  const localFileInputRef = useRef<HTMLInputElement>(null)
   const kappaRef   = useRef<KappaInstance | null>(null)
   const moduleRef  = useRef<KappaModuleInstance | null>(null)
   const currentEdfPathRef = useRef<string | null>(null)
@@ -1200,6 +1203,7 @@ export default function EEGViewer() {
     const request = sourceKind === 'case'
       ? api.get<CaseItem>(`/cases/${sourceId}`).then((caseItem) => ({
           blobHash: caseItem.package?.blobHash,
+          cacheKey: caseItem.package?.blobHash,
           ageRange: caseItem.ageRange || undefined,
           sizeBytes: caseItem.package?.sizeBytes,
           storedKeyAvailable: !!caseItem.storedKeyAvailable,
@@ -1216,6 +1220,7 @@ export default function EEGViewer() {
             return res.json() as Promise<SharedLinkBlobInfo>
           }).then((sharedLink) => ({
             blobHash: undefined,
+            cacheKey: `shared-link:${sharedLink.id}`,
             ageRange: undefined,
             sizeBytes: sharedLink.sizeBytes,
             storedKeyAvailable: false,
@@ -1228,6 +1233,7 @@ export default function EEGViewer() {
             if (!session) throw new Error('El archivo local ya no está disponible. Vuelve a /open y selecciónalo de nuevo.')
             return {
               blobHash: undefined,
+              cacheKey: undefined,
               ageRange: undefined,
               sizeBytes: session.sizeBytes,
               storedKeyAvailable: false,
@@ -1237,6 +1243,7 @@ export default function EEGViewer() {
           })
       : api.get<any>(`/galleries/records/${sourceId}`).then((record) => ({
           blobHash: record.eegRecord?.blobHash,
+          cacheKey: record.eegRecord?.blobHash,
           ageRange: typeof record.metadata?.ageRange === 'string' ? record.metadata.ageRange : undefined,
           sizeBytes: record.eegRecord?.sizeBytes,
           storedKeyAvailable: false,
@@ -1470,6 +1477,7 @@ export default function EEGViewer() {
           if (sourceKind === 'case') {
             packageMeta = await api.get<CaseItem>(`/cases/${sourceId}`).then((caseItem) => ({
               blobHash: caseItem.package?.blobHash,
+              cacheKey: caseItem.package?.blobHash,
               ageRange: caseItem.ageRange || undefined,
               sizeBytes: caseItem.package?.sizeBytes,
               encryptionMode: caseItem.package ? 'AES256-GCM' : undefined,
@@ -1478,6 +1486,7 @@ export default function EEGViewer() {
           } else if (sourceKind === 'gallery') {
             packageMeta = await api.get<any>(`/galleries/records/${sourceId}`).then((record) => ({
               blobHash: record.eegRecord?.blobHash,
+              cacheKey: record.eegRecord?.blobHash,
               ageRange: typeof record.metadata?.ageRange === 'string' ? record.metadata.ageRange : undefined,
               sizeBytes: record.eegRecord?.sizeBytes,
               encryptionMode: record.eegRecord?.encryptionMode,
@@ -1490,6 +1499,7 @@ export default function EEGViewer() {
               if (!res.ok) throw new Error(`Error al cargar shared link (${res.status})`)
               return res.json() as Promise<SharedLinkBlobInfo>
             }).then((sharedLink) => ({
+              cacheKey: `shared-link:${sharedLink.id}`,
               ageRange: undefined,
               sizeBytes: sharedLink.sizeBytes,
               encryptionMode: sharedLink.encryptionMode,
@@ -1499,6 +1509,7 @@ export default function EEGViewer() {
             const session = getLocalEegSession(sourceId)
             if (!session) throw new Error('El archivo local ya no está disponible. Vuelve a /open y selecciónalo de nuevo.')
             packageMeta = {
+              cacheKey: undefined,
               ageRange: undefined,
               sizeBytes: session.sizeBytes,
               encryptionMode: 'NONE',
@@ -1511,8 +1522,9 @@ export default function EEGViewer() {
         }
       }
 
-      let encryptedBuffer = sourceKind === 'case' && packageMeta?.blobHash
-        ? await getEncryptedPackageFromCache(packageMeta.blobHash)
+      const encryptedCacheKey = packageMeta?.cacheKey || packageMeta?.blobHash
+      let encryptedBuffer = encryptedCacheKey
+        ? await getEncryptedPackageFromCache(encryptedCacheKey)
         : null
 
       if (!encryptedBuffer) {
@@ -1534,11 +1546,11 @@ export default function EEGViewer() {
           if (!res.ok) throw new Error(`Error al descargar (${res.status})`)
           encryptedBuffer = await res.arrayBuffer()
 
-          if (sourceKind === 'case' && packageMeta?.blobHash) {
+          if ((sourceKind === 'case' || sourceKind === 'shared') && encryptedCacheKey) {
             saveEncryptedPackageToCache({
-              blobHash: packageMeta.blobHash,
-              caseId: sourceId,
-              sizeBytes: packageMeta.sizeBytes,
+              blobHash: encryptedCacheKey,
+              caseId: `${sourceKind}:${sourceId}`,
+              sizeBytes: packageMeta?.sizeBytes,
               payload: encryptedBuffer,
             }).catch((err) => {
               console.warn('[OCEAN EEG] No se pudo guardar el paquete cifrado en caché local', err)
@@ -1770,6 +1782,26 @@ export default function EEGViewer() {
     if (dx < 0 && currentPage < maxPage) goToPage(currentPage + 1)
     if (dx > 0 && currentPage > 0) goToPage(currentPage - 1)
   }, [compactToolbar, currentPage, maxPage, goToPage])
+
+  const handleSelectAnotherLocalEdf = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null
+    if (!file) return
+    setLocalPickerError('')
+    try {
+      const buffer = await file.arrayBuffer()
+      const nextSession = createLocalEegSession({
+        filename: file.name,
+        sizeBytes: file.size,
+        buffer,
+      })
+      if (sourceKind === 'local' && sourceId) clearLocalEegSession(sourceId)
+      navigate(`/open/${nextSession.id}`)
+    } catch (err) {
+      setLocalPickerError(err instanceof Error ? err.message : 'El navegador no pudo leer el archivo EDF seleccionado.')
+    } finally {
+      event.target.value = ''
+    }
+  }, [navigate, sourceId, sourceKind])
 
   const handleHpChange = (val: string) => {
     const v = parseFloat(val); setHp(v)
@@ -2257,6 +2289,42 @@ export default function EEGViewer() {
         padding: compactToolbar ? '0.22rem 0.42rem' : '0.35rem 0.6rem', background: '#ffffff',
         borderBottom: '1px solid #e2e8f0', flexShrink: 0,
       }}>
+        {sourceKind === 'local' && (
+          <>
+            <input
+              ref={localFileInputRef}
+              type="file"
+              accept=".edf"
+              onChange={handleSelectAnotherLocalEdf}
+              style={{ display: 'none' }}
+            />
+            <button
+              type="button"
+              onClick={() => localFileInputRef.current?.click()}
+              style={{
+                background: '#dbeafe',
+                border: '1px solid #93c5fd',
+                borderRadius: 4,
+                color: '#1d4ed8',
+                fontSize: compactToolbar ? '0.72rem' : '0.75rem',
+                padding: compactToolbar ? '0.18rem 0.42rem' : '0.18rem 0.55rem',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                fontWeight: 700,
+                flexShrink: 0,
+              }}
+              title="Cargar otro archivo EDF local sin salir del visor"
+            >
+              {compactToolbar ? 'Abrir EDF' : 'Abrir otro EDF'}
+            </button>
+            {localPickerError && !compactToolbar && (
+              <span style={{ color: '#dc2626', fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
+                {localPickerError}
+              </span>
+            )}
+          </>
+        )}
+
         {!compactToolbar && (
           <>
             <ToolbarSelect label="HP" value={hp} onChange={handleHpChange}>

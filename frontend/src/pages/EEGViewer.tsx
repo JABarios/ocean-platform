@@ -1485,11 +1485,13 @@ export default function EEGViewer() {
   ])
 
   const triggerOverlay = useMemo<TriggerOverlayData | null>(() => {
-    if (!triggerAvgOpen || !triggerAverageResult || !processedEpoch) return null
+    if (!triggerAvgOpen || !processedEpoch || !triggerChannelName) return null
     return {
       channelName: triggerChannelName,
       threshold: triggerThreshold,
-      eventOnsetsSec: triggerAverageResult.events.map((event) => recordOffset + event.onsetSec),
+      eventOnsetsSec: triggerAverageResult
+        ? triggerAverageResult.events.map((event) => recordOffset + event.onsetSec)
+        : [],
     }
   }, [processedEpoch, recordOffset, triggerAverageResult, triggerAvgOpen, triggerChannelName, triggerThreshold])
 

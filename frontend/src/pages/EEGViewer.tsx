@@ -7,6 +7,7 @@ import {
   LABEL_WIDTH,
   MONTAGE_OPTIONS,
   WINDOW_OPTIONS,
+  applyChannelDisplayOverrides,
   applyMontage,
   getAverageReferenceCandidates,
   getChannelColor,
@@ -1057,6 +1058,11 @@ export default function EEGViewer() {
     })
   }, [epoch, montage, excludedAverageReferenceChannels, includedHiddenChannels])
 
+  const filteredMontagedEpoch = useMemo(() => {
+    if (!montagedEpoch) return null
+    return applyChannelDisplayOverrides(montagedEpoch, channelOverrides)
+  }, [montagedEpoch, channelOverrides])
+
   const averageReferenceCandidates = useMemo(() => getAverageReferenceCandidates(epoch), [epoch])
   const hiddenMontageCandidates = useMemo(() => getMontageHiddenCandidates(epoch, montage), [epoch, montage])
 
@@ -1151,15 +1157,15 @@ export default function EEGViewer() {
   }, [extrasOpen])
 
   const processedEpoch = useMemo(() => {
-    if (!montagedEpoch) return null
-    if (!normalizeNonEEG) return montagedEpoch
+    if (!filteredMontagedEpoch) return null
+    if (!normalizeNonEEG) return filteredMontagedEpoch
     return {
-      ...montagedEpoch,
-      data: montagedEpoch.data.map((d, i) =>
-        (montagedEpoch.channelTypes[i] ?? 'EEG') !== 'EEG' ? zscoreNormalize(d) : d
+      ...filteredMontagedEpoch,
+      data: filteredMontagedEpoch.data.map((d, i) =>
+        (filteredMontagedEpoch.channelTypes[i] ?? 'EEG') !== 'EEG' ? zscoreNormalize(d) : d
       ),
     }
-  }, [montagedEpoch, normalizeNonEEG])
+  }, [filteredMontagedEpoch, normalizeNonEEG])
 
   const channelGainOverrides = useMemo(() => {
     const next: Record<string, number> = {}
@@ -1175,9 +1181,9 @@ export default function EEGViewer() {
   }, [processedEpoch, gainMult, normalizeNonEEG, channelGainOverrides])
 
   const selectedChannelOverride = selectedChannelName ? channelOverrides[selectedChannelName] : null
-  const effectiveHp = hp
-  const effectiveLp = lp
-  const effectiveNotch = notch
+  const effectiveHp = selectedChannelOverride?.hp ?? hp
+  const effectiveLp = selectedChannelOverride?.lp ?? lp
+  const effectiveNotch = selectedChannelOverride?.notch ?? notch
   const effectiveGainMult = selectedChannelOverride?.gainMult ?? gainMult
 
   useEffect(() => {
@@ -1897,6 +1903,9 @@ export default function EEGViewer() {
     if (!selectedChannelName) return
     setChannelOverrides((current) => {
       const existing = current[selectedChannelName] ?? {
+        hp,
+        lp,
+        notch,
         gainMult,
       }
       return {
@@ -1907,7 +1916,7 @@ export default function EEGViewer() {
         },
       }
     })
-  }, [selectedChannelName, gainMult])
+  }, [selectedChannelName, hp, lp, notch, gainMult])
 
   const clearSelectedChannelSelection = useCallback(() => {
     setSelectedChannelName(null)
@@ -1915,18 +1924,30 @@ export default function EEGViewer() {
 
   const handleHpChange = (val: string) => {
     const v = parseFloat(val)
+    if (selectedChannelName) {
+      upsertSelectedChannelOverride({ hp: v })
+      return
+    }
     setHp(v)
     kappaRef.current?.setFilters(v, lp, notch)
     refreshEpoch(recordOffset, windowSecs)
   }
   const handleLpChange = (val: string) => {
     const v = parseFloat(val)
+    if (selectedChannelName) {
+      upsertSelectedChannelOverride({ lp: v })
+      return
+    }
     setLp(v)
     kappaRef.current?.setFilters(hp, v, notch)
     refreshEpoch(recordOffset, windowSecs)
   }
   const handleNotchChange = (val: string) => {
     const nextNotch = parseFloat(val)
+    if (selectedChannelName) {
+      upsertSelectedChannelOverride({ notch: nextNotch })
+      return
+    }
     setNotch(nextNotch)
     kappaRef.current?.setFilters(hp, lp, nextNotch)
     refreshEpoch(recordOffset, windowSecs)

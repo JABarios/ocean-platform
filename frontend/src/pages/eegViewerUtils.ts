@@ -69,6 +69,13 @@ export interface EpochReadRequest {
   durationSec: number
 }
 
+export interface ChannelOverrideSettings {
+  hp: number
+  lp: number
+  notch: number
+  gainMult: number
+}
+
 function canonicalizeChannelName(name: string): string {
   const trimmed = name.trim()
   if (!trimmed) return trimmed
@@ -169,6 +176,124 @@ export function getDsaChannels(epoch: EpochData | null): Array<{ index: number; 
     }))
     .filter((item) => item.type === 'EEG')
     .map(({ index, name }) => ({ index, name }))
+}
+
+interface BiquadCoefficients {
+  b0: number
+  b1: number
+  b2: number
+  a1: number
+  a2: number
+}
+
+function makeLowpassCoefficients(sampleRate: number, cutoffHz: number, q = 0.707): BiquadCoefficients | null {
+  if (!(sampleRate > 0) || !(cutoffHz > 0) || cutoffHz >= sampleRate * 0.499) return null
+  const w0 = (2 * Math.PI * cutoffHz) / sampleRate
+  const cosW0 = Math.cos(w0)
+  const sinW0 = Math.sin(w0)
+  const alpha = sinW0 / (2 * q)
+  const a0 = 1 + alpha
+  return {
+    b0: ((1 - cosW0) / 2) / a0,
+    b1: (1 - cosW0) / a0,
+    b2: ((1 - cosW0) / 2) / a0,
+    a1: (-2 * cosW0) / a0,
+    a2: (1 - alpha) / a0,
+  }
+}
+
+function makeHighpassCoefficients(sampleRate: number, cutoffHz: number, q = 0.707): BiquadCoefficients | null {
+  if (!(sampleRate > 0) || !(cutoffHz > 0) || cutoffHz >= sampleRate * 0.499) return null
+  const w0 = (2 * Math.PI * cutoffHz) / sampleRate
+  const cosW0 = Math.cos(w0)
+  const sinW0 = Math.sin(w0)
+  const alpha = sinW0 / (2 * q)
+  const a0 = 1 + alpha
+  return {
+    b0: ((1 + cosW0) / 2) / a0,
+    b1: (-(1 + cosW0)) / a0,
+    b2: ((1 + cosW0) / 2) / a0,
+    a1: (-2 * cosW0) / a0,
+    a2: (1 - alpha) / a0,
+  }
+}
+
+function makeNotchCoefficients(sampleRate: number, notchHz: number, q = 0.707): BiquadCoefficients | null {
+  if (!(sampleRate > 0) || !(notchHz > 0) || notchHz >= sampleRate * 0.499) return null
+  const w0 = (2 * Math.PI * notchHz) / sampleRate
+  const cosW0 = Math.cos(w0)
+  const sinW0 = Math.sin(w0)
+  const alpha = sinW0 / (2 * q)
+  const a0 = 1 + alpha
+  return {
+    b0: 1 / a0,
+    b1: (-2 * cosW0) / a0,
+    b2: 1 / a0,
+    a1: (-2 * cosW0) / a0,
+    a2: (1 - alpha) / a0,
+  }
+}
+
+function applyBiquad(signal: Float32Array, coeffs: BiquadCoefficients): Float32Array {
+  const out = new Float32Array(signal.length)
+  let x1 = 0
+  let x2 = 0
+  let y1 = 0
+  let y2 = 0
+  for (let i = 0; i < signal.length; i++) {
+    const x0 = signal[i]
+    const y0 = coeffs.b0 * x0 + coeffs.b1 * x1 + coeffs.b2 * x2 - coeffs.a1 * y1 - coeffs.a2 * y2
+    out[i] = y0
+    x2 = x1
+    x1 = x0
+    y2 = y1
+    y1 = y0
+  }
+  return out
+}
+
+function applyZeroPhase(signal: Float32Array, coeffs: BiquadCoefficients | null): Float32Array {
+  if (!coeffs) return signal
+  const forward = applyBiquad(signal, coeffs)
+  const reversed = Float32Array.from(forward).reverse()
+  const backward = applyBiquad(reversed, coeffs)
+  return Float32Array.from(backward).reverse()
+}
+
+export function applyDisplayFilters(
+  signal: Float32Array,
+  sampleRate: number,
+  filters: Pick<ChannelOverrideSettings, 'hp' | 'lp' | 'notch'>,
+): Float32Array {
+  let next = signal
+  next = applyZeroPhase(next, makeHighpassCoefficients(sampleRate, filters.hp))
+  next = applyZeroPhase(next, makeLowpassCoefficients(sampleRate, filters.lp))
+  const notchCoeffs = makeNotchCoefficients(sampleRate, filters.notch)
+  if (notchCoeffs) next = applyBiquad(next, notchCoeffs)
+  return next
+}
+
+export function applyChannelDisplayOverrides(
+  epoch: EpochData,
+  overrides: Record<string, ChannelOverrideSettings>,
+): EpochData {
+  const overrideNames = Object.keys(overrides)
+  if (overrideNames.length === 0) return epoch
+
+  let changed = false
+  const data = epoch.data.map((channelData, index) => {
+    const channelName = epoch.channelNames[index]
+    const override = overrides[channelName]
+    if (!override) return channelData
+    changed = true
+    return applyDisplayFilters(channelData, epoch.sfreq, override)
+  })
+
+  if (!changed) return epoch
+  return {
+    ...epoch,
+    data,
+  }
 }
 
 function subtractSignals(a: Float32Array, b: Float32Array): Float32Array {

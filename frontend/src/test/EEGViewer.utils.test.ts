@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   MONTAGE_OPTIONS,
+  applyChannelDisplayOverrides,
   applyMontage,
   getAverageReferenceCandidates,
   getChannelColor,
@@ -90,6 +91,21 @@ describe('EEG viewer utils', () => {
       numRecords: 6,
       durationSec: 20,
     })
+  })
+
+  it('aplica overrides de filtro solo al canal seleccionado visible', () => {
+    const epoch = makeEpoch({
+      Fp1: [0, 1, 0, -1, 0, 1, 0, -1],
+      Fp2: [5, 5, 5, 5, 5, 5, 5, 5],
+    })
+
+    const result = applyChannelDisplayOverrides(epoch, {
+      Fp1: { hp: 1, lp: 30, notch: 50, gainMult: 1 },
+    })
+
+    expect(result.channelNames).toEqual(epoch.channelNames)
+    expect(asArray(result.data[1])).toEqual(asArray(epoch.data[1]))
+    expect(asArray(result.data[0])).not.toEqual(asArray(epoch.data[0]))
   })
 
   it('calcula el inicio de página por segundos reales para la navegación fina', () => {

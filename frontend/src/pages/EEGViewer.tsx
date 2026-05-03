@@ -1022,6 +1022,7 @@ export default function EEGViewer() {
   const avgRefMenuRef = useRef<HTMLDivElement>(null)
   const extrasButtonRef = useRef<HTMLButtonElement>(null)
   const extrasMenuRef = useRef<HTMLDivElement>(null)
+  const loadVersionRef = useRef(0)
   const restoreInFlightRef = useRef(false)
   const viewerStateReadyRef = useRef(false)
   const persistTimerRef = useRef<number | null>(null)
@@ -1165,6 +1166,7 @@ export default function EEGViewer() {
   const dsaChannels = useMemo(() => getDsaChannels(epoch), [epoch])
 
   useEffect(() => {
+    loadVersionRef.current += 1
     restoreInFlightRef.current = false
     viewerStateReadyRef.current = false
     if (persistTimerRef.current !== null) {
@@ -1197,6 +1199,23 @@ export default function EEGViewer() {
     setAnnotationsOpen(false)
     setCaseHoverMeta(null)
     setShowMeta(false)
+    setWindowSecs(10)
+    setHp(0.5)
+    setLp(45)
+    setNotch(50)
+    setGainMult(1)
+    setNormalizeNonEEG(false)
+    setMontage('promedio')
+    setExcludedAverageReferenceChannels([])
+    setIncludedHiddenChannels([])
+    setAvgRefOpen(false)
+    setAvgRefMenuPos(null)
+    setExtrasOpen(false)
+    setExtrasMenuPos(null)
+    setMobileControlsOpen(false)
+    setLocalPickerError('')
+    setDsaChannel('off')
+    setArtifactReject(false)
     setDsaData(null)
     setDsaLoading(false)
     setDsaError('')
@@ -1468,6 +1487,8 @@ export default function EEGViewer() {
 
   const startViewer = useCallback(async (key: string) => {
     if (!sourceId) return
+    const runVersion = loadVersionRef.current
+    const isStale = () => loadVersionRef.current !== runVersion
     try {
       setEdfAnnotations([])
       setAnnotationsOpen(false)
@@ -1522,8 +1543,10 @@ export default function EEGViewer() {
               label: session.filename,
             }
           }
+          if (isStale()) return
           setCaseHoverMeta(packageMeta)
         } catch (err) {
+          if (isStale()) return
           console.warn('[OCEAN EEG] No se pudo refrescar la metadata del origen antes de abrir el visor', err)
         }
       }
@@ -1532,6 +1555,7 @@ export default function EEGViewer() {
       let encryptedBuffer = encryptedCacheKey
         ? await getEncryptedPackageFromCache(encryptedCacheKey)
         : null
+      if (isStale()) return
 
       if (!encryptedBuffer) {
         if (sourceKind === 'local') {
@@ -1551,6 +1575,7 @@ export default function EEGViewer() {
           const res = await fetch(downloadPath, { headers })
           if (!res.ok) throw new Error(`Error al descargar (${res.status})`)
           encryptedBuffer = await res.arrayBuffer()
+          if (isStale()) return
 
           if ((sourceKind === 'case' || sourceKind === 'shared') && encryptedCacheKey) {
             saveEncryptedPackageToCache({
@@ -1572,12 +1597,15 @@ export default function EEGViewer() {
         setPhase('decrypting')
         decryptedBuffer = await decryptFile(encryptedBuffer, key)
       }
+      if (isStale()) return
 
       try {
         const parsedAnnotations = extractEdfAnnotations(new Uint8Array(decryptedBuffer))
+        if (isStale()) return
         setEdfAnnotations(parsedAnnotations)
         setAnnotationsOpen(parsedAnnotations.length > 0)
       } catch (err) {
+        if (isStale()) return
         console.warn('[OCEAN EEG] No se pudieron leer las anotaciones EDF+ embebidas', err)
         setEdfAnnotations([])
         setAnnotationsOpen(false)
@@ -1585,6 +1613,7 @@ export default function EEGViewer() {
 
       setPhase('loading-module')
       const Module = await loadModule()
+      if (isStale()) return
 
       setPhase('opening')
       const kappa = new Module.KappaWasm()
@@ -1595,8 +1624,10 @@ export default function EEGViewer() {
       Module.FS.writeFile(memfsPath, new Uint8Array(decryptedBuffer))
       currentEdfPathRef.current = memfsPath
       if (!kappa.openEDF(memfsPath)) throw new Error('openEDF devolvió false — archivo inválido')
+      if (isStale()) return
 
       const info = kappa.getMeta()
+      if (isStale()) return
       kappaRef.current = kappa
       sbPosRef.current = null
       dsaCacheRef.current.clear()
@@ -1620,6 +1651,7 @@ export default function EEGViewer() {
             : `/viewer-state/gallery/${sourceId}`
           persistedState = await api.get<PersistedViewerState | null>(viewerStatePath)
         } catch (err) {
+          if (isStale()) return
           console.warn('[OCEAN EEG] No se pudo recuperar el estado guardado del visor', err)
         }
       }
@@ -1641,6 +1673,7 @@ export default function EEGViewer() {
       kappa.setFilters(nextHp, nextLp, nextNotch)
       const firstRead = readEpochWindow(kappa, nextPositionSec, nextWindowSecs, totalDurationSec, detectedRecordDurationSec)
       if (!firstRead) throw new Error('readEpoch devolvió null')
+      if (isStale()) return
       setWindowSecs(nextWindowSecs)
       setHp(nextHp)
       setLp(nextLp)
@@ -1659,10 +1692,12 @@ export default function EEGViewer() {
       }
       setPhase('viewing')
       window.setTimeout(() => {
+        if (isStale()) return
         restoreInFlightRef.current = false
         viewerStateReadyRef.current = true
       }, 0)
     } catch (err) {
+      if (isStale()) return
       const msg      = err instanceof Error ? err.message : 'Error desconocido'
       const isBadKey = (err instanceof DOMException && err.name === 'OperationError') || msg.includes('autenticación')
       restoreInFlightRef.current = false

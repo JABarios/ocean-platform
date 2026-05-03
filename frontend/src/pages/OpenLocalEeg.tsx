@@ -9,6 +9,7 @@ export default function OpenLocalEeg() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [error, setError] = useState('')
+  const [opening, setOpening] = useState(false)
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] ?? null
@@ -16,13 +17,26 @@ export default function OpenLocalEeg() {
     setError('')
   }
 
-  const handleOpenLocal = () => {
+  const handleOpenLocal = async () => {
     if (!selectedFile) {
       setError('Selecciona primero un archivo EDF.')
       return
     }
-    const session = createLocalEegSession(selectedFile)
-    navigate(`/open/${session.id}`)
+    setOpening(true)
+    setError('')
+    try {
+      const buffer = await selectedFile.arrayBuffer()
+      const session = createLocalEegSession({
+        filename: selectedFile.name,
+        sizeBytes: selectedFile.size,
+        buffer,
+      })
+      navigate(`/open/${session.id}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'El navegador no pudo leer el archivo EDF local.')
+    } finally {
+      setOpening(false)
+    }
   }
 
   return (
@@ -58,8 +72,8 @@ export default function OpenLocalEeg() {
         {error && <div className="auth-error">{error}</div>}
 
         <div className="form-actions">
-          <button type="button" className="btn-primary" onClick={handleOpenLocal}>
-            Abrir localmente
+          <button type="button" className="btn-primary" onClick={handleOpenLocal} disabled={opening}>
+            {opening ? 'Leyendo EDF…' : 'Abrir localmente'}
           </button>
         </div>
       </div>

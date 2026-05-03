@@ -1215,10 +1215,10 @@ export default function EEGViewer() {
             return {
               blobHash: undefined,
               ageRange: undefined,
-              sizeBytes: session.file.size,
+              sizeBytes: session.sizeBytes,
               storedKeyAvailable: false,
               encryptionMode: 'NONE',
-              label: session.file.name,
+              label: session.filename,
             }
           })
       : api.get<any>(`/galleries/records/${sourceId}`).then((record) => ({
@@ -1486,9 +1486,9 @@ export default function EEGViewer() {
             if (!session) throw new Error('El archivo local ya no está disponible. Vuelve a /open y selecciónalo de nuevo.')
             packageMeta = {
               ageRange: undefined,
-              sizeBytes: session.file.size,
+              sizeBytes: session.sizeBytes,
               encryptionMode: 'NONE',
-              label: session.file.name,
+              label: session.filename,
             }
           }
           setCaseHoverMeta(packageMeta)
@@ -1505,7 +1505,7 @@ export default function EEGViewer() {
         if (sourceKind === 'local') {
           const session = getLocalEegSession(sourceId)
           if (!session) throw new Error('El archivo local ya no está disponible. Vuelve a /open y selecciónalo de nuevo.')
-          encryptedBuffer = await session.file.arrayBuffer()
+          encryptedBuffer = session.buffer.slice(0)
         } else {
           setPhase('downloading')
           const downloadPath = sourceKind === 'case'

@@ -1,15 +1,19 @@
 export interface LocalEegSession {
   id: string
-  file: File
+  filename: string
+  sizeBytes: number
+  buffer: ArrayBuffer
   createdAt: number
 }
 
 const sessions = new Map<string, LocalEegSession>()
 
-export function createLocalEegSession(file: File): LocalEegSession {
+export function createLocalEegSession(file: { filename: string; sizeBytes: number; buffer: ArrayBuffer }): LocalEegSession {
   const session: LocalEegSession = {
     id: crypto.randomUUID(),
-    file,
+    filename: file.filename,
+    sizeBytes: file.sizeBytes,
+    buffer: file.buffer,
     createdAt: Date.now(),
   }
   sessions.set(session.id, session)

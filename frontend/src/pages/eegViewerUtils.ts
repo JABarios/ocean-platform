@@ -62,8 +62,8 @@ export interface SanitizedViewerState {
 
 export interface EpochReadRequest {
   startSec: number
-  offsetRecords: number
-  numRecords: number
+  offsetSec: number
+  durationSec: number
 }
 
 function canonicalizeChannelName(name: string): string {
@@ -120,19 +120,14 @@ export function getEpochReadRequest(
   startSec: number,
   windowSecs: number,
   totalSeconds: number,
-  recordDurationSec: number,
 ): EpochReadRequest {
   const safeWindowSecs = Math.max(1, Math.round(windowSecs))
-  const safeRecordDurationSec = Number.isFinite(recordDurationSec) && recordDurationSec > 0
-    ? recordDurationSec
-    : 1
   const maxStartSec = Math.max(0, totalSeconds - safeWindowSecs)
   const clampedStartSec = Math.max(0, Math.min(maxStartSec, Math.floor(startSec)))
-  const offsetRecords = Math.max(0, Math.floor(clampedStartSec / safeRecordDurationSec))
   return {
-    startSec: offsetRecords * safeRecordDurationSec,
-    offsetRecords,
-    numRecords: getRecordsPerPage(safeWindowSecs, safeRecordDurationSec),
+    startSec: clampedStartSec,
+    offsetSec: clampedStartSec,
+    durationSec: safeWindowSecs,
   }
 }
 

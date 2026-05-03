@@ -63,23 +63,23 @@ describe('EEG viewer utils', () => {
     expect(getPageIndexForSecond(21, 10)).toBe(2)
   })
 
-  it('traduce segundos a offsetRecords y numRecords sin repetir página al final del registro', () => {
-    expect(getEpochReadRequest(20, 20, 95, 4.5)).toEqual({
-      startSec: 18,
-      offsetRecords: 4,
-      numRecords: 4,
+  it('traduce segundos a offset y duración reales sin repetir página al final del registro', () => {
+    expect(getEpochReadRequest(20, 20, 95)).toEqual({
+      startSec: 20,
+      offsetSec: 20,
+      durationSec: 20,
     })
 
-    expect(getEpochReadRequest(90, 20, 95, 4.5)).toEqual({
-      startSec: 72,
-      offsetRecords: 16,
-      numRecords: 4,
+    expect(getEpochReadRequest(90, 20, 95)).toEqual({
+      startSec: 75,
+      offsetSec: 75,
+      durationSec: 20,
     })
 
-    expect(getEpochReadRequest(500, 20, 95, 4.5)).toEqual({
-      startSec: 72,
-      offsetRecords: 16,
-      numRecords: 4,
+    expect(getEpochReadRequest(500, 20, 95)).toEqual({
+      startSec: 75,
+      offsetSec: 75,
+      durationSec: 20,
     })
   })
 

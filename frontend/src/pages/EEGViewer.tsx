@@ -24,6 +24,7 @@ import type { EpochData, MontageName, PersistedViewerState } from './eegViewerUt
 import type { CaseItem, SharedLinkBlobInfo } from '../types'
 import { getEncryptedPackageFromCache, saveEncryptedPackageToCache } from './encryptedPackageCache'
 import { extractEdfAnnotations } from '../utils/edfAnnotations'
+import { getLocalEegSession } from './localEegSession'
 import './EEGViewer.css'
 
 // ─── WASM types ───────────────────────────────────────────────────────────────
@@ -942,10 +943,10 @@ function TimelineBar({
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function EEGViewer() {
-  const { id, recordId, sharedId } = useParams<{ id?: string; recordId?: string; sharedId?: string }>()
+  const { id, recordId, sharedId, localId } = useParams<{ id?: string; recordId?: string; sharedId?: string; localId?: string }>()
   const location = useLocation()
-  const sourceKind: 'case' | 'gallery' | 'shared' = sharedId ? 'shared' : recordId ? 'gallery' : 'case'
-  const sourceId = sharedId || recordId || id || ''
+  const sourceKind: 'case' | 'gallery' | 'shared' | 'local' = localId ? 'local' : sharedId ? 'shared' : recordId ? 'gallery' : 'case'
+  const sourceId = localId || sharedId || recordId || id || ''
   const token           = useAuthStore((s) => s.token)
   const { decryptFile } = useCrypto()
 
@@ -1207,6 +1208,19 @@ export default function EEGViewer() {
             encryptionMode: sharedLink.encryptionMode,
             label: sharedLink.label || sharedLink.originalFilename || `Shared link ${sourceId}`,
           }))
+      : sourceKind === 'local'
+        ? Promise.resolve().then(() => {
+            const session = getLocalEegSession(sourceId)
+            if (!session) throw new Error('El archivo local ya no está disponible. Vuelve a /open y selecciónalo de nuevo.')
+            return {
+              blobHash: undefined,
+              ageRange: undefined,
+              sizeBytes: session.file.size,
+              storedKeyAvailable: false,
+              encryptionMode: 'NONE',
+              label: session.file.name,
+            }
+          })
       : api.get<any>(`/galleries/records/${sourceId}`).then((record) => ({
           blobHash: record.eegRecord?.blobHash,
           ageRange: typeof record.metadata?.ageRange === 'string' ? record.metadata.ageRange : undefined,
@@ -1223,7 +1237,7 @@ export default function EEGViewer() {
       })
       .catch((err) => {
         if (cancelled) return
-        if (sourceKind === 'shared') {
+        if (sourceKind === 'shared' || sourceKind === 'local') {
           setErrorMsg(err instanceof Error ? err.message : 'No se pudo abrir el shared link')
           setPhase('error')
           return
@@ -1436,36 +1450,47 @@ export default function EEGViewer() {
         window.clearTimeout(persistTimerRef.current)
         persistTimerRef.current = null
       }
-      let packageMeta = sourceKind === 'shared' ? null : caseHoverMeta
-      if (sourceKind === 'shared' || !packageMeta?.blobHash) {
+      let packageMeta = sourceKind === 'shared' || sourceKind === 'local' ? null : caseHoverMeta
+      if (sourceKind === 'shared' || sourceKind === 'local' || !packageMeta?.blobHash) {
         try {
-          packageMeta = sourceKind === 'case'
-            ? await api.get<CaseItem>(`/cases/${sourceId}`).then((caseItem) => ({
-                blobHash: caseItem.package?.blobHash,
-                ageRange: caseItem.ageRange || undefined,
-                sizeBytes: caseItem.package?.sizeBytes,
-                encryptionMode: caseItem.package ? 'AES256-GCM' : undefined,
-                label: caseItem.title || `Caso ${sourceId}`,
-              }))
-            : sourceKind === 'gallery'
-              ? await api.get<any>(`/galleries/records/${sourceId}`).then((record) => ({
-                  blobHash: record.eegRecord?.blobHash,
-                  ageRange: typeof record.metadata?.ageRange === 'string' ? record.metadata.ageRange : undefined,
-                  sizeBytes: record.eegRecord?.sizeBytes,
-                  encryptionMode: record.eegRecord?.encryptionMode,
-                  label: record.label || `Registro ${sourceId}`,
-                }))
-              : await fetch(`${API_BASE}/shared-links/${sourceId}`, {
-                  headers: { 'Cache-Control': 'no-store' },
-                }).then(async (res) => {
-                  if (!res.ok) throw new Error(`Error al cargar shared link (${res.status})`)
-                  return res.json() as Promise<SharedLinkBlobInfo>
-                }).then((sharedLink) => ({
-                  ageRange: undefined,
-                  sizeBytes: sharedLink.sizeBytes,
-                  encryptionMode: sharedLink.encryptionMode,
-                  label: sharedLink.label || sharedLink.originalFilename || `Shared link ${sourceId}`,
-                }))
+          if (sourceKind === 'case') {
+            packageMeta = await api.get<CaseItem>(`/cases/${sourceId}`).then((caseItem) => ({
+              blobHash: caseItem.package?.blobHash,
+              ageRange: caseItem.ageRange || undefined,
+              sizeBytes: caseItem.package?.sizeBytes,
+              encryptionMode: caseItem.package ? 'AES256-GCM' : undefined,
+              label: caseItem.title || `Caso ${sourceId}`,
+            }))
+          } else if (sourceKind === 'gallery') {
+            packageMeta = await api.get<any>(`/galleries/records/${sourceId}`).then((record) => ({
+              blobHash: record.eegRecord?.blobHash,
+              ageRange: typeof record.metadata?.ageRange === 'string' ? record.metadata.ageRange : undefined,
+              sizeBytes: record.eegRecord?.sizeBytes,
+              encryptionMode: record.eegRecord?.encryptionMode,
+              label: record.label || `Registro ${sourceId}`,
+            }))
+          } else if (sourceKind === 'shared') {
+            packageMeta = await fetch(`${API_BASE}/shared-links/${sourceId}`, {
+              headers: { 'Cache-Control': 'no-store' },
+            }).then(async (res) => {
+              if (!res.ok) throw new Error(`Error al cargar shared link (${res.status})`)
+              return res.json() as Promise<SharedLinkBlobInfo>
+            }).then((sharedLink) => ({
+              ageRange: undefined,
+              sizeBytes: sharedLink.sizeBytes,
+              encryptionMode: sharedLink.encryptionMode,
+              label: sharedLink.label || sharedLink.originalFilename || `Shared link ${sourceId}`,
+            }))
+          } else {
+            const session = getLocalEegSession(sourceId)
+            if (!session) throw new Error('El archivo local ya no está disponible. Vuelve a /open y selecciónalo de nuevo.')
+            packageMeta = {
+              ageRange: undefined,
+              sizeBytes: session.file.size,
+              encryptionMode: 'NONE',
+              label: session.file.name,
+            }
+          }
           setCaseHoverMeta(packageMeta)
         } catch (err) {
           console.warn('[OCEAN EEG] No se pudo refrescar la metadata del origen antes de abrir el visor', err)
@@ -1477,28 +1502,34 @@ export default function EEGViewer() {
         : null
 
       if (!encryptedBuffer) {
-        setPhase('downloading')
-        const downloadPath = sourceKind === 'case'
-          ? `${API_BASE}/packages/download/${sourceId}`
-          : sourceKind === 'gallery'
-            ? `${API_BASE}/galleries/records/${sourceId}/download`
-            : `${API_BASE}/shared-links/${sourceId}/download`
-        const headers: Record<string, string> = sourceKind === 'shared'
-          ? { 'Cache-Control': 'no-store' }
-          : { Authorization: `Bearer ${token ?? ''}` }
-        const res = await fetch(downloadPath, { headers })
-        if (!res.ok) throw new Error(`Error al descargar (${res.status})`)
-        encryptedBuffer = await res.arrayBuffer()
+        if (sourceKind === 'local') {
+          const session = getLocalEegSession(sourceId)
+          if (!session) throw new Error('El archivo local ya no está disponible. Vuelve a /open y selecciónalo de nuevo.')
+          encryptedBuffer = await session.file.arrayBuffer()
+        } else {
+          setPhase('downloading')
+          const downloadPath = sourceKind === 'case'
+            ? `${API_BASE}/packages/download/${sourceId}`
+            : sourceKind === 'gallery'
+              ? `${API_BASE}/galleries/records/${sourceId}/download`
+              : `${API_BASE}/shared-links/${sourceId}/download`
+          const headers: Record<string, string> = sourceKind === 'shared'
+            ? { 'Cache-Control': 'no-store' }
+            : { Authorization: `Bearer ${token ?? ''}` }
+          const res = await fetch(downloadPath, { headers })
+          if (!res.ok) throw new Error(`Error al descargar (${res.status})`)
+          encryptedBuffer = await res.arrayBuffer()
 
-        if (sourceKind === 'case' && packageMeta?.blobHash) {
-          saveEncryptedPackageToCache({
-            blobHash: packageMeta.blobHash,
-            caseId: sourceId,
-            sizeBytes: packageMeta.sizeBytes,
-            payload: encryptedBuffer,
-          }).catch((err) => {
-            console.warn('[OCEAN EEG] No se pudo guardar el paquete cifrado en caché local', err)
-          })
+          if (sourceKind === 'case' && packageMeta?.blobHash) {
+            saveEncryptedPackageToCache({
+              blobHash: packageMeta.blobHash,
+              caseId: sourceId,
+              sizeBytes: packageMeta.sizeBytes,
+              payload: encryptedBuffer,
+            }).catch((err) => {
+              console.warn('[OCEAN EEG] No se pudo guardar el paquete cifrado en caché local', err)
+            })
+          }
         }
       }
 
@@ -1550,7 +1581,7 @@ export default function EEGViewer() {
       const detectedRecordDurationSec = probeEpoch.nSamples / probeEpoch.sfreq
       setRecordDurationSec(detectedRecordDurationSec)
       let persistedState: PersistedViewerState | null = null
-      if (sourceKind !== 'shared') {
+      if (sourceKind !== 'shared' && sourceKind !== 'local') {
         try {
           const viewerStatePath = sourceKind === 'case'
             ? `/viewer-state/${sourceId}`
@@ -1621,6 +1652,10 @@ export default function EEGViewer() {
 
   useEffect(() => {
     if (!sourceId || phase !== 'key-input') return
+    if (sourceKind === 'local') {
+      startViewer('')
+      return
+    }
     if (sourceKind === 'gallery' && caseHoverMeta?.encryptionMode === 'NONE') {
       startViewer('')
       return
@@ -1847,7 +1882,7 @@ export default function EEGViewer() {
   }, [phase, dsaChannel, hp, lp, notch, artifactReject])
 
   useEffect(() => {
-    if (!sourceId || sourceKind === 'shared' || phase !== 'viewing' || restoreInFlightRef.current || !viewerStateReadyRef.current) return
+    if (!sourceId || sourceKind === 'shared' || sourceKind === 'local' || phase !== 'viewing' || restoreInFlightRef.current || !viewerStateReadyRef.current) return
 
     const payload: PersistedViewerState = {
       positionSec: Math.max(0, Math.round(recordOffset)),
@@ -1951,6 +1986,44 @@ export default function EEGViewer() {
 
   // ── Key input / error ─────────────────────────────────────────────────────────
 
+  if (sourceKind === 'local' && phase === 'error') {
+    return (
+      <div style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        justifyContent: 'center', height: '100vh', background: '#f1f5f9',
+        fontFamily: 'system-ui, sans-serif', padding: '1rem',
+      }}>
+        <div style={{
+          background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 8,
+          padding: '2rem', width: '100%', maxWidth: 440,
+          display: 'flex', flexDirection: 'column', gap: '1rem',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+        }}>
+          <div style={{ color: '#2563eb', fontWeight: 700, fontSize: '1.1rem' }}>Visor EEG local</div>
+          <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: '0.75rem', color: '#dc2626', fontSize: '0.875rem' }}>
+            {errorMsg}
+          </div>
+          <a
+            href="/open"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: '#2563eb',
+              color: '#fff',
+              borderRadius: 6,
+              padding: '0.7rem 0.9rem',
+              fontWeight: 600,
+              textDecoration: 'none',
+            }}
+          >
+            Volver a abrir un EDF local
+          </a>
+        </div>
+      </div>
+    )
+  }
+
   if (phase === 'key-input' || phase === 'error') {
     return (
       <div style={{
@@ -1971,7 +2044,9 @@ export default function EEGViewer() {
                 ? `Caso ${sourceId}`
                 : sourceKind === 'gallery'
                   ? (caseHoverMeta?.label || `Registro ${sourceId}`)
-                  : (caseHoverMeta?.label || `Shared link ${sourceId}`)}
+                  : sourceKind === 'shared'
+                    ? (caseHoverMeta?.label || `Shared link ${sourceId}`)
+                    : (caseHoverMeta?.label || `EDF local ${sourceId}`)}
             </div>
           </div>
           {phase === 'error' && (

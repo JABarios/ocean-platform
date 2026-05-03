@@ -17,6 +17,7 @@ import Galleries from './pages/Galleries'
 import GalleryDetail from './pages/GalleryDetail'
 import AdminHome from './pages/AdminHome'
 import SharedLinkNew from './pages/SharedLinkNew'
+import OpenLocalEeg from './pages/OpenLocalEeg'
 
 export default function App() {
   const isShareHost = typeof window !== 'undefined' && window.location.hostname.startsWith('share.')
@@ -25,6 +26,8 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/open" element={<OpenLocalEeg />} />
+      <Route path="/open/:localId" element={<EEGViewer />} />
       <Route path="/share" element={<SharedLinkNew />} />
       <Route
         path="/"

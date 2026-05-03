@@ -8,6 +8,7 @@ import {
   MONTAGE_OPTIONS,
   WINDOW_OPTIONS,
   applyMontage,
+  computeTriggeredAverage,
   getAverageReferenceCandidates,
   getChannelColor,
   getDsaChannels,
@@ -20,7 +21,7 @@ import {
   sanitizePersistedViewerState,
   shouldShowMetadataForPointer,
 } from './eegViewerUtils'
-import type { EpochData, MontageName, PersistedViewerState } from './eegViewerUtils'
+import type { EpochData, MontageName, PersistedViewerState, TriggeredAverageResult } from './eegViewerUtils'
 import type { CaseItem, SharedLinkBlobInfo } from '../types'
 import { getEncryptedPackageFromCache, saveEncryptedPackageToCache } from './encryptedPackageCache'
 import { extractEdfAnnotations } from '../utils/edfAnnotations'
@@ -188,6 +189,12 @@ interface EmbeddedAnnotation {
   text: string
 }
 
+interface TriggerOverlayData {
+  channelName: string
+  threshold: number
+  eventOnsetsSec: number[]
+}
+
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
 
 function zscoreNormalize(data: Float32Array): Float32Array {
@@ -298,6 +305,7 @@ function drawEpoch(
   containerH: number,
   annotations?: EmbeddedAnnotation[],
   selectedChannelName?: string | null,
+  triggerOverlay?: TriggerOverlayData | null,
 ): number {                // returns chanH used
   canvas.width  = canvas.offsetWidth || 1200
   const chanH   = Math.max(MIN_CHAN_H, Math.floor(containerH / Math.max(epoch.nChannels, 1)))
@@ -405,6 +413,44 @@ function drawEpoch(
     }
     ctx.stroke()
     ctx.globalAlpha = 1
+  }
+
+  if (triggerOverlay && pageDuration > 0) {
+    const triggerRow = rowInfo.find((row) => row.name === triggerOverlay.channelName)
+    if (triggerRow) {
+      const range = triggerRow.p98 - triggerRow.p2 || 1
+      const margin = chanH * 0.08
+      const drawH = chanH - margin * 2
+      const clampedNorm = Math.max(0, Math.min(1, (triggerOverlay.threshold - triggerRow.p2) / range))
+      const thresholdY = triggerRow.y0 + margin + drawH * (1 - clampedNorm)
+
+      ctx.save()
+      ctx.strokeStyle = 'rgba(220,38,38,0.95)'
+      ctx.lineWidth = 1.5
+      ctx.setLineDash([6, 4])
+      ctx.beginPath()
+      ctx.moveTo(LABEL_WIDTH, thresholdY)
+      ctx.lineTo(W, thresholdY)
+      ctx.stroke()
+      ctx.setLineDash([])
+      ctx.fillStyle = 'rgba(185,28,28,0.96)'
+      ctx.font = '10px monospace'
+      ctx.textAlign = 'right'
+      ctx.textBaseline = 'bottom'
+      ctx.fillText(`${triggerOverlay.threshold.toFixed(1)} µV`, W - 6, thresholdY - 3)
+
+      triggerOverlay.eventOnsetsSec.forEach((eventOnsetSec) => {
+        if (eventOnsetSec < tStart || eventOnsetSec >= tStart + pageDuration) return
+        const x = LABEL_WIDTH + ((eventOnsetSec - tStart) / pageDuration) * waveW
+        ctx.strokeStyle = 'rgba(16,185,129,0.9)'
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        ctx.moveTo(x, triggerRow.y0)
+        ctx.lineTo(x, triggerRow.y0 + chanH)
+        ctx.stroke()
+      })
+      ctx.restore()
+    }
   }
 
   // ── Embedded annotations on current page ───────────────────────────────────
@@ -969,6 +1015,211 @@ function TimelineBar({
   )
 }
 
+function TriggerAverageModal({
+  result,
+  triggerChannelName,
+  rectifyTrigger,
+  rectifyAverage,
+  onClose,
+}: {
+  result: TriggeredAverageResult
+  triggerChannelName: string
+  rectifyTrigger: boolean
+  rectifyAverage: boolean
+  onClose: () => void
+}) {
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  const { averagedEpoch, events, preSamples } = result
+  const { scales } = useMemo(
+    () => computeScales(averagedEpoch, 1, false, {}),
+    [averagedEpoch],
+  )
+
+  const redraw = useCallback(() => {
+    const wrap = wrapRef.current
+    const canvas = canvasRef.current
+    if (!wrap || !canvas) return
+
+    const width = wrap.clientWidth || 1100
+    const height = wrap.clientHeight || Math.max(400, averagedEpoch.nChannels * 44)
+    canvas.width = width
+    canvas.height = height
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    const axisBottomH = 26
+    const plotHeight = Math.max(120, height - axisBottomH)
+    const chanH = Math.max(MIN_CHAN_H, Math.floor(plotHeight / Math.max(averagedEpoch.nChannels, 1)))
+    const totalCanvasH = chanH * averagedEpoch.nChannels + axisBottomH
+    if (canvas.height !== totalCanvasH) canvas.height = totalCanvasH
+
+    ctx.fillStyle = '#fffdf6'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+    const waveW = canvas.width - LABEL_WIDTH
+    const rowInfo: Array<{ y0: number; name: string; type: string; data: Float32Array; p2: number; p98: number; color: string }> = []
+
+    for (let c = 0; c < averagedEpoch.nChannels; c++) {
+      const y0 = c * chanH
+      const data = averagedEpoch.data[c]
+      const name = averagedEpoch.channelNames[c] ?? `Ch${c + 1}`
+      const type = averagedEpoch.channelTypes[c] ?? 'EEG'
+      const color = getChannelColor(name, type)
+      const { p2, p98 } = scales[c] ?? { p2: 0, p98: 1 }
+      rowInfo.push({ y0, name, type, data, p2, p98, color })
+
+      if (c % 2 === 1) {
+        ctx.fillStyle = 'rgba(0,0,0,0.03)'
+        ctx.fillRect(LABEL_WIDTH, y0, waveW, chanH)
+      }
+
+      ctx.fillStyle = '#f8edd0'
+      ctx.fillRect(0, y0, LABEL_WIDTH, chanH)
+      ctx.fillStyle = color
+      ctx.font = `bold ${Math.max(8, Math.min(11, Math.floor(chanH * 0.28)))}px monospace`
+      ctx.textAlign = 'left'
+      ctx.fillText(name.slice(0, 9), 4, y0 + chanH * 0.35)
+      ctx.strokeStyle = 'rgba(0,0,0,0.08)'
+      ctx.lineWidth = 1
+      ctx.beginPath()
+      ctx.moveTo(0, y0 + chanH)
+      ctx.lineTo(canvas.width, y0 + chanH)
+      ctx.stroke()
+    }
+
+    const zeroX = LABEL_WIDTH + (preSamples / Math.max(averagedEpoch.nSamples - 1, 1)) * waveW
+    ctx.save()
+    ctx.strokeStyle = 'rgba(220,38,38,0.75)'
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.moveTo(zeroX, 0)
+    ctx.lineTo(zeroX, chanH * averagedEpoch.nChannels)
+    ctx.stroke()
+    ctx.restore()
+
+    for (const row of rowInfo) {
+      const range = row.p98 - row.p2 || 1
+      const margin = chanH * 0.08
+      const drawH = chanH - margin * 2
+      ctx.beginPath()
+      ctx.strokeStyle = row.color
+      ctx.lineWidth = 1
+      for (let i = 0; i < row.data.length; i++) {
+        const x = LABEL_WIDTH + (i / Math.max(row.data.length - 1, 1)) * waveW
+        const norm = (row.data[i] - row.p2) / range
+        const y = row.y0 + margin + drawH * (1 - norm)
+        if (i === 0) ctx.moveTo(x, y)
+        else ctx.lineTo(x, y)
+      }
+      ctx.stroke()
+    }
+
+    const axisY = chanH * averagedEpoch.nChannels
+    ctx.fillStyle = '#f8fafc'
+    ctx.fillRect(0, axisY, canvas.width, axisBottomH)
+    ctx.strokeStyle = '#94a3b8'
+    ctx.beginPath()
+    ctx.moveTo(LABEL_WIDTH, axisY)
+    ctx.lineTo(canvas.width, axisY)
+    ctx.stroke()
+
+    const tickCount = 6
+    ctx.fillStyle = '#475569'
+    ctx.font = '10px monospace'
+    for (let i = 0; i <= tickCount; i++) {
+      const sampleIndex = Math.round((i / tickCount) * Math.max(averagedEpoch.nSamples - 1, 1))
+      const relSec = (sampleIndex - preSamples) / averagedEpoch.sfreq
+      const x = LABEL_WIDTH + (sampleIndex / Math.max(averagedEpoch.nSamples - 1, 1)) * waveW
+      ctx.beginPath()
+      ctx.moveTo(x, axisY)
+      ctx.lineTo(x, axisY + 5)
+      ctx.stroke()
+      ctx.fillText(`${relSec >= 0 ? '+' : ''}${relSec.toFixed(2)}s`, Math.min(x + 2, canvas.width - 48), axisY + 16)
+    }
+  }, [averagedEpoch, preSamples, scales])
+
+  useEffect(() => {
+    redraw()
+  }, [redraw])
+
+  useEffect(() => {
+    const wrap = wrapRef.current
+    if (!wrap) return
+    const ro = new ResizeObserver(() => redraw())
+    ro.observe(wrap)
+    return () => ro.disconnect()
+  }, [redraw])
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 40,
+        background: 'rgba(15,23,42,0.42)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '1rem',
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: 'min(1400px, 96vw)',
+          height: 'min(88vh, 900px)',
+          background: '#ffffff',
+          border: '1px solid #cbd5e1',
+          borderRadius: 12,
+          boxShadow: '0 18px 50px rgba(15,23,42,0.24)',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          padding: '0.8rem 1rem',
+          borderBottom: '1px solid #e2e8f0',
+          background: '#fffdf6',
+        }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ color: '#0f172a', fontWeight: 700 }}>Promedio desencadenado</div>
+            <div style={{ color: '#64748b', fontSize: '0.82rem' }}>
+              Trigger: {triggerChannelName} · N={events.length} · Rectif trigger: {rectifyTrigger ? 'sí' : 'no'} · Rectif promedio: {rectifyAverage ? 'sí' : 'no'}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              background: '#ffffff',
+              border: '1px solid #cbd5e1',
+              borderRadius: 6,
+              color: '#334155',
+              padding: '0.45rem 0.7rem',
+              cursor: 'pointer',
+              fontWeight: 600,
+            }}
+          >
+            Cerrar
+          </button>
+        </div>
+        <div ref={wrapRef} style={{ flex: 1, overflow: 'auto', background: '#fffdf6' }}>
+          <canvas ref={canvasRef} style={{ display: 'block', width: '100%' }} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function EEGViewer() {
@@ -1020,6 +1271,18 @@ export default function EEGViewer() {
   const [localPickerError, setLocalPickerError] = useState('')
   const [selectedChannelName, setSelectedChannelName] = useState<string | null>(null)
   const [channelGainOverrides, setChannelGainOverrides] = useState<Record<string, number>>({})
+  const [triggerAvgOpen, setTriggerAvgOpen] = useState(false)
+  const [triggerAvgModalOpen, setTriggerAvgModalOpen] = useState(false)
+  const [triggerChannelName, setTriggerChannelName] = useState('')
+  const [triggerHp, setTriggerHp] = useState(0)
+  const [triggerLp, setTriggerLp] = useState(45)
+  const [triggerNotch, setTriggerNotch] = useState(0)
+  const [triggerRectify, setTriggerRectify] = useState(false)
+  const [triggerRectifyAverage, setTriggerRectifyAverage] = useState(false)
+  const [triggerThreshold, setTriggerThreshold] = useState(20)
+  const [triggerPreSec, setTriggerPreSec] = useState(0.5)
+  const [triggerPostSec, setTriggerPostSec] = useState(0.5)
+  const [triggerRefractorySec, setTriggerRefractorySec] = useState(0.25)
 
   const canvasRef  = useRef<HTMLCanvasElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)
@@ -1044,6 +1307,7 @@ export default function EEGViewer() {
   const metaHoverRef  = useRef(false)
   const sbPosRef      = useRef<{ x: number; y: number } | null>(null)
   const sbDragRef     = useRef<{ startMX: number; startMY: number; startSBX: number; startSBY: number } | null>(null)
+  const triggerThresholdDragRef = useRef(false)
   const renderMetaRef = useRef<RenderMeta | null>(null)
   const touchSwipeRef = useRef<{ startX: number; startY: number; active: boolean } | null>(null)
 
@@ -1170,6 +1434,69 @@ export default function EEGViewer() {
     ? (channelGainOverrides[selectedChannelName] ?? gainMult)
     : gainMult
 
+  const triggerChannelOptions = useMemo(() => {
+    if (!processedEpoch) return []
+    return processedEpoch.channelNames.map((name, index) => ({
+      name,
+      type: processedEpoch.channelTypes[index] ?? 'EEG',
+    }))
+  }, [processedEpoch])
+
+  useEffect(() => {
+    if (triggerChannelOptions.length === 0) {
+      setTriggerChannelName('')
+      return
+    }
+    const channelStillVisible = triggerChannelOptions.some((channel) => channel.name === triggerChannelName)
+    if (channelStillVisible) return
+    const preferred = (selectedChannelName && triggerChannelOptions.find((channel) => channel.name === selectedChannelName))
+      || triggerChannelOptions.find((channel) => channel.type === 'EEG')
+      || triggerChannelOptions[0]
+    setTriggerChannelName(preferred?.name ?? '')
+  }, [triggerChannelName, triggerChannelOptions, selectedChannelName])
+
+  const triggerAverageResult = useMemo(() => {
+    if (!triggerAvgOpen || !processedEpoch || !triggerChannelName) return null
+    return computeTriggeredAverage(processedEpoch, {
+      triggerChannelName,
+      threshold: triggerThreshold,
+      preSec: triggerPreSec,
+      postSec: triggerPostSec,
+      hp: triggerHp,
+      lp: triggerLp,
+      notch: triggerNotch,
+      rectifyTrigger: triggerRectify,
+      rectifyAverage: triggerRectifyAverage,
+      refractorySec: triggerRefractorySec,
+    })
+  }, [
+    processedEpoch,
+    triggerAvgOpen,
+    triggerChannelName,
+    triggerThreshold,
+    triggerPreSec,
+    triggerPostSec,
+    triggerHp,
+    triggerLp,
+    triggerNotch,
+    triggerRectify,
+    triggerRectifyAverage,
+    triggerRefractorySec,
+  ])
+
+  const triggerOverlay = useMemo<TriggerOverlayData | null>(() => {
+    if (!triggerAvgOpen || !triggerAverageResult || !processedEpoch) return null
+    return {
+      channelName: triggerChannelName,
+      threshold: triggerThreshold,
+      eventOnsetsSec: triggerAverageResult.events.map((event) => recordOffset + event.onsetSec),
+    }
+  }, [processedEpoch, recordOffset, triggerAverageResult, triggerAvgOpen, triggerChannelName, triggerThreshold])
+
+  useEffect(() => {
+    if (!triggerAvgOpen) setTriggerAvgModalOpen(false)
+  }, [triggerAvgOpen])
+
   useEffect(() => {
     if (!processedEpoch) return
     const visibleNames = new Set(processedEpoch.channelNames)
@@ -1244,6 +1571,18 @@ export default function EEGViewer() {
     setLocalPickerError('')
     setSelectedChannelName(null)
     setChannelGainOverrides({})
+    setTriggerAvgOpen(false)
+    setTriggerAvgModalOpen(false)
+    setTriggerChannelName('')
+    setTriggerHp(0)
+    setTriggerLp(45)
+    setTriggerNotch(0)
+    setTriggerRectify(false)
+    setTriggerRectifyAverage(false)
+    setTriggerThreshold(20)
+    setTriggerPreSec(0.5)
+    setTriggerPostSec(0.5)
+    setTriggerRefractorySec(0.25)
     setDsaChannel('off')
     setArtifactReject(false)
     setDsaData(null)
@@ -1378,7 +1717,7 @@ export default function EEGViewer() {
 
     const containerH = container.clientHeight || processedEpoch.nChannels * 60
     const tStart     = recordOffset
-    const chanH      = drawEpoch(canvas, processedEpoch, scales, tStart, pageDuration, containerH, edfAnnotations, selectedChannelName)
+    const chanH      = drawEpoch(canvas, processedEpoch, scales, tStart, pageDuration, containerH, edfAnnotations, selectedChannelName, triggerOverlay)
     const { sbMuV, sbPxH } = computeSBSize(chanH, canvas.height)
 
     renderMetaRef.current = {
@@ -1389,7 +1728,7 @@ export default function EEGViewer() {
     }
     refreshOverlay()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [processedEpoch, scales, refRange, gainMult, recordOffset, pageDuration, refreshOverlay, edfAnnotations, selectedChannelName])
+  }, [processedEpoch, scales, refRange, gainMult, recordOffset, pageDuration, refreshOverlay, edfAnnotations, selectedChannelName, triggerOverlay])
 
   // ── Draw effect ───────────────────────────────────────────────────────────────
 
@@ -1406,6 +1745,30 @@ export default function EEGViewer() {
     ro.observe(wrapRef.current)
     return () => ro.disconnect()
   }, [phase, redraw])
+
+  const getTriggerThresholdLayout = useCallback(() => {
+    const rm = renderMetaRef.current
+    if (!rm || !processedEpoch || !triggerAvgOpen || !triggerChannelName) return null
+    const channelIndex = processedEpoch.channelNames.findIndex((name) => name === triggerChannelName)
+    if (channelIndex < 0) return null
+    const scale = scales[channelIndex]
+    if (!scale) return null
+    const y0 = channelIndex * rm.chanH
+    const margin = rm.chanH * 0.08
+    const drawH = rm.chanH - margin * 2
+    const range = scale.p98 - scale.p2 || 1
+    const norm = Math.max(0, Math.min(1, (triggerThreshold - scale.p2) / range))
+    const y = y0 + margin + drawH * (1 - norm)
+    return {
+      y,
+      y0,
+      y1: y0 + rm.chanH,
+      p2: scale.p2,
+      p98: scale.p98,
+      margin,
+      drawH,
+    }
+  }, [processedEpoch, scales, triggerAvgOpen, triggerChannelName, triggerThreshold])
 
   // ── Mouse handlers ────────────────────────────────────────────────────────────
 
@@ -1431,13 +1794,22 @@ export default function EEGViewer() {
         const ny = Math.max(4, Math.min(rm.H - rm.sbPxH - 4, startSBY + y - startMY))
         sbPosRef.current = { x: nx, y: ny }
       }
+    } else if (triggerThresholdDragRef.current) {
+      const triggerLayout = getTriggerThresholdLayout()
+      if (triggerLayout) {
+        const clampedY = Math.max(triggerLayout.y0 + triggerLayout.margin, Math.min(triggerLayout.y0 + triggerLayout.margin + triggerLayout.drawH, y))
+        const norm = 1 - ((clampedY - (triggerLayout.y0 + triggerLayout.margin)) / Math.max(triggerLayout.drawH, 1))
+        const nextThreshold = triggerLayout.p2 + norm * (triggerLayout.p98 - triggerLayout.p2)
+        setTriggerThreshold(Number(nextThreshold.toFixed(1)))
+      }
     }
     refreshOverlay()
-  }, [refreshOverlay])
+  }, [getTriggerThresholdLayout, refreshOverlay])
 
   const handleMouseLeave = useCallback(() => {
     mouseOnRef.current = false
     sbDragRef.current = null
+    triggerThresholdDragRef.current = false
     if (metaHoverRef.current) {
       metaHoverRef.current = false
       setShowMeta(false)
@@ -1473,6 +1845,19 @@ export default function EEGViewer() {
     const rect = canvas.getBoundingClientRect()
     const x    = e.clientX - rect.left
     const y    = e.clientY - rect.top
+    const triggerLayout = getTriggerThresholdLayout()
+    if (
+      triggerLayout &&
+      x >= LABEL_WIDTH &&
+      x <= rm.W &&
+      y >= triggerLayout.y0 &&
+      y <= triggerLayout.y1 &&
+      Math.abs(y - triggerLayout.y) <= 10
+    ) {
+      triggerThresholdDragRef.current = true
+      e.preventDefault()
+      return
+    }
     if (x <= LABEL_WIDTH && processedEpoch) {
       const channelIndex = Math.max(0, Math.min(processedEpoch.nChannels - 1, Math.floor(y / Math.max(rm.chanH, 1))))
       const channelName = processedEpoch.channelNames[channelIndex]
@@ -1489,10 +1874,13 @@ export default function EEGViewer() {
       sbDragRef.current = { startMX: x, startMY: y, startSBX: sbX, startSBY: sbY }
       e.preventDefault()
     }
-  }, [processedEpoch])
+  }, [getTriggerThresholdLayout, processedEpoch])
 
   useEffect(() => {
-    const onUp = () => { sbDragRef.current = null }
+    const onUp = () => {
+      sbDragRef.current = null
+      triggerThresholdDragRef.current = false
+    }
     window.addEventListener('mouseup', onUp)
     return () => window.removeEventListener('mouseup', onUp)
   }, [])
@@ -1961,6 +2349,17 @@ export default function EEGViewer() {
     setMobileControlsOpen(false)
     setSelectedChannelName(null)
     setChannelGainOverrides({})
+    setTriggerAvgOpen(false)
+    setTriggerAvgModalOpen(false)
+    setTriggerHp(0)
+    setTriggerLp(45)
+    setTriggerNotch(0)
+    setTriggerRectify(false)
+    setTriggerRectifyAverage(false)
+    setTriggerThreshold(20)
+    setTriggerPreSec(0.5)
+    setTriggerPostSec(0.5)
+    setTriggerRefractorySec(0.25)
     dsaCacheRef.current.clear()
   }, [recordDurationSec, totalSeconds])
 
@@ -2515,6 +2914,24 @@ export default function EEGViewer() {
           <option value="off">DSA OFF</option>
           {dsaChannels.map((channel) => <option key={channel.index} value={channel.index}>{`DSA ${channel.name}`}</option>)}
         </ToolbarSelect>
+        <button
+          type="button"
+          onClick={() => setTriggerAvgOpen((open) => !open)}
+          title="Activar promedio EEG desencadenado por umbral"
+          style={{
+            background: triggerAvgOpen ? '#dcfce7' : '#f8fafc',
+            border: `1px solid ${triggerAvgOpen ? '#86efac' : '#cbd5e1'}`,
+            borderRadius: 4,
+            color: triggerAvgOpen ? '#166534' : '#334155',
+            fontSize: compactToolbar ? '0.72rem' : '0.75rem',
+            padding: compactToolbar ? '0.18rem 0.38rem' : '0.16rem 0.48rem',
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+            fontWeight: triggerAvgOpen ? 700 : 500,
+          }}
+        >
+          {compactToolbar ? 'Trig' : 'Trigger Avg'}
+        </button>
 
         {!compactToolbar && (
           <>
@@ -2838,6 +3255,161 @@ export default function EEGViewer() {
         </div>
       )}
 
+      {triggerAvgOpen && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'flex-end',
+          gap: '0.55rem',
+          flexWrap: 'wrap',
+          padding: '0.45rem 0.6rem 0.55rem 0.6rem',
+          background: '#f0fdf4',
+          borderBottom: '1px solid #d1fae5',
+          flexShrink: 0,
+        }}>
+          <ToolbarSelect label="Canal trigger" value={triggerChannelName} onChange={setTriggerChannelName} width={compactToolbar ? 118 : 142} compact={compactToolbar}>
+            {triggerChannelOptions.map((channel) => (
+              <option key={channel.name} value={channel.name}>{channel.name}</option>
+            ))}
+          </ToolbarSelect>
+          <ToolbarSelect label="HP trig" value={triggerHp} onChange={(value) => setTriggerHp(parseFloat(value) || 0)} compact={compactToolbar}>
+            {HP_OPTIONS.map((option) => <option key={option.value} value={option.value}>{`HP ${option.label}`}</option>)}
+          </ToolbarSelect>
+          <ToolbarSelect label="LP trig" value={triggerLp} onChange={(value) => setTriggerLp(parseFloat(value) || 0)} compact={compactToolbar}>
+            {[{ label: 'Ninguno', value: 0 }, ...LP_OPTIONS].map((option) => <option key={option.value} value={option.value}>{`LP ${option.label}`}</option>)}
+          </ToolbarSelect>
+          <ToolbarSelect label="Notch trig" value={triggerNotch} onChange={(value) => setTriggerNotch(parseFloat(value) || 0)} compact={compactToolbar}>
+            {NOTCH_OPTIONS.map((option) => <option key={option.value} value={option.value}>{`N ${option.label}`}</option>)}
+          </ToolbarSelect>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#166534', fontSize: '0.72rem' }}>
+            Umbral
+            <input
+              type="number"
+              step="0.5"
+              value={triggerThreshold}
+              onChange={(e) => setTriggerThreshold(parseFloat(e.target.value) || 0)}
+              style={{
+                width: 88,
+                background: '#ffffff',
+                border: '1px solid #bbf7d0',
+                borderRadius: 4,
+                padding: '0.2rem 0.35rem',
+                color: '#166534',
+              }}
+            />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#166534', fontSize: '0.72rem' }}>
+            Pre (s)
+            <input
+              type="number"
+              step="0.05"
+              min="0"
+              value={triggerPreSec}
+              onChange={(e) => setTriggerPreSec(Math.max(0, parseFloat(e.target.value) || 0))}
+              style={{
+                width: 72,
+                background: '#ffffff',
+                border: '1px solid #bbf7d0',
+                borderRadius: 4,
+                padding: '0.2rem 0.35rem',
+                color: '#166534',
+              }}
+            />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#166534', fontSize: '0.72rem' }}>
+            Post (s)
+            <input
+              type="number"
+              step="0.05"
+              min="0"
+              value={triggerPostSec}
+              onChange={(e) => setTriggerPostSec(Math.max(0, parseFloat(e.target.value) || 0))}
+              style={{
+                width: 72,
+                background: '#ffffff',
+                border: '1px solid #bbf7d0',
+                borderRadius: 4,
+                padding: '0.2rem 0.35rem',
+                color: '#166534',
+              }}
+            />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#166534', fontSize: '0.72rem' }}>
+            Refract (s)
+            <input
+              type="number"
+              step="0.05"
+              min="0"
+              value={triggerRefractorySec}
+              onChange={(e) => setTriggerRefractorySec(Math.max(0, parseFloat(e.target.value) || 0))}
+              style={{
+                width: 82,
+                background: '#ffffff',
+                border: '1px solid #bbf7d0',
+                borderRadius: 4,
+                padding: '0.2rem 0.35rem',
+                color: '#166534',
+              }}
+            />
+          </label>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem', paddingBottom: 2 }}>
+            <input
+              type="checkbox"
+              checked={triggerRectify}
+              onChange={() => setTriggerRectify((value) => !value)}
+            />
+            Rectificar trigger
+          </label>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem', paddingBottom: 2 }}>
+            <input
+              type="checkbox"
+              checked={triggerRectifyAverage}
+              onChange={() => setTriggerRectifyAverage((value) => !value)}
+            />
+            Rectificar promedio
+          </label>
+          {selectedChannelName && selectedChannelName !== triggerChannelName && (
+            <button
+              type="button"
+              onClick={() => setTriggerChannelName(selectedChannelName)}
+              style={{
+                background: '#ffffff',
+                border: '1px solid #86efac',
+                borderRadius: 4,
+                color: '#166534',
+                fontSize: '0.75rem',
+                padding: '0.28rem 0.55rem',
+                cursor: 'pointer',
+                fontWeight: 600,
+              }}
+            >
+              Usar {selectedChannelName}
+            </button>
+          )}
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, paddingBottom: 2 }}>
+            <span style={{ color: '#166534', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
+              {triggerAverageResult ? `N=${triggerAverageResult.events.length} en esta ventana` : 'N=0 en esta ventana'}
+            </span>
+            <button
+              type="button"
+              disabled={!triggerAverageResult}
+              onClick={() => setTriggerAvgModalOpen(true)}
+              style={{
+                background: triggerAverageResult ? '#16a34a' : '#dcfce7',
+                border: 'none',
+                borderRadius: 5,
+                color: '#ffffff',
+                fontSize: '0.76rem',
+                padding: '0.34rem 0.65rem',
+                cursor: triggerAverageResult ? 'pointer' : 'not-allowed',
+                fontWeight: 700,
+              }}
+            >
+              Abrir promedio
+            </button>
+          </div>
+        </div>
+      )}
+
       {avgRefOpen && avgRefMenuPos && (
         <div
           ref={avgRefMenuRef}
@@ -3011,6 +3583,15 @@ export default function EEGViewer() {
           artifactStatuses={artifactReject ? dsaData?.artifactStatuses : undefined}
           artifactEpochSec={artifactReject ? dsaData?.artifactEpochSec : undefined}
           onSeek={(targetSec) => goToSecondPosition(targetSec, true)}
+        />
+      )}
+      {triggerAvgModalOpen && triggerAverageResult && (
+        <TriggerAverageModal
+          result={triggerAverageResult}
+          triggerChannelName={triggerChannelName}
+          rectifyTrigger={triggerRectify}
+          rectifyAverage={triggerRectifyAverage}
+          onClose={() => setTriggerAvgModalOpen(false)}
         />
       )}
     </div>

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  computeTriggeredAverage,
+  detectThresholdCrossings,
+  filterSignalForTrigger,
   MONTAGE_OPTIONS,
   applyMontage,
   getAverageReferenceCandidates,
@@ -528,5 +531,70 @@ describe('EEG viewer utils', () => {
 
     expect(modern?.notch).toBe(60)
     expect(legacy?.notch).toBe(50)
+  })
+
+  it('detecta cruces de umbral con período refractario', () => {
+    const signal = Float32Array.from([0, 1, 5, 8, 2, 0, 1, 6, 9, 1, 0, 7])
+    const events = detectThresholdCrossings(signal, 10, 4, 0.25)
+    expect(events.map((event) => event.sampleIndex)).toEqual([2, 7, 11])
+  })
+
+  it('rectifica la señal de trigger cuando se pide', () => {
+    const signal = Float32Array.from([-5, -2, 0, 2, 5])
+    const filtered = filterSignalForTrigger(signal, 100, {
+      hp: 0,
+      lp: 0,
+      notch: 0,
+      rectifyTrigger: true,
+    })
+    expect(Array.from(filtered)).toEqual([5, 2, 0, 2, 5])
+  })
+
+  it('calcula el promedio desencadenado sobre la ventana actual', () => {
+    const epoch = makeEpoch({
+      Trigger: [0, 0, 6, 0, 0, 0, 7, 0, 0],
+      C3: [1, 2, 3, 4, 5, 6, 7, 8, 9],
+      C4: [9, 8, 7, 6, 5, 4, 3, 2, 1],
+    })
+
+    const result = computeTriggeredAverage(epoch, {
+      triggerChannelName: 'Trigger',
+      threshold: 5,
+      preSec: 0.01,
+      postSec: 0.01,
+      hp: 0,
+      lp: 0,
+      notch: 0,
+      rectifyTrigger: false,
+      rectifyAverage: false,
+      refractorySec: 0.02,
+    })
+
+    expect(result?.events.map((event) => event.sampleIndex)).toEqual([2, 6])
+    expect(result?.averagedEpoch.nSamples).toBe(3)
+    expect(asArray(result!.averagedEpoch.data[1])).toEqual([4, 5, 6])
+    expect(asArray(result!.averagedEpoch.data[2])).toEqual([6, 5, 4])
+  })
+
+  it('puede rectificar la salida promediada', () => {
+    const epoch = makeEpoch({
+      Trigger: [0, 0, 6, 0, 0],
+      C3: [-2, -1, 4, -3, -4],
+    })
+
+    const result = computeTriggeredAverage(epoch, {
+      triggerChannelName: 'Trigger',
+      threshold: 5,
+      preSec: 0.01,
+      postSec: 0.01,
+      hp: 0,
+      lp: 0,
+      notch: 0,
+      rectifyTrigger: false,
+      rectifyAverage: true,
+      refractorySec: 0.02,
+    })
+
+    expect(asArray(result!.averagedEpoch.data[1])).toEqual([1, 4, 3])
   })
 })

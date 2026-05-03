@@ -69,6 +69,32 @@ export interface EpochReadRequest {
   durationSec: number
 }
 
+export interface TriggerAverageOptions {
+  triggerChannelName: string
+  threshold: number
+  preSec: number
+  postSec: number
+  hp: number
+  lp: number
+  notch: number
+  rectifyTrigger: boolean
+  rectifyAverage: boolean
+  refractorySec: number
+}
+
+export interface TriggerEvent {
+  sampleIndex: number
+  onsetSec: number
+}
+
+export interface TriggeredAverageResult {
+  averagedEpoch: EpochData
+  events: TriggerEvent[]
+  windowSamples: number
+  preSamples: number
+  postSamples: number
+}
+
 function canonicalizeChannelName(name: string): string {
   const trimmed = name.trim()
   if (!trimmed) return trimmed
@@ -157,6 +183,193 @@ export function getSecondBasedPageStart(
   const maxStartSec = Math.max(0, totalSeconds - safePageDuration)
   const clampedStartSec = Math.max(0, Math.min(maxStartSec, startSec))
   return Math.floor(clampedStartSec)
+}
+
+interface BiquadCoefficients {
+  b0: number
+  b1: number
+  b2: number
+  a1: number
+  a2: number
+}
+
+function reverseSignal(data: Float32Array): Float32Array {
+  const out = new Float32Array(data.length)
+  for (let i = 0; i < data.length; i++) out[i] = data[data.length - 1 - i]
+  return out
+}
+
+function applyBiquad(data: Float32Array, coeffs: BiquadCoefficients): Float32Array {
+  const out = new Float32Array(data.length)
+  let x1 = 0
+  let x2 = 0
+  let y1 = 0
+  let y2 = 0
+  for (let i = 0; i < data.length; i++) {
+    const x0 = data[i] ?? 0
+    const y0 = coeffs.b0 * x0 + coeffs.b1 * x1 + coeffs.b2 * x2 - coeffs.a1 * y1 - coeffs.a2 * y2
+    out[i] = y0
+    x2 = x1
+    x1 = x0
+    y2 = y1
+    y1 = y0
+  }
+  return out
+}
+
+function applyZeroPhaseBiquad(data: Float32Array, coeffs: BiquadCoefficients): Float32Array {
+  const forward = applyBiquad(data, coeffs)
+  const backward = applyBiquad(reverseSignal(forward), coeffs)
+  return reverseSignal(backward)
+}
+
+function createLowpassCoefficients(cutoffHz: number, sampleRate: number): BiquadCoefficients | null {
+  if (!Number.isFinite(cutoffHz) || cutoffHz <= 0 || cutoffHz >= sampleRate / 2) return null
+  const q = Math.SQRT1_2
+  const omega = (2 * Math.PI * cutoffHz) / sampleRate
+  const sin = Math.sin(omega)
+  const cos = Math.cos(omega)
+  const alpha = sin / (2 * q)
+  const a0 = 1 + alpha
+  return {
+    b0: ((1 - cos) / 2) / a0,
+    b1: (1 - cos) / a0,
+    b2: ((1 - cos) / 2) / a0,
+    a1: (-2 * cos) / a0,
+    a2: (1 - alpha) / a0,
+  }
+}
+
+function createHighpassCoefficients(cutoffHz: number, sampleRate: number): BiquadCoefficients | null {
+  if (!Number.isFinite(cutoffHz) || cutoffHz <= 0 || cutoffHz >= sampleRate / 2) return null
+  const q = Math.SQRT1_2
+  const omega = (2 * Math.PI * cutoffHz) / sampleRate
+  const sin = Math.sin(omega)
+  const cos = Math.cos(omega)
+  const alpha = sin / (2 * q)
+  const a0 = 1 + alpha
+  return {
+    b0: ((1 + cos) / 2) / a0,
+    b1: (-(1 + cos)) / a0,
+    b2: ((1 + cos) / 2) / a0,
+    a1: (-2 * cos) / a0,
+    a2: (1 - alpha) / a0,
+  }
+}
+
+function createNotchCoefficients(centerHz: number, sampleRate: number): BiquadCoefficients | null {
+  if (!Number.isFinite(centerHz) || centerHz <= 0 || centerHz >= sampleRate / 2) return null
+  const q = 30
+  const omega = (2 * Math.PI * centerHz) / sampleRate
+  const sin = Math.sin(omega)
+  const cos = Math.cos(omega)
+  const alpha = sin / (2 * q)
+  const a0 = 1 + alpha
+  return {
+    b0: 1 / a0,
+    b1: (-2 * cos) / a0,
+    b2: 1 / a0,
+    a1: (-2 * cos) / a0,
+    a2: (1 - alpha) / a0,
+  }
+}
+
+export function filterSignalForTrigger(
+  signal: Float32Array,
+  sampleRate: number,
+  options: Pick<TriggerAverageOptions, 'hp' | 'lp' | 'notch' | 'rectifyTrigger'>,
+): Float32Array {
+  let filtered = Float32Array.from(signal) as Float32Array
+
+  const hpCoeffs = createHighpassCoefficients(options.hp, sampleRate)
+  if (hpCoeffs) filtered = applyZeroPhaseBiquad(filtered, hpCoeffs) as Float32Array
+
+  const lpCoeffs = createLowpassCoefficients(options.lp, sampleRate)
+  if (lpCoeffs) filtered = applyZeroPhaseBiquad(filtered, lpCoeffs) as Float32Array
+
+  const notchCoeffs = createNotchCoefficients(options.notch, sampleRate)
+  if (notchCoeffs) filtered = applyBiquad(filtered, notchCoeffs) as Float32Array
+
+  if (options.rectifyTrigger) {
+    const rectified = new Float32Array(filtered.length)
+    for (let i = 0; i < filtered.length; i++) rectified[i] = Math.abs(filtered[i] ?? 0)
+    filtered = rectified
+  }
+
+  return filtered
+}
+
+export function detectThresholdCrossings(
+  signal: Float32Array,
+  sampleRate: number,
+  threshold: number,
+  refractorySec: number,
+): TriggerEvent[] {
+  if (signal.length < 2 || !Number.isFinite(sampleRate) || sampleRate <= 0) return []
+  const refractorySamples = Math.max(1, Math.round(Math.max(0, refractorySec) * sampleRate))
+  const events: TriggerEvent[] = []
+  let nextAllowedIndex = 0
+
+  for (let i = 1; i < signal.length; i++) {
+    if (i < nextAllowedIndex) continue
+    const prev = signal[i - 1] ?? 0
+    const curr = signal[i] ?? 0
+    if (prev < threshold && curr >= threshold) {
+      events.push({ sampleIndex: i, onsetSec: i / sampleRate })
+      nextAllowedIndex = i + refractorySamples
+    }
+  }
+
+  return events
+}
+
+export function computeTriggeredAverage(
+  epoch: EpochData,
+  options: TriggerAverageOptions,
+): TriggeredAverageResult | null {
+  const triggerIndex = epoch.channelNames.findIndex((name) => name === options.triggerChannelName)
+  if (triggerIndex < 0 || epoch.nSamples <= 1 || epoch.sfreq <= 0) return null
+
+  const filteredTrigger = filterSignalForTrigger(epoch.data[triggerIndex], epoch.sfreq, options)
+  const threshold = options.rectifyTrigger ? Math.abs(options.threshold) : options.threshold
+  const rawEvents = detectThresholdCrossings(filteredTrigger, epoch.sfreq, threshold, options.refractorySec)
+
+  const preSamples = Math.max(0, Math.round(Math.max(0, options.preSec) * epoch.sfreq))
+  const postSamples = Math.max(1, Math.round(Math.max(0, options.postSec) * epoch.sfreq))
+  const windowSamples = preSamples + postSamples + 1
+  const validEvents = rawEvents.filter(
+    (event) => event.sampleIndex >= preSamples && event.sampleIndex + postSamples < epoch.nSamples,
+  )
+  if (validEvents.length === 0) return null
+
+  const averagedData = epoch.data.map(() => new Float32Array(windowSamples))
+  validEvents.forEach((event) => {
+    const start = event.sampleIndex - preSamples
+    const end = event.sampleIndex + postSamples + 1
+    epoch.data.forEach((channelData, channelIndex) => {
+      for (let i = start; i < end; i++) {
+        const localIndex = i - start
+        const sample = channelData[i] ?? 0
+        averagedData[channelIndex][localIndex] += options.rectifyAverage ? Math.abs(sample) : sample
+      }
+    })
+  })
+
+  for (const channel of averagedData) {
+    for (let i = 0; i < channel.length; i++) channel[i] /= validEvents.length
+  }
+
+  return {
+    averagedEpoch: {
+      ...epoch,
+      nSamples: windowSamples,
+      data: averagedData,
+    },
+    events: validEvents,
+    windowSamples,
+    preSamples,
+    postSamples,
+  }
 }
 
 export function getDsaChannels(epoch: EpochData | null): Array<{ index: number; name: string }> {

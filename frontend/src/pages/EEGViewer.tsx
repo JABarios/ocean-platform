@@ -96,6 +96,12 @@ const LP_OPTIONS: { label: string; value: number }[] = [
   { label: '70 Hz', value: 70 },
 ]
 
+const NOTCH_OPTIONS: { label: string; value: number }[] = [
+  { label: 'Off', value: 0 },
+  { label: '50 Hz', value: 50 },
+  { label: '60 Hz', value: 60 },
+]
+
 const GAIN_OPTIONS: { label: string; value: number }[] = [
   { label: '0.1×', value: 0.1 },
   { label: '0.3×', value: 0.3 },
@@ -985,7 +991,7 @@ export default function EEGViewer() {
   const [windowSecs,      setWindowSecs]      = useState(10)
   const [hp,              setHp]              = useState(0.5)
   const [lp,              setLp]              = useState(45)
-  const [notch,           setNotch]           = useState(true)
+  const [notch,           setNotch]           = useState(50)
   const [gainMult,        setGainMult]        = useState(1)
   const [normalizeNonEEG, setNormalizeNonEEG] = useState(false)
   const [montage,         setMontage]         = useState<MontageName>('promedio')
@@ -1622,7 +1628,7 @@ export default function EEGViewer() {
       const nextWindowSecs = restoredState?.windowSecs ?? 10
       const nextHp = restoredState?.hp ?? 0.5
       const nextLp = restoredState?.lp ?? 45
-      const nextNotch = restoredState?.notch ?? true
+      const nextNotch = restoredState?.notch ?? 50
       const nextGainMult = restoredState?.gainMult ?? 1
       const nextNormalizeNonEEG = restoredState?.normalizeNonEEG ?? false
       const nextMontage = restoredState?.montage ?? 'promedio'
@@ -1632,7 +1638,7 @@ export default function EEGViewer() {
       const nextArtifactReject = restoredState?.artifactReject ?? false
       const nextPositionSec = restoredState?.positionSec ?? 0
 
-      kappa.setFilters(nextHp, nextLp, nextNotch ? 50 : 0)
+      kappa.setFilters(nextHp, nextLp, nextNotch)
       const firstRead = readEpochWindow(kappa, nextPositionSec, nextWindowSecs, totalDurationSec, detectedRecordDurationSec)
       if (!firstRead) throw new Error('readEpoch devolvió null')
       setWindowSecs(nextWindowSecs)
@@ -1805,17 +1811,18 @@ export default function EEGViewer() {
 
   const handleHpChange = (val: string) => {
     const v = parseFloat(val); setHp(v)
-    kappaRef.current?.setFilters(v, lp, notch ? 50 : 0)
+    kappaRef.current?.setFilters(v, lp, notch)
     refreshEpoch(recordOffset, windowSecs)
   }
   const handleLpChange = (val: string) => {
     const v = parseFloat(val); setLp(v)
-    kappaRef.current?.setFilters(hp, v, notch ? 50 : 0)
+    kappaRef.current?.setFilters(hp, v, notch)
     refreshEpoch(recordOffset, windowSecs)
   }
   const handleNotchChange = (val: string) => {
-    const on = val === '1'; setNotch(on)
-    kappaRef.current?.setFilters(hp, lp, on ? 50 : 0)
+    const nextNotch = parseFloat(val)
+    setNotch(nextNotch)
+    kappaRef.current?.setFilters(hp, lp, nextNotch)
     refreshEpoch(recordOffset, windowSecs)
   }
   const handleWindowChange = (val: string) => {
@@ -1836,10 +1843,10 @@ export default function EEGViewer() {
     const defaultWindowSecs = 10
     const defaultHp = 0.5
     const defaultLp = 45
-    const defaultNotch = true
+    const defaultNotch = 50
     const defaultGainMult = 1
     const defaultMontage: MontageName = 'promedio'
-    kappaRef.current?.setFilters(defaultHp, defaultLp, defaultNotch ? 50 : 0)
+    kappaRef.current?.setFilters(defaultHp, defaultLp, defaultNotch)
 
     const kappa = kappaRef.current
     if (kappa) {
@@ -1886,7 +1893,7 @@ export default function EEGViewer() {
       return
     }
 
-    const cacheKey = `${channelIndex}|${hp}|${lp}|${notch ? 1 : 0}|${artifactReject ? 1 : 0}`
+    const cacheKey = `${channelIndex}|${hp}|${lp}|${notch}|${artifactReject ? 1 : 0}`
     const cached = dsaCacheRef.current.get(cacheKey)
     if (cached) {
       setDsaData(cached)
@@ -2333,9 +2340,8 @@ export default function EEGViewer() {
             <ToolbarSelect label="LP" value={lp} onChange={handleLpChange}>
               {LP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{`LP ${o.label}`}</option>)}
             </ToolbarSelect>
-            <ToolbarSelect label="Notch" value={notch ? '1' : '0'} onChange={handleNotchChange}>
-              <option value="1">Notch 50 Hz</option>
-              <option value="0">Notch Off</option>
+            <ToolbarSelect label="Notch" value={notch} onChange={handleNotchChange}>
+              {NOTCH_OPTIONS.map((o) => <option key={o.value} value={o.value}>{`Notch ${o.label}`}</option>)}
             </ToolbarSelect>
 
             <div style={{ width: 1, height: 36, background: '#e2e8f0', flexShrink: 0 }} />
@@ -2544,9 +2550,8 @@ export default function EEGViewer() {
           <ToolbarSelect label="LP" value={lp} onChange={handleLpChange}>
             {LP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{`LP ${o.label}`}</option>)}
           </ToolbarSelect>
-          <ToolbarSelect label="Notch" value={notch ? '1' : '0'} onChange={handleNotchChange}>
-            <option value="1">Notch 50 Hz</option>
-            <option value="0">Notch Off</option>
+          <ToolbarSelect label="Notch" value={notch} onChange={handleNotchChange}>
+            {NOTCH_OPTIONS.map((o) => <option key={o.value} value={o.value}>{`Notch ${o.label}`}</option>)}
           </ToolbarSelect>
           <ToolbarSelect label="Gan" value={gainMult} onChange={(v) => setGainMult(parseFloat(v))}>
             {GAIN_OPTIONS.map((o) => <option key={o.value} value={o.value}>{`Gan ${o.label}`}</option>)}

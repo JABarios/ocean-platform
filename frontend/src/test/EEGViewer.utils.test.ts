@@ -448,7 +448,7 @@ describe('EEG viewer utils', () => {
       windowSecs: 20,
       hp: 1,
       lp: 30,
-      notch: false,
+      notch: 0,
       gainMult: 2,
       normalizeNonEEG: true,
       montage: 'promedio',
@@ -487,5 +487,46 @@ describe('EEG viewer utils', () => {
     expect(result?.artifactReject).toBe(true)
     expect(result?.montage).toBe('raw')
     expect(result?.includedHiddenChannels).toEqual([])
+    expect(result?.notch).toBe(50)
+  })
+
+  it('acepta notch a 60 Hz y conserva compatibilidad con estados antiguos', () => {
+    const epoch = makeEpoch({
+      Fp1: [1, 2],
+      Fp2: [3, 4],
+    })
+
+    const modern = sanitizePersistedViewerState({
+      positionSec: 0,
+      windowSecs: 10,
+      hp: 0.5,
+      lp: 45,
+      notch: 60,
+      gainMult: 1,
+      normalizeNonEEG: false,
+      montage: 'raw',
+      excludedAverageReferenceChannels: [],
+      includedHiddenChannels: [],
+      dsaChannel: 'off',
+      artifactReject: false,
+    }, epoch, 60)
+
+    const legacy = sanitizePersistedViewerState({
+      positionSec: 0,
+      windowSecs: 10,
+      hp: 0.5,
+      lp: 45,
+      notch: true,
+      gainMult: 1,
+      normalizeNonEEG: false,
+      montage: 'raw',
+      excludedAverageReferenceChannels: [],
+      includedHiddenChannels: [],
+      dsaChannel: 'off',
+      artifactReject: false,
+    }, epoch, 60)
+
+    expect(modern?.notch).toBe(60)
+    expect(legacy?.notch).toBe(50)
   })
 })

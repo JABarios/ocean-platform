@@ -34,7 +34,7 @@ export interface PersistedViewerState {
   windowSecs: number
   hp: number
   lp: number
-  notch: boolean
+  notch: number | boolean
   gainMult: number
   normalizeNonEEG: boolean
   montage: string
@@ -50,7 +50,7 @@ export interface SanitizedViewerState {
   windowSecs: number
   hp: number
   lp: number
-  notch: boolean
+  notch: number
   gainMult: number
   normalizeNonEEG: boolean
   montage: MontageName
@@ -338,6 +338,14 @@ function pickPersistedWindow(windowSecs: number): number {
   return best
 }
 
+function sanitizeNotch(notch: number | boolean): number {
+  if (notch === true) return 50
+  if (notch === false) return 0
+  if (!Number.isFinite(notch)) return 50
+  if (notch === 50 || notch === 60) return notch
+  return 0
+}
+
 export function sanitizePersistedViewerState(
   state: PersistedViewerState | null,
   epoch: EpochData,
@@ -362,7 +370,7 @@ export function sanitizePersistedViewerState(
     windowSecs: pickPersistedWindow(state.windowSecs),
     hp: Number.isFinite(state.hp) ? Math.max(0, state.hp) : 0.5,
     lp: Number.isFinite(state.lp) ? Math.max(1, state.lp) : 45,
-    notch: Boolean(state.notch),
+    notch: sanitizeNotch(state.notch),
     gainMult: Number.isFinite(state.gainMult) ? Math.max(0.1, state.gainMult) : 1,
     normalizeNonEEG: Boolean(state.normalizeNonEEG),
     montage,

@@ -225,6 +225,26 @@ describe('EEG viewer utils', () => {
     expect(asArray(result.data[0])).toEqual([-90, -90])
   })
 
+  it('no inventa canales planos en promedio cuando faltan electrodos del montaje', () => {
+    const epoch = makeEpoch({
+      Fp1: [10, 20],
+      F7: [20, 30],
+      Cz: [30, 40],
+      ECG: [1, 2],
+    }, {
+      ECG: 'ECG',
+    })
+
+    const result = applyMontage(epoch, 'promedio')
+
+    expect(result.channelNames).toEqual([
+      'Fp1 - AVG',
+      'F7 - AVG',
+      'Cz - AVG',
+    ])
+    expect(result.nChannels).toBe(3)
+  })
+
   it('no marca como ocultos canales ya cubiertos por el montaje si vienen con prefijo EEG', () => {
     const epoch = makeEpoch({
       'EEG Fp1': [10, 20],
@@ -307,6 +327,25 @@ describe('EEG viewer utils', () => {
     expect(result.channelNames[0]).toBe('Fp1 - LM')
     expect(asArray(result.data[0])).toEqual([20 - lm[0], 24 - lm[1]])
     expect(asArray(result.data[8])).toEqual([40 - lm[0], 44 - lm[1]])
+  })
+
+  it('en linked mastoids usa el mastoide disponible sin promediar con cero', () => {
+    const epoch = makeEpoch({
+      A1: [2, 4],
+      Fp1: [20, 24],
+      F7: [10, 12],
+      Cz: [40, 44],
+    })
+
+    const result = applyMontage(epoch, 'linked_mastoids')
+
+    expect(result.channelNames).toEqual([
+      'Fp1 - LM',
+      'F7 - LM',
+      'Cz - LM',
+    ])
+    expect(asArray(result.data[0])).toEqual([18, 20])
+    expect(asArray(result.data[2])).toEqual([38, 40])
   })
 
   it('aplica hjorth restando la media de vecinos listados', () => {

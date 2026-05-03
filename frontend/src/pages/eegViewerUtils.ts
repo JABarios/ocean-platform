@@ -243,6 +243,7 @@ export function applyMontage(
   })
 
   const zero = new Float32Array(epoch.nSamples)
+  const hasSignal = (name: string) => byName.has(canonicalizeChannelName(name))
   const getSignal = (name: string) => byName.get(canonicalizeChannelName(name))?.data ?? zero
   const getType = (name: string) => byName.get(canonicalizeChannelName(name))?.type ?? 'EEG'
 
@@ -256,7 +257,7 @@ export function applyMontage(
     : null
 
   const linkedMastoidsReference = montageDefinition.kind === 'linked_mastoids'
-    ? averageSignals([getSignal('A1'), getSignal('A2')], epoch.nSamples)
+    ? averageSignals(['A1', 'A2'].filter(hasSignal).map(getSignal), epoch.nSamples)
     : null
 
   const channelNames: string[] = []
@@ -266,7 +267,10 @@ export function applyMontage(
   for (const definition of definitions) {
     if (montageDefinition.kind === 'hjorth') {
       const [active, ...neighbors] = definition as readonly string[]
-      const neighborMean = averageSignals(neighbors.map(getSignal), epoch.nSamples)
+      if (!hasSignal(active)) continue
+      const availableNeighbors = neighbors.filter(hasSignal)
+      if (availableNeighbors.length === 0) continue
+      const neighborMean = averageSignals(availableNeighbors.map(getSignal), epoch.nSamples)
       channelNames.push(`${active} - AVG(${neighbors.join(',')})`)
       channelTypes.push(getType(active))
       data.push(subtractSignals(getSignal(active), neighborMean))
@@ -274,6 +278,9 @@ export function applyMontage(
     }
 
     const [channelA, channelB] = definition as readonly [string, string]
+    if (!hasSignal(channelA)) continue
+    if (channelB !== 'AVG' && channelB !== 'LM' && !hasSignal(channelB)) continue
+    if (channelB === 'LM' && !hasSignal('A1') && !hasSignal('A2')) continue
     const reference =
       channelB === 'AVG' ? avgReference :
       channelB === 'LM' ? linkedMastoidsReference :

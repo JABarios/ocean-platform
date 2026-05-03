@@ -255,6 +255,7 @@ function computeScales(
   epoch: EpochData,
   gainMult: number,
   normalizeNonEEG: boolean,
+  gainOverrides: Record<string, number>,
 ): { scales: { p2: number; p98: number }[]; refRange: number } {
   const perCh = epoch.data.map((d) => {
     const sorted = Float32Array.from(d).sort()
@@ -276,11 +277,12 @@ function computeScales(
     .sort((a, b) => a - b)
 
   const refRange  = refRanges.length > 0 ? refRanges[Math.floor(refRanges.length * 0.5)] : 1
-  const halfRange = refRange / gainMult / 2
 
   const scales = perCh.map((s, i) => {
     const type = epoch.channelTypes[i] ?? 'EEG'
     if (normalizeNonEEG && type !== 'EEG') return { p2: s.p2, p98: s.p98 }
+    const channelGain = gainOverrides[epoch.channelNames[i] ?? ''] ?? gainMult
+    const halfRange = refRange / channelGain / 2
     return { p2: s.center - halfRange, p98: s.center + halfRange }
   })
 
@@ -295,6 +297,7 @@ function drawEpoch(
   pageDuration: number,   // actual seconds — derived from nSamples / sfreq
   containerH: number,
   annotations?: EmbeddedAnnotation[],
+  selectedChannelName?: string | null,
 ): number {                // returns chanH used
   canvas.width  = canvas.offsetWidth || 1200
   const chanH   = Math.max(MIN_CHAN_H, Math.floor(containerH / Math.max(epoch.nChannels, 1)))
@@ -325,7 +328,8 @@ function drawEpoch(
       ctx.fillRect(LABEL_WIDTH, y0, waveW, chanH)
     }
 
-    ctx.fillStyle = '#f7f1c7'
+    const isSelected = selectedChannelName === name
+    ctx.fillStyle = isSelected ? '#fee2e2' : '#f7f1c7'
     ctx.fillRect(0, y0, LABEL_WIDTH, chanH)
 
     // Label text — adapt font size to row height
@@ -340,12 +344,17 @@ function drawEpoch(
       ctx.fillText(type.slice(0, 6), 4, y0 + chanH * 0.62)
     }
 
-    ctx.strokeStyle = 'rgba(0,0,0,0.08)'
+    ctx.strokeStyle = isSelected ? 'rgba(185,28,28,0.45)' : 'rgba(0,0,0,0.08)'
     ctx.lineWidth   = 1
     ctx.beginPath(); ctx.moveTo(0, y0 + chanH); ctx.lineTo(W, y0 + chanH); ctx.stroke()
 
-    ctx.strokeStyle = '#cbd5e1'
+    ctx.strokeStyle = isSelected ? '#dc2626' : '#cbd5e1'
     ctx.beginPath(); ctx.moveTo(LABEL_WIDTH, y0); ctx.lineTo(LABEL_WIDTH, y0 + chanH); ctx.stroke()
+    if (isSelected) {
+      ctx.strokeStyle = '#dc2626'
+      ctx.lineWidth = 2
+      ctx.strokeRect(1, y0 + 1, LABEL_WIDTH - 2, Math.max(0, chanH - 2))
+    }
   }
 
   // ── Time grid — draw after row backgrounds so lines stay visible ───────────
@@ -1009,6 +1018,8 @@ export default function EEGViewer() {
   const [compactToolbar,  setCompactToolbar]  = useState(false)
   const [mobileControlsOpen, setMobileControlsOpen] = useState(false)
   const [localPickerError, setLocalPickerError] = useState('')
+  const [selectedChannelName, setSelectedChannelName] = useState<string | null>(null)
+  const [channelGainOverrides, setChannelGainOverrides] = useState<Record<string, number>>({})
 
   const canvasRef  = useRef<HTMLCanvasElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)
@@ -1152,8 +1163,25 @@ export default function EEGViewer() {
 
   const { scales, refRange } = useMemo(() => {
     if (!processedEpoch) return { scales: [] as { p2: number; p98: number }[], refRange: 1 }
-    return computeScales(processedEpoch, gainMult, normalizeNonEEG)
-  }, [processedEpoch, gainMult, normalizeNonEEG])
+    return computeScales(processedEpoch, gainMult, normalizeNonEEG, channelGainOverrides)
+  }, [processedEpoch, gainMult, normalizeNonEEG, channelGainOverrides])
+
+  const effectiveGainMult = selectedChannelName
+    ? (channelGainOverrides[selectedChannelName] ?? gainMult)
+    : gainMult
+
+  useEffect(() => {
+    if (!processedEpoch) return
+    const visibleNames = new Set(processedEpoch.channelNames)
+    if (selectedChannelName && !visibleNames.has(selectedChannelName)) {
+      setSelectedChannelName(null)
+    }
+    setChannelGainOverrides((current) => {
+      const nextEntries = Object.entries(current).filter(([channelName]) => visibleNames.has(channelName))
+      if (nextEntries.length === Object.keys(current).length) return current
+      return Object.fromEntries(nextEntries)
+    })
+  }, [processedEpoch, selectedChannelName])
 
   // Actual page duration in seconds (not records!) — fixes time grid
   const pageDuration = processedEpoch
@@ -1214,6 +1242,8 @@ export default function EEGViewer() {
     setExtrasMenuPos(null)
     setMobileControlsOpen(false)
     setLocalPickerError('')
+    setSelectedChannelName(null)
+    setChannelGainOverrides({})
     setDsaChannel('off')
     setArtifactReject(false)
     setDsaData(null)
@@ -1348,7 +1378,7 @@ export default function EEGViewer() {
 
     const containerH = container.clientHeight || processedEpoch.nChannels * 60
     const tStart     = recordOffset
-    const chanH      = drawEpoch(canvas, processedEpoch, scales, tStart, pageDuration, containerH, edfAnnotations)
+    const chanH      = drawEpoch(canvas, processedEpoch, scales, tStart, pageDuration, containerH, edfAnnotations, selectedChannelName)
     const { sbMuV, sbPxH } = computeSBSize(chanH, canvas.height)
 
     renderMetaRef.current = {
@@ -1359,7 +1389,7 @@ export default function EEGViewer() {
     }
     refreshOverlay()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [processedEpoch, scales, refRange, gainMult, recordOffset, pageDuration, refreshOverlay, edfAnnotations])
+  }, [processedEpoch, scales, refRange, gainMult, recordOffset, pageDuration, refreshOverlay, edfAnnotations, selectedChannelName])
 
   // ── Draw effect ───────────────────────────────────────────────────────────────
 
@@ -1443,6 +1473,15 @@ export default function EEGViewer() {
     const rect = canvas.getBoundingClientRect()
     const x    = e.clientX - rect.left
     const y    = e.clientY - rect.top
+    if (x <= LABEL_WIDTH && processedEpoch) {
+      const channelIndex = Math.max(0, Math.min(processedEpoch.nChannels - 1, Math.floor(y / Math.max(rm.chanH, 1))))
+      const channelName = processedEpoch.channelNames[channelIndex]
+      if (channelName) {
+        setSelectedChannelName((current) => current === channelName ? null : channelName)
+        e.preventDefault()
+        return
+      }
+    }
     const sbX  = sbPosRef.current ? sbPosRef.current.x : rm.W - SB_BAR_W - 18
     const sbY  = sbPosRef.current ? sbPosRef.current.y : rm.H - rm.sbPxH - 22
     const pad  = 8
@@ -1450,7 +1489,7 @@ export default function EEGViewer() {
       sbDragRef.current = { startMX: x, startMY: y, startSBX: sbX, startSBY: sbY }
       e.preventDefault()
     }
-  }, [])
+  }, [processedEpoch])
 
   useEffect(() => {
     const onUp = () => { sbDragRef.current = null }
@@ -1860,6 +1899,17 @@ export default function EEGViewer() {
     kappaRef.current?.setFilters(hp, lp, nextNotch)
     refreshEpoch(recordOffset, windowSecs)
   }
+  const handleGainChange = useCallback((val: string) => {
+    const nextGain = parseFloat(val)
+    if (selectedChannelName) {
+      setChannelGainOverrides((current) => ({
+        ...current,
+        [selectedChannelName]: nextGain,
+      }))
+      return
+    }
+    setGainMult(nextGain)
+  }, [selectedChannelName])
   const handleWindowChange = (val: string) => {
     const newWin = parseInt(val)
     const nextStepSec = getPageStepSeconds(newWin, recordDurationSec)
@@ -1909,6 +1959,8 @@ export default function EEGViewer() {
     setDsaLoading(false)
     setDsaError('')
     setMobileControlsOpen(false)
+    setSelectedChannelName(null)
+    setChannelGainOverrides({})
     dsaCacheRef.current.clear()
   }, [recordDurationSec, totalSeconds])
 
@@ -2034,22 +2086,40 @@ export default function EEGViewer() {
       if (e.key === 'ArrowRight' && currentPage < maxPage)  goToPage(currentPage + 1)
       if (e.key === 'ArrowUp') {
         e.preventDefault()
-        setGainMult((prev) => {
-          const idx = GAIN_OPTIONS.findIndex((o) => o.value === prev)
-          return GAIN_OPTIONS[Math.min(idx + 1, GAIN_OPTIONS.length - 1)].value
-        })
+        const currentGain = selectedChannelName
+          ? (channelGainOverrides[selectedChannelName] ?? gainMult)
+          : gainMult
+        const idx = GAIN_OPTIONS.findIndex((o) => o.value === currentGain)
+        const nextGain = GAIN_OPTIONS[Math.min(idx + 1, GAIN_OPTIONS.length - 1)].value
+        if (selectedChannelName) {
+          setChannelGainOverrides((current) => ({
+            ...current,
+            [selectedChannelName]: nextGain,
+          }))
+        } else {
+          setGainMult(nextGain)
+        }
       }
       if (e.key === 'ArrowDown') {
         e.preventDefault()
-        setGainMult((prev) => {
-          const idx = GAIN_OPTIONS.findIndex((o) => o.value === prev)
-          return GAIN_OPTIONS[Math.max(idx - 1, 0)].value
-        })
+        const currentGain = selectedChannelName
+          ? (channelGainOverrides[selectedChannelName] ?? gainMult)
+          : gainMult
+        const idx = GAIN_OPTIONS.findIndex((o) => o.value === currentGain)
+        const nextGain = GAIN_OPTIONS[Math.max(idx - 1, 0)].value
+        if (selectedChannelName) {
+          setChannelGainOverrides((current) => ({
+            ...current,
+            [selectedChannelName]: nextGain,
+          }))
+        } else {
+          setGainMult(nextGain)
+        }
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [phase, currentPage, maxPage, goToPage, shiftBySeconds])
+  }, [phase, currentPage, maxPage, goToPage, shiftBySeconds, selectedChannelName, channelGainOverrides, gainMult])
 
   // ── Cleanup ───────────────────────────────────────────────────────────────────
 
@@ -2448,6 +2518,40 @@ export default function EEGViewer() {
 
         {!compactToolbar && (
           <>
+            {selectedChannelName && (
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '0.16rem 0.45rem',
+                background: '#fef2f2',
+                border: '1px solid #fecaca',
+                borderRadius: 4,
+                color: '#991b1b',
+                fontSize: '0.75rem',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+              }}>
+                <span>{selectedChannelName}</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedChannelName(null)}
+                  title="Volver al modo global y conservar la ganancia propia de este canal"
+                  style={{
+                    background: '#ffffff',
+                    border: '1px solid #fca5a5',
+                    borderRadius: 4,
+                    color: '#b91c1c',
+                    fontSize: '0.72rem',
+                    padding: '0.05rem 0.32rem',
+                    cursor: 'pointer',
+                    fontWeight: 700,
+                  }}
+                >
+                  Global
+                </button>
+              </div>
+            )}
             {showArtifactControl && (
               <label style={{ display: 'flex', cursor: dsaChannel === 'off' ? 'not-allowed' : 'pointer' }}>
                 <button
@@ -2469,7 +2573,7 @@ export default function EEGViewer() {
               </label>
             )}
 
-            <ToolbarSelect label="Ganancia" value={gainMult} onChange={(v) => setGainMult(parseFloat(v))}>
+            <ToolbarSelect label="Ganancia" value={effectiveGainMult} onChange={handleGainChange}>
               {GAIN_OPTIONS.map((o) => <option key={o.value} value={o.value}>{`Gan ${o.label}`}</option>)}
             </ToolbarSelect>
 
@@ -2579,6 +2683,38 @@ export default function EEGViewer() {
           borderBottom: '1px solid #e2e8f0',
           flexShrink: 0,
         }}>
+          {selectedChannelName && (
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '0.16rem 0.38rem',
+              background: '#fef2f2',
+              border: '1px solid #fecaca',
+              borderRadius: 4,
+              color: '#991b1b',
+              fontSize: '0.72rem',
+              whiteSpace: 'nowrap',
+            }}>
+              <span>{selectedChannelName}</span>
+              <button
+                type="button"
+                onClick={() => setSelectedChannelName(null)}
+                style={{
+                  background: '#ffffff',
+                  border: '1px solid #fca5a5',
+                  borderRadius: 4,
+                  color: '#b91c1c',
+                  fontSize: '0.68rem',
+                  padding: '0.04rem 0.28rem',
+                  cursor: 'pointer',
+                  fontWeight: 700,
+                }}
+              >
+                Global
+              </button>
+            </div>
+          )}
           <ToolbarSelect label="HP" value={hp} onChange={handleHpChange}>
             {HP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{`HP ${o.label}`}</option>)}
           </ToolbarSelect>
@@ -2588,7 +2724,7 @@ export default function EEGViewer() {
           <ToolbarSelect label="Notch" value={notch} onChange={handleNotchChange}>
             {NOTCH_OPTIONS.map((o) => <option key={o.value} value={o.value}>{`Notch ${o.label}`}</option>)}
           </ToolbarSelect>
-          <ToolbarSelect label="Gan" value={gainMult} onChange={(v) => setGainMult(parseFloat(v))}>
+          <ToolbarSelect label="Gan" value={effectiveGainMult} onChange={handleGainChange}>
             {GAIN_OPTIONS.map((o) => <option key={o.value} value={o.value}>{`Gan ${o.label}`}</option>)}
           </ToolbarSelect>
 

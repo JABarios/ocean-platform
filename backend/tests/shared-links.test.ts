@@ -6,15 +6,12 @@ import app from '../src/index'
 import { createSharedLinkBlob, createUser, generateToken, prisma } from './helpers'
 
 describe('shared links', () => {
-  it('crea un enlace efímero cifrado para un usuario autenticado', async () => {
-    const owner = await createUser({ email: 'shared-owner@ocean.local', displayName: 'Shared Owner', password: 'pass123' })
-    const token = generateToken(owner.id, owner.email, owner.role)
+  it('crea un enlace efímero cifrado sin requerir login', async () => {
     const tempPath = path.join(os.tmpdir(), `ocean-shared-${Date.now()}.enc`)
     await fs.writeFile(tempPath, 'shared-encrypted-payload')
 
     const res = await request(app)
       .post('/shared-links/upload')
-      .set('Authorization', `Bearer ${token}`)
       .field('label', 'Interconsulta nocturna')
       .field('originalFilename', 'sleep.edf')
       .field('ivBase64', 'ZmFrZS1pdi1iYXNlNjQ=')
@@ -25,7 +22,7 @@ describe('shared links', () => {
     expect(res.body.label).toBe('Interconsulta nocturna')
 
     const stored = await prisma.sharedLinkBlob.findUniqueOrThrow({ where: { id: res.body.id } })
-    expect(stored.createdBy).toBe(owner.id)
+    expect(stored.createdBy).toBeNull()
     expect(stored.originalFilename).toBe('sleep.edf')
     expect(stored.expiresAt.getTime()).toBeGreaterThan(Date.now())
   })

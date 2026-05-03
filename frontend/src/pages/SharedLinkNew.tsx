@@ -1,6 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
 import { API_BASE, friendlyError } from '../api/client'
-import { useAuthStore } from '../store/authStore'
 import { useCrypto, isCryptoAvailable } from '../hooks/useCrypto'
 import PageHeader from '../components/PageHeader'
 import { anonymizeEdfFile, type EdfAnonymizationReport } from '../utils/edfAnonymization'
@@ -13,8 +12,15 @@ interface UploadResponse {
   label?: string
 }
 
+function getSharedViewerOrigin() {
+  const configuredOrigin = import.meta.env.VITE_SHARED_LINK_ORIGIN?.trim()
+  if (configuredOrigin) {
+    return configuredOrigin.replace(/\/+$/, '')
+  }
+  return window.location.origin
+}
+
 export default function SharedLinkNew() {
-  const token = useAuthStore((s) => s.token)
   const { encryptFile } = useCrypto()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -83,9 +89,6 @@ export default function SharedLinkNew() {
 
       const res = await fetch(`${API_BASE}/shared-links/upload`, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token || ''}`,
-        },
         body: formData,
       })
       if (!res.ok) {
@@ -94,7 +97,7 @@ export default function SharedLinkNew() {
       }
 
       const payload = await res.json() as UploadResponse
-      const url = `${window.location.origin}/v/${payload.id}#${encodeURIComponent(decryptionKey)}`
+      const url = `${getSharedViewerOrigin()}/v/${payload.id}#${encodeURIComponent(decryptionKey)}`
       sessionStorage.setItem(`ocean_eeg_key_shared_${payload.id}`, decryptionKey)
       setSharedUrl(url)
       setExpiresAt(payload.expiresAt)
@@ -119,8 +122,8 @@ export default function SharedLinkNew() {
   return (
     <div className="case-new">
       <PageHeader
-        title="Shared Link"
-        subtitle="Genera un enlace efímero cifrado para interconsulta rápida. El EDF se anonimiza y cifra antes de salir del navegador."
+        title="Comparte un EEG"
+        subtitle="Carga un EDF, OCEAN lo anonimiza y cifra en tu navegador, y genera un enlace efímero que se abre sin login."
       />
       <form onSubmit={handleCreate} className="case-form card">
         <label>
@@ -186,7 +189,7 @@ export default function SharedLinkNew() {
 
         <div className="form-actions">
           <button type="submit" className="btn-primary" disabled={!encryptedBlob || saving || encrypting}>
-            {saving ? 'Creando enlace…' : 'Crear shared link'}
+            {saving ? 'Creando enlace…' : 'Crear enlace seguro'}
           </button>
         </div>
       </form>

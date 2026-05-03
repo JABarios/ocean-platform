@@ -51,7 +51,7 @@ async function findAccessibleSharedLink(id: string) {
   })
 }
 
-router.post('/upload', authMiddleware, upload.single('blob'), async (req: AuthenticatedRequest, res) => {
+router.post('/upload', upload.single('blob'), async (req: AuthenticatedRequest, res) => {
   const parsed = uploadSchema.safeParse(req.body ?? {})
   if (!parsed.success || !req.file) {
     if (req.file?.path) {
@@ -95,7 +95,7 @@ router.post('/upload', authMiddleware, upload.single('blob'), async (req: Authen
   const sharedLink = await prisma.sharedLinkBlob.create({
     data: {
       id,
-      createdBy: req.user!.id,
+      createdBy: req.user?.id,
       blobLocation,
       blobHash: hash,
       ivBase64: parsed.data.ivBase64,

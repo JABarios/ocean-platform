@@ -19,18 +19,25 @@ import AdminHome from './pages/AdminHome'
 import SharedLinkNew from './pages/SharedLinkNew'
 
 export default function App() {
+  const isShareHost = typeof window !== 'undefined' && window.location.hostname.startsWith('share.')
+
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/share" element={<SharedLinkNew />} />
       <Route
         path="/"
         element={
-          <ProtectedRoute>
-            <Layout>
-              <Dashboard />
-            </Layout>
-          </ProtectedRoute>
+          isShareHost ? (
+            <SharedLinkNew />
+          ) : (
+            <ProtectedRoute>
+              <Layout>
+                <Dashboard />
+              </Layout>
+            </ProtectedRoute>
+          )
         }
       />
       <Route
@@ -45,13 +52,7 @@ export default function App() {
       />
       <Route
         path="/shared/new"
-        element={
-          <ProtectedRoute>
-            <Layout>
-              <SharedLinkNew />
-            </Layout>
-          </ProtectedRoute>
-        }
+        element={<SharedLinkNew />}
       />
       <Route
         path="/cases"

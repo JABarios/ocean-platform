@@ -1863,6 +1863,7 @@ export default function EEGViewer() {
       const channelName = processedEpoch.channelNames[channelIndex]
       if (channelName) {
         setSelectedChannelName((current) => current === channelName ? null : channelName)
+        if (triggerAvgOpen) setTriggerChannelName(channelName)
         e.preventDefault()
         return
       }
@@ -1874,7 +1875,7 @@ export default function EEGViewer() {
       sbDragRef.current = { startMX: x, startMY: y, startSBX: sbX, startSBY: sbY }
       e.preventDefault()
     }
-  }, [getTriggerThresholdLayout, processedEpoch])
+  }, [getTriggerThresholdLayout, processedEpoch, triggerAvgOpen])
 
   useEffect(() => {
     const onUp = () => {
@@ -2919,18 +2920,18 @@ export default function EEGViewer() {
           onClick={() => setTriggerAvgOpen((open) => !open)}
           title="Activar promedio EEG desencadenado por umbral"
           style={{
-            background: triggerAvgOpen ? '#dcfce7' : '#f8fafc',
-            border: `1px solid ${triggerAvgOpen ? '#86efac' : '#cbd5e1'}`,
+            background: triggerAvgOpen ? '#166534' : '#ecfdf5',
+            border: `1px solid ${triggerAvgOpen ? '#166534' : '#86efac'}`,
             borderRadius: 4,
-            color: triggerAvgOpen ? '#166534' : '#334155',
+            color: triggerAvgOpen ? '#ffffff' : '#166534',
             fontSize: compactToolbar ? '0.72rem' : '0.75rem',
             padding: compactToolbar ? '0.18rem 0.38rem' : '0.16rem 0.48rem',
             cursor: 'pointer',
             whiteSpace: 'nowrap',
-            fontWeight: triggerAvgOpen ? 700 : 500,
+            fontWeight: 700,
           }}
         >
-          {compactToolbar ? 'Trig' : 'Trigger Avg'}
+          {compactToolbar ? 'Trig Avg' : (triggerAvgOpen ? 'Trigger Avg ON' : 'Trigger Avg')}
         </button>
 
         {!compactToolbar && (
@@ -3266,6 +3267,15 @@ export default function EEGViewer() {
           borderBottom: '1px solid #d1fae5',
           flexShrink: 0,
         }}>
+          <div style={{
+            flexBasis: '100%',
+            color: '#166534',
+            fontSize: '0.78rem',
+            lineHeight: 1.45,
+            paddingBottom: '0.15rem',
+          }}>
+            1. Pulsa el nombre de un canal para usarlo como trigger. 2. Arrastra la línea roja horizontal sobre ese canal para fijar el umbral. 3. Abre el promedio para ver todos los canales a la vez.
+          </div>
           <ToolbarSelect label="Canal trigger" value={triggerChannelName} onChange={setTriggerChannelName} width={compactToolbar ? 118 : 142} compact={compactToolbar}>
             {triggerChannelOptions.map((channel) => (
               <option key={channel.name} value={channel.name}>{channel.name}</option>

@@ -1102,6 +1102,7 @@ function TriggerSignalPreview({
   eventSampleIndexes,
   sampleRate,
   onThresholdStepChange,
+  scalesOverride,
   compact = false,
 }: {
   signal: Float32Array
@@ -1109,6 +1110,7 @@ function TriggerSignalPreview({
   eventSampleIndexes: number[]
   sampleRate: number
   onThresholdStepChange: (nextStep: number) => void
+  scalesOverride?: { min: number; max: number } | null
   compact?: boolean
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -1116,8 +1118,9 @@ function TriggerSignalPreview({
   const draggingRef = useRef(false)
 
   const scales = useMemo(() => {
+    if (scalesOverride) return scalesOverride
     return computeTriggerThresholdRange(signal) ?? { min: -1, max: 1 }
-  }, [signal])
+  }, [scalesOverride, signal])
 
   const projectStepFromY = useCallback((y: number, height: number) => {
     const top = 16
@@ -1289,6 +1292,7 @@ function TriggerAverageModal({
   triggerSignal,
   triggerThreshold,
   triggerThresholdStep,
+  triggerThresholdRange,
   triggerDetectionMode,
   triggerHp,
   triggerLp,
@@ -1338,6 +1342,7 @@ function TriggerAverageModal({
   triggerSignal: Float32Array | null
   triggerThreshold: number
   triggerThresholdStep: number
+  triggerThresholdRange: { min: number; max: number } | null
   triggerDetectionMode: 'event' | 'burst'
   triggerHp: number
   triggerLp: number
@@ -1821,6 +1826,7 @@ function TriggerAverageModal({
                   eventSampleIndexes={eventSampleIndexes}
                   sampleRate={averagedEpoch?.sfreq ?? 1}
                   onThresholdStepChange={onThresholdChange}
+                  scalesOverride={triggerThresholdRange}
                   compact
                 />
               </div>
@@ -2316,7 +2322,6 @@ export default function EEGViewer() {
     const requestVersion = ++triggerAverageLoadVersionRef.current
     setFullRecordTriggerAverageLoading(true)
     setFullRecordTriggerAverageError('')
-    setFullRecordTriggerAverageResult(null)
 
     const timer = window.setTimeout(() => {
       try {
@@ -2359,7 +2364,7 @@ export default function EEGViewer() {
           setFullRecordTriggerAverageLoading(false)
         }
       }
-    }, 0)
+    }, 180)
 
     return () => window.clearTimeout(timer)
   }, [
@@ -4471,6 +4476,7 @@ export default function EEGViewer() {
           triggerSignal={triggerSignalPreview}
           triggerThreshold={triggerThresholdValue}
           triggerThresholdStep={triggerThresholdStep}
+          triggerThresholdRange={resolvedTriggerThresholdRange}
           triggerDetectionMode={triggerDetectionMode}
           triggerHp={triggerHp}
           triggerLp={triggerLp}

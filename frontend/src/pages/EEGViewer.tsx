@@ -593,6 +593,81 @@ function ToolbarSelect({
   )
 }
 
+function NumericSuggestInput({
+  label,
+  value,
+  onCommit,
+  suggestions,
+  width = 74,
+  compact = false,
+  step = 0.1,
+  min = 0,
+}: {
+  label: string
+  value: number
+  onCommit: (value: number) => void
+  suggestions: number[]
+  width?: number
+  compact?: boolean
+  step?: number
+  min?: number
+}) {
+  const [text, setText] = useState(String(value))
+
+  useEffect(() => {
+    setText(String(value))
+  }, [value])
+
+  const listId = `${label.toLowerCase().replace(/[^a-z0-9]+/gi, '-')}-suggestions`
+
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <input
+        type="number"
+        inputMode="decimal"
+        list={listId}
+        aria-label={label}
+        title={`${label} — escribe cualquier valor o elige una sugerencia`}
+        min={min}
+        step={step}
+        value={text}
+        onChange={(e) => {
+          const nextText = e.target.value
+          setText(nextText)
+          const parsed = parseFloat(nextText)
+          if (Number.isFinite(parsed)) onCommit(parsed)
+        }}
+        onBlur={() => {
+          const parsed = parseFloat(text)
+          if (Number.isFinite(parsed)) {
+            onCommit(parsed)
+            setText(String(parsed))
+          } else {
+            setText(String(value))
+          }
+        }}
+        style={{
+          background: '#f8fafc',
+          border: '1px solid #cbd5e1',
+          borderRadius: 4,
+          color: '#1e293b',
+          fontSize: compact ? '0.72rem' : '0.75rem',
+          padding: compact ? '0.16rem 0.32rem' : '0.18rem 0.4rem',
+          outline: 'none',
+          width,
+          maxWidth: width,
+          lineHeight: 1.15,
+        }}
+      />
+      <datalist id={listId}>
+        {suggestions.map((suggestion) => (
+          <option key={suggestion} value={suggestion} />
+        ))}
+      </datalist>
+    </label>
+  )
+}
+
 function DSAHeatmap({
   data,
   artifactEnabled,
@@ -1414,12 +1489,18 @@ function TriggerAverageModal({
             <option key={channel.name} value={channel.name}>{channel.name}</option>
           ))}
         </ToolbarSelect>
-        <ToolbarSelect label="HP trig" value={triggerHp} onChange={(value) => onTriggerHpChange(parseFloat(value) || 0)}>
-          {HP_OPTIONS.map((option) => <option key={option.value} value={option.value}>{`HP ${option.label}`}</option>)}
-        </ToolbarSelect>
-        <ToolbarSelect label="LP trig" value={triggerLp} onChange={(value) => onTriggerLpChange(parseFloat(value) || 0)}>
-          {[{ label: 'Ninguno', value: 0 }, ...LP_OPTIONS].map((option) => <option key={option.value} value={option.value}>{`LP ${option.label}`}</option>)}
-        </ToolbarSelect>
+        <NumericSuggestInput
+          label="HP trig"
+          value={triggerHp}
+          onCommit={onTriggerHpChange}
+          suggestions={HP_OPTIONS.map((option) => option.value)}
+        />
+        <NumericSuggestInput
+          label="LP trig"
+          value={triggerLp}
+          onCommit={onTriggerLpChange}
+          suggestions={[0, ...LP_OPTIONS.map((option) => option.value)]}
+        />
         <ToolbarSelect label="Notch trig" value={triggerNotch} onChange={(value) => onTriggerNotchChange(parseFloat(value) || 0)}>
           {NOTCH_OPTIONS.map((option) => <option key={option.value} value={option.value}>{`N ${option.label}`}</option>)}
         </ToolbarSelect>
@@ -3272,12 +3353,18 @@ export default function EEGViewer() {
 
         {!compactToolbar && (
           <>
-            <ToolbarSelect label="HP" value={hp} onChange={handleHpChange}>
-              {HP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{`HP ${o.label}`}</option>)}
-            </ToolbarSelect>
-            <ToolbarSelect label="LP" value={lp} onChange={handleLpChange}>
-              {LP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{`LP ${o.label}`}</option>)}
-            </ToolbarSelect>
+            <NumericSuggestInput
+              label="HP"
+              value={hp}
+              onCommit={(value) => handleHpChange(String(value))}
+              suggestions={HP_OPTIONS.map((option) => option.value)}
+            />
+            <NumericSuggestInput
+              label="LP"
+              value={lp}
+              onCommit={(value) => handleLpChange(String(value))}
+              suggestions={[0, ...LP_OPTIONS.map((option) => option.value)]}
+            />
             <ToolbarSelect label="Notch" value={notch} onChange={handleNotchChange}>
               {NOTCH_OPTIONS.map((o) => <option key={o.value} value={o.value}>{`Notch ${o.label}`}</option>)}
             </ToolbarSelect>
@@ -3566,12 +3653,22 @@ export default function EEGViewer() {
               </button>
             </div>
           )}
-          <ToolbarSelect label="HP" value={hp} onChange={handleHpChange}>
-            {HP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{`HP ${o.label}`}</option>)}
-          </ToolbarSelect>
-          <ToolbarSelect label="LP" value={lp} onChange={handleLpChange}>
-            {LP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{`LP ${o.label}`}</option>)}
-          </ToolbarSelect>
+          <NumericSuggestInput
+            label="HP"
+            value={hp}
+            onCommit={(value) => handleHpChange(String(value))}
+            suggestions={HP_OPTIONS.map((option) => option.value)}
+            compact
+            width={64}
+          />
+          <NumericSuggestInput
+            label="LP"
+            value={lp}
+            onCommit={(value) => handleLpChange(String(value))}
+            suggestions={[0, ...LP_OPTIONS.map((option) => option.value)]}
+            compact
+            width={64}
+          />
           <ToolbarSelect label="Notch" value={notch} onChange={handleNotchChange}>
             {NOTCH_OPTIONS.map((o) => <option key={o.value} value={o.value}>{`Notch ${o.label}`}</option>)}
           </ToolbarSelect>
@@ -3714,12 +3811,22 @@ export default function EEGViewer() {
               <option key={channel.name} value={channel.name}>{channel.name}</option>
             ))}
           </ToolbarSelect>
-          <ToolbarSelect label="HP trig" value={triggerHp} onChange={(value) => setTriggerHp(parseFloat(value) || 0)} compact={compactToolbar}>
-            {HP_OPTIONS.map((option) => <option key={option.value} value={option.value}>{`HP ${option.label}`}</option>)}
-          </ToolbarSelect>
-          <ToolbarSelect label="LP trig" value={triggerLp} onChange={(value) => setTriggerLp(parseFloat(value) || 0)} compact={compactToolbar}>
-            {[{ label: 'Ninguno', value: 0 }, ...LP_OPTIONS].map((option) => <option key={option.value} value={option.value}>{`LP ${option.label}`}</option>)}
-          </ToolbarSelect>
+          <NumericSuggestInput
+            label="HP trig"
+            value={triggerHp}
+            onCommit={setTriggerHp}
+            suggestions={HP_OPTIONS.map((option) => option.value)}
+            compact={compactToolbar}
+            width={compactToolbar ? 68 : 76}
+          />
+          <NumericSuggestInput
+            label="LP trig"
+            value={triggerLp}
+            onCommit={setTriggerLp}
+            suggestions={[0, ...LP_OPTIONS.map((option) => option.value)]}
+            compact={compactToolbar}
+            width={compactToolbar ? 68 : 76}
+          />
           <ToolbarSelect label="Notch trig" value={triggerNotch} onChange={(value) => setTriggerNotch(parseFloat(value) || 0)} compact={compactToolbar}>
             {NOTCH_OPTIONS.map((option) => <option key={option.value} value={option.value}>{`N ${option.label}`}</option>)}
           </ToolbarSelect>

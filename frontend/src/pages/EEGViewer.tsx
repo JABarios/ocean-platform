@@ -1181,6 +1181,9 @@ function TriggerSignalPreview({
 
 function TriggerAverageModal({
   result,
+  averageScope,
+  fullRecordLoading,
+  fullRecordError,
   triggerChannelName,
   triggerSignal,
   triggerThreshold,
@@ -1198,11 +1201,15 @@ function TriggerAverageModal({
   onTriggerNotchChange,
   onTriggerRectifyChange,
   onRectifyAverageChange,
+  onAverageScopeChange,
   onThresholdChange,
   onThresholdNudge,
   triggerChannelOptions,
 }: {
   result: TriggeredAverageResult | null
+  averageScope: 'page' | 'record'
+  fullRecordLoading: boolean
+  fullRecordError: string
   triggerChannelName: string
   triggerSignal: Float32Array | null
   triggerThreshold: number
@@ -1220,6 +1227,7 @@ function TriggerAverageModal({
   onTriggerNotchChange: (value: number) => void
   onTriggerRectifyChange: () => void
   onRectifyAverageChange: () => void
+  onAverageScopeChange: (value: 'page' | 'record') => void
   onThresholdChange: (value: number) => void
   onThresholdNudge: (delta: number) => void
   triggerChannelOptions: Array<{ name: string; type: string }>
@@ -1381,7 +1389,7 @@ function TriggerAverageModal({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <div style={{ color: '#0f172a', fontWeight: 700 }}>Promedio desencadenado</div>
           <div style={{ color: '#64748b', fontSize: '0.82rem' }}>
-            Trigger: {triggerChannelName || 'sin canal'} · N={eventCount} · Rectif trigger: {triggerRectify ? 'sí' : 'no'} · Rectif promedio: {rectifyAverage ? 'sí' : 'no'}
+            Trigger: {triggerChannelName || 'sin canal'} · {averageScope === 'record' ? 'Promedio: registro entero' : 'Promedio: página visible'} · N={eventCount} · Rectif trigger: {triggerRectify ? 'sí' : 'no'} · Rectif promedio: {rectifyAverage ? 'sí' : 'no'}
           </div>
         </div>
         <button
@@ -1433,6 +1441,14 @@ function TriggerAverageModal({
           <input type="checkbox" checked={rectifyAverage} onChange={onRectifyAverageChange} />
           Rectificar promedio
         </label>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem', paddingBottom: 2 }}>
+          <input
+            type="checkbox"
+            checked={averageScope === 'record'}
+            onChange={(e) => onAverageScopeChange(e.target.checked ? 'record' : 'page')}
+          />
+          Promediar registro entero
+        </label>
       </div>
       <div style={{ flex: 1, overflow: 'auto', background: '#fffdf6', padding: '0.9rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
         {triggerSignal && triggerChannelName && (
@@ -1443,6 +1459,32 @@ function TriggerAverageModal({
             sampleRate={averagedEpoch?.sfreq ?? 1}
             onThresholdStepChange={onThresholdChange}
           />
+        )}
+        {averageScope === 'record' && (
+          <div style={{
+            padding: '0.7rem 0.85rem',
+            border: '1px solid #bbf7d0',
+            borderRadius: 10,
+            background: '#f0fdf4',
+            color: '#166534',
+            fontSize: '0.8rem',
+            lineHeight: 1.45,
+          }}>
+            El trigger se ajusta sobre la página visible. Con esta opción activa, el promedio busca eventos en todo el registro usando ese mismo umbral.
+          </div>
+        )}
+        {averageScope === 'record' && fullRecordLoading && (
+          <div style={{
+            padding: '1rem',
+            border: '1px dashed #86efac',
+            borderRadius: 10,
+            color: '#166534',
+            background: '#f7fee7',
+            fontSize: '0.88rem',
+            lineHeight: 1.5,
+          }}>
+            Calculando el promedio sobre todo el registro…
+          </div>
         )}
         {averagedEpoch ? (
           <div ref={wrapRef} style={{ flex: 1, overflow: 'auto', background: '#fffdf6' }}>
@@ -1458,7 +1500,9 @@ function TriggerAverageModal({
             fontSize: '0.88rem',
             lineHeight: 1.5,
           }}>
-            No hay eventos válidos todavía en esta ventana. Ajusta el umbral, los filtros o la rectificación del trigger y verás enseguida si aparecen marcas verdes en la vista del canal.
+            {fullRecordError || (averageScope === 'record'
+              ? 'No hay eventos válidos todavía en todo el registro. Ajusta el umbral, los filtros o la rectificación del trigger y verás enseguida si aparecen marcas verdes en la vista del canal.'
+              : 'No hay eventos válidos todavía en esta ventana. Ajusta el umbral, los filtros o la rectificación del trigger y verás enseguida si aparecen marcas verdes en la vista del canal.')}
           </div>
         )}
       </div>
@@ -1526,9 +1570,13 @@ export default function EEGViewer() {
   const [triggerRectify, setTriggerRectify] = useState(false)
   const [triggerRectifyAverage, setTriggerRectifyAverage] = useState(false)
   const [triggerThresholdStep, setTriggerThresholdStep] = useState(Math.round((TRIGGER_THRESHOLD_POSITIONS - 1) * 0.7))
+  const [triggerAverageScope, setTriggerAverageScope] = useState<'page' | 'record'>('page')
   const [triggerPreSec, setTriggerPreSec] = useState(0.5)
   const [triggerPostSec, setTriggerPostSec] = useState(0.5)
   const [triggerRefractorySec, setTriggerRefractorySec] = useState(0.25)
+  const [fullRecordTriggerAverageResult, setFullRecordTriggerAverageResult] = useState<TriggeredAverageResult | null>(null)
+  const [fullRecordTriggerAverageLoading, setFullRecordTriggerAverageLoading] = useState(false)
+  const [fullRecordTriggerAverageError, setFullRecordTriggerAverageError] = useState('')
 
   const canvasRef  = useRef<HTMLCanvasElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)
@@ -1543,6 +1591,7 @@ export default function EEGViewer() {
   const extrasButtonRef = useRef<HTMLButtonElement>(null)
   const extrasMenuRef = useRef<HTMLDivElement>(null)
   const loadVersionRef = useRef(0)
+  const triggerAverageLoadVersionRef = useRef(0)
   const restoreInFlightRef = useRef(false)
   const viewerStateReadyRef = useRef(false)
   const persistTimerRef = useRef<number | null>(null)
@@ -1559,13 +1608,19 @@ export default function EEGViewer() {
 
   // ── Derived data ─────────────────────────────────────────────────────────────
 
-  const montagedEpoch = useMemo(() => {
-    if (!epoch) return null
-    return applyMontage(epoch, montage, {
+  const processEpochForViewer = useCallback((sourceEpoch: EpochData): EpochData => {
+    const montaged = applyMontage(sourceEpoch, montage, {
       excludedAverageReferenceChannels: new Set(excludedAverageReferenceChannels),
       includedHiddenChannels: new Set(includedHiddenChannels),
     })
-  }, [epoch, montage, excludedAverageReferenceChannels, includedHiddenChannels])
+    if (!normalizeNonEEG) return montaged
+    return {
+      ...montaged,
+      data: montaged.data.map((d, i) =>
+        (montaged.channelTypes[i] ?? 'EEG') !== 'EEG' ? zscoreNormalize(d) : d
+      ),
+    }
+  }, [excludedAverageReferenceChannels, includedHiddenChannels, montage, normalizeNonEEG])
 
   const averageReferenceCandidates = useMemo(() => getAverageReferenceCandidates(epoch), [epoch])
   const hiddenMontageCandidates = useMemo(() => getMontageHiddenCandidates(epoch, montage), [epoch, montage])
@@ -1661,15 +1716,9 @@ export default function EEGViewer() {
   }, [extrasOpen])
 
   const processedEpoch = useMemo(() => {
-    if (!montagedEpoch) return null
-    if (!normalizeNonEEG) return montagedEpoch
-    return {
-      ...montagedEpoch,
-      data: montagedEpoch.data.map((d, i) =>
-        (montagedEpoch.channelTypes[i] ?? 'EEG') !== 'EEG' ? zscoreNormalize(d) : d
-      ),
-    }
-  }, [montagedEpoch, normalizeNonEEG])
+    if (!epoch) return null
+    return processEpochForViewer(epoch)
+  }, [epoch, processEpochForViewer])
 
   const { scales, refRange } = useMemo(() => {
     if (!processedEpoch) return { scales: [] as { p2: number; p98: number }[], refRange: 1 }
@@ -1761,6 +1810,93 @@ export default function EEGViewer() {
     triggerRefractorySec,
   ])
 
+  useEffect(() => {
+    if (!triggerAvgOpen || triggerAverageScope !== 'record') {
+      triggerAverageLoadVersionRef.current += 1
+      setFullRecordTriggerAverageLoading(false)
+      setFullRecordTriggerAverageError('')
+      setFullRecordTriggerAverageResult(null)
+      return
+    }
+    if (!triggerChannelName) {
+      setFullRecordTriggerAverageLoading(false)
+      setFullRecordTriggerAverageError('Selecciona un canal trigger.')
+      setFullRecordTriggerAverageResult(null)
+      return
+    }
+
+    const kappa = kappaRef.current
+    if (!kappa) {
+      setFullRecordTriggerAverageLoading(false)
+      setFullRecordTriggerAverageError('El visor aún no está listo para leer el registro completo.')
+      setFullRecordTriggerAverageResult(null)
+      return
+    }
+
+    const requestVersion = ++triggerAverageLoadVersionRef.current
+    setFullRecordTriggerAverageLoading(true)
+    setFullRecordTriggerAverageError('')
+    setFullRecordTriggerAverageResult(null)
+
+    const timer = window.setTimeout(() => {
+      try {
+        const safeRecordDurationSec = Math.max(recordDurationSec, 1e-6)
+        const totalRecords = Math.max(1, Math.ceil(Math.max(totalSeconds, safeRecordDurationSec) / safeRecordDurationSec))
+        const rawFullEpoch = kappa.readEpoch(0, totalRecords)
+        if (!rawFullEpoch) throw new Error('No se pudo leer el registro completo.')
+
+        const processedFullEpoch = processEpochForViewer(rawFullEpoch)
+        const nextResult = computeTriggeredAverage(processedFullEpoch, {
+          triggerChannelName,
+          threshold: triggerThresholdValue,
+          preSec: triggerPreSec,
+          postSec: triggerPostSec,
+          hp: triggerHp,
+          lp: triggerLp,
+          notch: triggerNotch,
+          rectifyTrigger: triggerRectify,
+          rectifyAverage: triggerRectifyAverage,
+          refractorySec: triggerRefractorySec,
+        })
+
+        if (triggerAverageLoadVersionRef.current !== requestVersion) return
+        setFullRecordTriggerAverageResult(nextResult)
+        setFullRecordTriggerAverageError(nextResult ? '' : 'No hay eventos válidos en todo el registro con estos ajustes.')
+      } catch (error) {
+        if (triggerAverageLoadVersionRef.current !== requestVersion) return
+        const message = error instanceof Error ? error.message : 'No se pudo calcular el promedio del registro completo.'
+        setFullRecordTriggerAverageError(message)
+        setFullRecordTriggerAverageResult(null)
+      } finally {
+        if (triggerAverageLoadVersionRef.current === requestVersion) {
+          setFullRecordTriggerAverageLoading(false)
+        }
+      }
+    }, 0)
+
+    return () => window.clearTimeout(timer)
+  }, [
+    processEpochForViewer,
+    recordDurationSec,
+    totalSeconds,
+    triggerAverageScope,
+    triggerAvgOpen,
+    triggerChannelName,
+    triggerHp,
+    triggerLp,
+    triggerNotch,
+    triggerPostSec,
+    triggerPreSec,
+    triggerRectify,
+    triggerRectifyAverage,
+    triggerRefractorySec,
+    triggerThresholdValue,
+  ])
+
+  const activeTriggerAverageResult = triggerAverageScope === 'record'
+    ? fullRecordTriggerAverageResult
+    : triggerAverageResult
+
   const triggerOverlay = useMemo<TriggerOverlayData | null>(() => {
     if (!triggerAvgOpen || !processedEpoch || !triggerChannelName) return null
     return {
@@ -1801,6 +1937,7 @@ export default function EEGViewer() {
 
   useEffect(() => {
     loadVersionRef.current += 1
+    triggerAverageLoadVersionRef.current += 1
     restoreInFlightRef.current = false
     viewerStateReadyRef.current = false
     if (persistTimerRef.current !== null) {
@@ -1859,9 +1996,13 @@ export default function EEGViewer() {
     setTriggerRectify(false)
     setTriggerRectifyAverage(false)
     setTriggerThresholdStep(Math.round((TRIGGER_THRESHOLD_POSITIONS - 1) * 0.7))
+    setTriggerAverageScope('page')
     setTriggerPreSec(0.5)
     setTriggerPostSec(0.5)
     setTriggerRefractorySec(0.25)
+    setFullRecordTriggerAverageResult(null)
+    setFullRecordTriggerAverageLoading(false)
+    setFullRecordTriggerAverageError('')
     setDsaChannel('off')
     setArtifactReject(false)
     setDsaData(null)
@@ -3701,6 +3842,14 @@ export default function EEGViewer() {
             />
             Rectificar promedio
           </label>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem', paddingBottom: 2 }}>
+            <input
+              type="checkbox"
+              checked={triggerAverageScope === 'record'}
+              onChange={(e) => setTriggerAverageScope(e.target.checked ? 'record' : 'page')}
+            />
+            Promediar registro entero
+          </label>
           {selectedChannelName && selectedChannelName !== triggerChannelName && (
             <button
               type="button"
@@ -3721,20 +3870,32 @@ export default function EEGViewer() {
           )}
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, paddingBottom: 2 }}>
             <span style={{ color: '#166534', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
-              {triggerAverageResult ? `N=${triggerAverageResult.events.length} en esta ventana` : 'N=0 en esta ventana'}
+              {triggerAverageScope === 'record'
+                ? (
+                    fullRecordTriggerAverageLoading
+                      ? 'Calculando N en todo el registro…'
+                      : fullRecordTriggerAverageResult
+                        ? `N=${fullRecordTriggerAverageResult.events.length} en todo el registro`
+                        : (fullRecordTriggerAverageError || 'N=0 en todo el registro')
+                  )
+                : (
+                    triggerAverageResult
+                      ? `N=${triggerAverageResult.events.length} en esta ventana`
+                      : 'N=0 en esta ventana'
+                  )}
             </span>
             <button
               type="button"
-              disabled={!triggerAverageResult}
+              disabled={triggerAverageScope === 'record' ? !triggerChannelName : !triggerAverageResult}
               onClick={() => setTriggerAvgModalOpen(true)}
               style={{
-                background: triggerAverageResult ? '#16a34a' : '#dcfce7',
+                background: (triggerAverageScope === 'record' ? !!triggerChannelName : !!triggerAverageResult) ? '#16a34a' : '#dcfce7',
                 border: 'none',
                 borderRadius: 5,
                 color: '#ffffff',
                 fontSize: '0.76rem',
                 padding: '0.34rem 0.65rem',
-                cursor: triggerAverageResult ? 'pointer' : 'not-allowed',
+                cursor: (triggerAverageScope === 'record' ? !!triggerChannelName : !!triggerAverageResult) ? 'pointer' : 'not-allowed',
                 fontWeight: 700,
               }}
             >
@@ -3921,7 +4082,10 @@ export default function EEGViewer() {
       )}
       {triggerAvgModalOpen && triggerAvgOpen && (
         <TriggerAverageModal
-          result={triggerAverageResult}
+          result={activeTriggerAverageResult}
+          averageScope={triggerAverageScope}
+          fullRecordLoading={fullRecordTriggerAverageLoading}
+          fullRecordError={fullRecordTriggerAverageError}
           triggerChannelName={triggerChannelName}
           triggerSignal={triggerSignalPreview}
           triggerThreshold={triggerThresholdValue}
@@ -3939,6 +4103,7 @@ export default function EEGViewer() {
           onTriggerNotchChange={setTriggerNotch}
           onTriggerRectifyChange={() => setTriggerRectify((value) => !value)}
           onRectifyAverageChange={() => setTriggerRectifyAverage((value) => !value)}
+          onAverageScopeChange={setTriggerAverageScope}
           onThresholdChange={(value) => setTriggerThresholdStep(value)}
           onThresholdNudge={nudgeTriggerThreshold}
           triggerChannelOptions={triggerChannelOptions}

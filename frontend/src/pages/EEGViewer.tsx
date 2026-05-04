@@ -115,6 +115,7 @@ const GAIN_OPTIONS: { label: string; value: number }[] = [
 ]
 
 const SCALE_BAR_VALUES_UV = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000]
+const TRIGGER_THRESHOLD_POSITIONS = 25
 
 type Phase =
   | 'key-input'
@@ -1021,31 +1022,36 @@ function TriggerSignalPreview({
   threshold,
   eventSampleIndexes,
   sampleRate,
-  onThresholdChange,
+  onThresholdStepChange,
 }: {
   signal: Float32Array
   threshold: number
   eventSampleIndexes: number[]
   sampleRate: number
-  onThresholdChange: (nextThreshold: number) => void
+  onThresholdStepChange: (nextStep: number) => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const draggingRef = useRef(false)
 
   const scales = useMemo(() => {
-    const sorted = Array.from(signal).sort((a, b) => a - b)
-    const p2 = sorted[Math.floor(sorted.length * 0.02)] ?? -1
-    const p98 = sorted[Math.floor(sorted.length * 0.98)] ?? 1
-    return { p2, p98: p98 <= p2 ? p2 + 1 : p98 }
+    let min = Number.POSITIVE_INFINITY
+    let max = Number.NEGATIVE_INFINITY
+    for (let i = 0; i < signal.length; i++) {
+      const value = signal[i] ?? 0
+      if (value < min) min = value
+      if (value > max) max = value
+    }
+    if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return { min: -1, max: 1 }
+    return { min, max }
   }, [signal])
 
-  const projectThresholdFromY = useCallback((y: number, height: number) => {
+  const projectStepFromY = useCallback((y: number, height: number) => {
     const top = 16
     const bottom = Math.max(top + 1, height - 18)
     const clampedY = Math.max(top, Math.min(bottom, y))
     const norm = 1 - ((clampedY - top) / Math.max(bottom - top, 1))
-    return scales.p2 + norm * (scales.p98 - scales.p2)
+    return Math.max(0, Math.min(TRIGGER_THRESHOLD_POSITIONS - 1, Math.round(norm * (TRIGGER_THRESHOLD_POSITIONS - 1))))
   }, [scales])
 
   const redraw = useCallback(() => {
@@ -1069,7 +1075,7 @@ function TriggerSignalPreview({
     const bottom = height - 18
     const plotW = Math.max(1, right - left)
     const plotH = Math.max(1, bottom - top)
-    const range = scales.p98 - scales.p2 || 1
+    const range = scales.max - scales.min || 1
 
     ctx.strokeStyle = '#e2e8f0'
     ctx.lineWidth = 1
@@ -1077,7 +1083,7 @@ function TriggerSignalPreview({
     ctx.rect(left, top, plotW, plotH)
     ctx.stroke()
 
-    const zeroLineY = top + plotH * (1 - ((0 - scales.p2) / range))
+    const zeroLineY = top + plotH * (1 - ((0 - scales.min) / range))
     if (zeroLineY >= top && zeroLineY <= bottom) {
       ctx.strokeStyle = 'rgba(148,163,184,0.5)'
       ctx.beginPath()
@@ -1091,14 +1097,14 @@ function TriggerSignalPreview({
     ctx.beginPath()
     for (let i = 0; i < signal.length; i++) {
       const x = left + (i / Math.max(signal.length - 1, 1)) * plotW
-      const norm = (signal[i] - scales.p2) / range
+      const norm = (signal[i] - scales.min) / range
       const y = top + plotH * (1 - norm)
       if (i === 0) ctx.moveTo(x, y)
       else ctx.lineTo(x, y)
     }
     ctx.stroke()
 
-    const thresholdNorm = (threshold - scales.p2) / range
+    const thresholdNorm = (threshold - scales.min) / range
     const thresholdY = top + plotH * (1 - Math.max(0, Math.min(1, thresholdNorm)))
     ctx.strokeStyle = '#dc2626'
     ctx.lineWidth = 2
@@ -1110,7 +1116,7 @@ function TriggerSignalPreview({
     ctx.setLineDash([])
     ctx.fillStyle = '#991b1b'
     ctx.font = '11px monospace'
-    ctx.fillText(`${threshold.toFixed(1)} µV`, Math.max(left + 4, right - 90), Math.max(top + 12, thresholdY - 6))
+    ctx.fillText(`${threshold.toFixed(2)} µV`, Math.max(left + 4, right - 100), Math.max(top + 12, thresholdY - 6))
 
     ctx.strokeStyle = 'rgba(22,163,74,0.9)'
     ctx.lineWidth = 1
@@ -1153,8 +1159,8 @@ function TriggerSignalPreview({
     const canvas = canvasRef.current
     if (!canvas) return
     const rect = canvas.getBoundingClientRect()
-    onThresholdChange(Number(projectThresholdFromY(clientY - rect.top, rect.height).toFixed(1)))
-  }, [onThresholdChange, projectThresholdFromY])
+    onThresholdStepChange(projectStepFromY(clientY - rect.top, rect.height))
+  }, [onThresholdStepChange, projectStepFromY])
 
   return (
     <div ref={wrapRef} style={{ background: '#ffffff', border: '1px solid #d1fae5', borderRadius: 10, padding: '0.5rem' }}>
@@ -1178,6 +1184,7 @@ function TriggerAverageModal({
   triggerChannelName,
   triggerSignal,
   triggerThreshold,
+  triggerThresholdStep,
   triggerHp,
   triggerLp,
   triggerNotch,
@@ -1199,6 +1206,7 @@ function TriggerAverageModal({
   triggerChannelName: string
   triggerSignal: Float32Array | null
   triggerThreshold: number
+  triggerThresholdStep: number
   triggerHp: number
   triggerLp: number
   triggerNotch: number
@@ -1410,15 +1418,11 @@ function TriggerAverageModal({
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#166534', fontSize: '0.72rem' }}>
           Umbral
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            <button type="button" onClick={() => onThresholdNudge(-0.05)} style={{ width: 28, height: 28, background: '#ffffff', border: '1px solid #86efac', borderRadius: 4, color: '#166534', cursor: 'pointer', fontWeight: 700 }}>−</button>
-            <input
-              type="number"
-              step="0.05"
-              value={triggerThreshold}
-              onChange={(e) => onThresholdChange(parseFloat(e.target.value) || 0)}
-              style={{ width: 92, background: '#ffffff', border: '1px solid #bbf7d0', borderRadius: 4, padding: '0.2rem 0.35rem', color: '#166534' }}
-            />
-            <button type="button" onClick={() => onThresholdNudge(0.05)} style={{ width: 28, height: 28, background: '#ffffff', border: '1px solid #86efac', borderRadius: 4, color: '#166534', cursor: 'pointer', fontWeight: 700 }}>+</button>
+            <button type="button" onClick={() => onThresholdNudge(-1)} style={{ width: 28, height: 28, background: '#ffffff', border: '1px solid #86efac', borderRadius: 4, color: '#166534', cursor: 'pointer', fontWeight: 700 }}>−</button>
+            <div style={{ minWidth: 128, background: '#ffffff', border: '1px solid #bbf7d0', borderRadius: 4, padding: '0.34rem 0.45rem', color: '#166534', fontFamily: 'monospace', fontSize: '0.8rem' }}>
+              {`${triggerThresholdStep + 1}/${TRIGGER_THRESHOLD_POSITIONS} · ${triggerThreshold.toFixed(2)} µV`}
+            </div>
+            <button type="button" onClick={() => onThresholdNudge(1)} style={{ width: 28, height: 28, background: '#ffffff', border: '1px solid #86efac', borderRadius: 4, color: '#166534', cursor: 'pointer', fontWeight: 700 }}>+</button>
           </div>
         </label>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem', paddingBottom: 2 }}>
@@ -1437,7 +1441,7 @@ function TriggerAverageModal({
             threshold={triggerThreshold}
             eventSampleIndexes={eventSampleIndexes}
             sampleRate={averagedEpoch?.sfreq ?? 1}
-            onThresholdChange={onThresholdChange}
+            onThresholdStepChange={onThresholdChange}
           />
         )}
         {averagedEpoch ? (
@@ -1521,7 +1525,7 @@ export default function EEGViewer() {
   const [triggerNotch, setTriggerNotch] = useState(0)
   const [triggerRectify, setTriggerRectify] = useState(false)
   const [triggerRectifyAverage, setTriggerRectifyAverage] = useState(false)
-  const [triggerThreshold, setTriggerThreshold] = useState(20)
+  const [triggerThresholdStep, setTriggerThresholdStep] = useState(Math.round((TRIGGER_THRESHOLD_POSITIONS - 1) * 0.7))
   const [triggerPreSec, setTriggerPreSec] = useState(0.5)
   const [triggerPostSec, setTriggerPostSec] = useState(0.5)
   const [triggerRefractorySec, setTriggerRefractorySec] = useState(0.25)
@@ -1697,11 +1701,42 @@ export default function EEGViewer() {
     setTriggerChannelName(preferred?.name ?? '')
   }, [triggerChannelName, triggerChannelOptions, selectedChannelName])
 
+  const triggerSignalPreview = useMemo(() => {
+    if (!triggerAvgOpen || !processedEpoch || !triggerChannelName) return null
+    const triggerIndex = processedEpoch.channelNames.findIndex((name) => name === triggerChannelName)
+    if (triggerIndex < 0) return null
+    return filterSignalForTrigger(processedEpoch.data[triggerIndex], processedEpoch.sfreq, {
+      hp: triggerHp,
+      lp: triggerLp,
+      notch: triggerNotch,
+      rectifyTrigger: triggerRectify,
+    })
+  }, [processedEpoch, triggerAvgOpen, triggerChannelName, triggerHp, triggerLp, triggerNotch, triggerRectify])
+
+  const triggerThresholdRange = useMemo(() => {
+    if (!triggerSignalPreview || triggerSignalPreview.length === 0) return null
+    let min = Number.POSITIVE_INFINITY
+    let max = Number.NEGATIVE_INFINITY
+    for (let i = 0; i < triggerSignalPreview.length; i++) {
+      const value = triggerSignalPreview[i] ?? 0
+      if (value < min) min = value
+      if (value > max) max = value
+    }
+    if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return null
+    return { min, max }
+  }, [triggerSignalPreview])
+
+  const triggerThresholdValue = useMemo(() => {
+    if (!triggerThresholdRange) return 0
+    const ratio = triggerThresholdStep / Math.max(TRIGGER_THRESHOLD_POSITIONS - 1, 1)
+    return triggerThresholdRange.min + ratio * (triggerThresholdRange.max - triggerThresholdRange.min)
+  }, [triggerThresholdRange, triggerThresholdStep])
+
   const triggerAverageResult = useMemo(() => {
     if (!triggerAvgOpen || !processedEpoch || !triggerChannelName) return null
     return computeTriggeredAverage(processedEpoch, {
       triggerChannelName,
-      threshold: triggerThreshold,
+      threshold: triggerThresholdValue,
       preSec: triggerPreSec,
       postSec: triggerPostSec,
       hp: triggerHp,
@@ -1715,7 +1750,7 @@ export default function EEGViewer() {
     processedEpoch,
     triggerAvgOpen,
     triggerChannelName,
-    triggerThreshold,
+    triggerThresholdValue,
     triggerPreSec,
     triggerPostSec,
     triggerHp,
@@ -1726,28 +1761,16 @@ export default function EEGViewer() {
     triggerRefractorySec,
   ])
 
-  const triggerSignalPreview = useMemo(() => {
-    if (!triggerAvgOpen || !processedEpoch || !triggerChannelName) return null
-    const triggerIndex = processedEpoch.channelNames.findIndex((name) => name === triggerChannelName)
-    if (triggerIndex < 0) return null
-    return filterSignalForTrigger(processedEpoch.data[triggerIndex], processedEpoch.sfreq, {
-      hp: triggerHp,
-      lp: triggerLp,
-      notch: triggerNotch,
-      rectifyTrigger: triggerRectify,
-    })
-  }, [processedEpoch, triggerAvgOpen, triggerChannelName, triggerHp, triggerLp, triggerNotch, triggerRectify])
-
   const triggerOverlay = useMemo<TriggerOverlayData | null>(() => {
     if (!triggerAvgOpen || !processedEpoch || !triggerChannelName) return null
     return {
       channelName: triggerChannelName,
-      threshold: triggerThreshold,
+      threshold: triggerThresholdValue,
       eventOnsetsSec: triggerAverageResult
         ? triggerAverageResult.events.map((event) => recordOffset + event.onsetSec)
         : [],
     }
-  }, [processedEpoch, recordOffset, triggerAverageResult, triggerAvgOpen, triggerChannelName, triggerThreshold])
+  }, [processedEpoch, recordOffset, triggerAverageResult, triggerAvgOpen, triggerChannelName, triggerThresholdValue])
 
   useEffect(() => {
     setTriggerAvgModalOpen(triggerAvgOpen)
@@ -1835,7 +1858,7 @@ export default function EEGViewer() {
     setTriggerNotch(0)
     setTriggerRectify(false)
     setTriggerRectifyAverage(false)
-    setTriggerThreshold(20)
+    setTriggerThresholdStep(Math.round((TRIGGER_THRESHOLD_POSITIONS - 1) * 0.7))
     setTriggerPreSec(0.5)
     setTriggerPostSec(0.5)
     setTriggerRefractorySec(0.25)
@@ -2013,7 +2036,7 @@ export default function EEGViewer() {
     const margin = rm.chanH * 0.08
     const drawH = rm.chanH - margin * 2
     const range = scale.p98 - scale.p2 || 1
-    const norm = Math.max(0, Math.min(1, (triggerThreshold - scale.p2) / range))
+    const norm = Math.max(0, Math.min(1, (triggerThresholdValue - scale.p2) / range))
     const y = y0 + margin + drawH * (1 - norm)
     return {
       y,
@@ -2024,7 +2047,7 @@ export default function EEGViewer() {
       margin,
       drawH,
     }
-  }, [processedEpoch, scales, triggerAvgOpen, triggerChannelName, triggerThreshold])
+  }, [processedEpoch, scales, triggerAvgOpen, triggerChannelName, triggerThresholdValue])
 
   // ── Mouse handlers ────────────────────────────────────────────────────────────
 
@@ -2055,8 +2078,8 @@ export default function EEGViewer() {
       if (triggerLayout) {
         const clampedY = Math.max(triggerLayout.y0 + triggerLayout.margin, Math.min(triggerLayout.y0 + triggerLayout.margin + triggerLayout.drawH, y))
         const norm = 1 - ((clampedY - (triggerLayout.y0 + triggerLayout.margin)) / Math.max(triggerLayout.drawH, 1))
-        const nextThreshold = triggerLayout.p2 + norm * (triggerLayout.p98 - triggerLayout.p2)
-        setTriggerThreshold(Number(nextThreshold.toFixed(1)))
+        const nextStep = Math.max(0, Math.min(TRIGGER_THRESHOLD_POSITIONS - 1, Math.round(norm * (TRIGGER_THRESHOLD_POSITIONS - 1))))
+        setTriggerThresholdStep(nextStep)
       }
     }
     refreshOverlay()
@@ -2556,7 +2579,7 @@ export default function EEGViewer() {
     setGainMult(nextGain)
   }, [selectedChannelName])
   const nudgeTriggerThreshold = useCallback((delta: number) => {
-    setTriggerThreshold((current) => Number((current + delta).toFixed(2)))
+    setTriggerThresholdStep((current) => Math.max(0, Math.min(TRIGGER_THRESHOLD_POSITIONS - 1, current + delta)))
   }, [])
   const handleWindowChange = (val: string) => {
     const newWin = parseInt(val)
@@ -2616,7 +2639,7 @@ export default function EEGViewer() {
     setTriggerNotch(0)
     setTriggerRectify(false)
     setTriggerRectifyAverage(false)
-    setTriggerThreshold(20)
+    setTriggerThresholdStep(Math.round((TRIGGER_THRESHOLD_POSITIONS - 1) * 0.7))
     setTriggerPreSec(0.5)
     setTriggerPostSec(0.5)
     setTriggerRefractorySec(0.25)
@@ -3564,7 +3587,7 @@ export default function EEGViewer() {
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <button
                 type="button"
-                onClick={() => nudgeTriggerThreshold(-0.05)}
+                onClick={() => nudgeTriggerThreshold(-1)}
                 style={{
                   width: 28,
                   height: 28,
@@ -3578,23 +3601,21 @@ export default function EEGViewer() {
               >
                 −
               </button>
-              <input
-                type="number"
-                step="0.05"
-                value={triggerThreshold}
-                onChange={(e) => setTriggerThreshold(parseFloat(e.target.value) || 0)}
-                style={{
-                  width: 88,
-                  background: '#ffffff',
-                  border: '1px solid #bbf7d0',
-                  borderRadius: 4,
-                  padding: '0.2rem 0.35rem',
-                  color: '#166534',
-                }}
-              />
+              <div style={{
+                minWidth: 122,
+                background: '#ffffff',
+                border: '1px solid #bbf7d0',
+                borderRadius: 4,
+                padding: '0.28rem 0.4rem',
+                color: '#166534',
+                fontFamily: 'monospace',
+                fontSize: '0.78rem',
+              }}>
+                {`${triggerThresholdStep + 1}/${TRIGGER_THRESHOLD_POSITIONS} · ${triggerThresholdValue.toFixed(2)} µV`}
+              </div>
               <button
                 type="button"
-                onClick={() => nudgeTriggerThreshold(0.05)}
+                onClick={() => nudgeTriggerThreshold(1)}
                 style={{
                   width: 28,
                   height: 28,
@@ -3903,7 +3924,8 @@ export default function EEGViewer() {
           result={triggerAverageResult}
           triggerChannelName={triggerChannelName}
           triggerSignal={triggerSignalPreview}
-          triggerThreshold={triggerThreshold}
+          triggerThreshold={triggerThresholdValue}
+          triggerThresholdStep={triggerThresholdStep}
           triggerHp={triggerHp}
           triggerLp={triggerLp}
           triggerNotch={triggerNotch}
@@ -3917,7 +3939,7 @@ export default function EEGViewer() {
           onTriggerNotchChange={setTriggerNotch}
           onTriggerRectifyChange={() => setTriggerRectify((value) => !value)}
           onRectifyAverageChange={() => setTriggerRectifyAverage((value) => !value)}
-          onThresholdChange={(value) => setTriggerThreshold(value)}
+          onThresholdChange={(value) => setTriggerThresholdStep(value)}
           onThresholdNudge={nudgeTriggerThreshold}
           triggerChannelOptions={triggerChannelOptions}
         />

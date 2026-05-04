@@ -113,6 +113,7 @@ export function computeTriggerThresholdRange(
   signal: Float32Array,
   lowPercentile = 0.02,
   highPercentile = 0.98,
+  ceilingPercentile = 0.995,
   upperHeadroomFraction = 0.25,
 ): { min: number; max: number } | null {
   if (signal.length === 0) return null
@@ -121,7 +122,8 @@ export function computeTriggerThresholdRange(
   const percentileMax = getPercentile(sorted, highPercentile)
   if (!Number.isFinite(min) || !Number.isFinite(percentileMax) || percentileMax <= min) return null
   const headroom = Math.max(0, upperHeadroomFraction) * (percentileMax - min)
-  return { min, max: percentileMax + headroom }
+  const ceilingMax = getPercentile(sorted, Math.max(highPercentile, ceilingPercentile))
+  return { min, max: Math.max(percentileMax + headroom, ceilingMax) }
 }
 
 function canonicalizeChannelName(name: string): string {
@@ -387,7 +389,7 @@ export function detectThresholdCrossings(
   const refractorySamples = Math.max(1, Math.round(Math.max(0, refractorySec) * sampleRate))
   const events: TriggerEvent[] = []
   const signalRange = computeTriggerThresholdRange(signal)
-  const rearmBaseRange = computeTriggerThresholdRange(signal, 0.02, 0.98, 0)
+  const rearmBaseRange = computeTriggerThresholdRange(signal, 0.02, 0.98, 0.98, 0)
   const rearmDelta = signalRange
     ? Math.max(0, Math.min(1, burstRearmFraction)) * ((rearmBaseRange ?? signalRange).max - (rearmBaseRange ?? signalRange).min)
     : 0

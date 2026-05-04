@@ -547,6 +547,12 @@ describe('EEG viewer utils', () => {
     expect(range).toEqual({ min: 0, max: 6.25 })
   })
 
+  it('permite un techo de umbral por encima de p98 usando un percentil alto adicional', () => {
+    const signal = Float32Array.from([0, 1, 2, 3, 4, 5, 6, 30, 40, 50])
+    const range = computeTriggerThresholdRange(signal)
+    expect(range?.max).toBeGreaterThan(30)
+  })
+
   it('en modo burst espera a que la señal se rearme antes de disparar otro trigger', () => {
     const signal = Float32Array.from([0, 6, 8, 7, 6, 5.5, 4.2, 6.1, 7, 4.8, 2, 6.5])
     const events = detectThresholdCrossings(signal, 100, 5, 0.25, 'burst', 0.1)

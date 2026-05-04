@@ -1270,6 +1270,7 @@ function TriggerAverageModal({
   triggerLp,
   triggerNotch,
   triggerSmoothPoints,
+  triggerDerivativeAfterSmooth,
   averageHp,
   averageLp,
   averageNotch,
@@ -1286,6 +1287,7 @@ function TriggerAverageModal({
   onTriggerLpChange,
   onTriggerNotchChange,
   onTriggerSmoothPointsChange,
+  onTriggerDerivativeAfterSmoothChange,
   onAverageHpChange,
   onAverageLpChange,
   onAverageNotchChange,
@@ -1312,6 +1314,7 @@ function TriggerAverageModal({
   triggerLp: number
   triggerNotch: number
   triggerSmoothPoints: number
+  triggerDerivativeAfterSmooth: boolean
   averageHp: number
   averageLp: number
   averageNotch: number
@@ -1328,6 +1331,7 @@ function TriggerAverageModal({
   onTriggerLpChange: (value: number) => void
   onTriggerNotchChange: (value: number) => void
   onTriggerSmoothPointsChange: (value: number) => void
+  onTriggerDerivativeAfterSmoothChange: () => void
   onAverageHpChange: (value: number) => void
   onAverageLpChange: (value: number) => void
   onAverageNotchChange: (value: number) => void
@@ -1574,6 +1578,12 @@ function TriggerAverageModal({
               <ToolbarSelect label="Notch trig" value={triggerNotch} onChange={(value) => onTriggerNotchChange(parseFloat(value) || 0)} width={94}>
                 {NOTCH_OPTIONS.map((option) => <option key={option.value} value={option.value}>{`N ${option.label}`}</option>)}
               </ToolbarSelect>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem' }}>
+                <input type="checkbox" checked={triggerDerivativeAfterSmooth} onChange={onTriggerDerivativeAfterSmoothChange} />
+                Derivada tras smooth
+              </label>
             </div>
             <div style={{
               paddingTop: '0.15rem',
@@ -1876,6 +1886,7 @@ export default function EEGViewer() {
   const [triggerLp, setTriggerLp] = useState(45)
   const [triggerNotch, setTriggerNotch] = useState(0)
   const [triggerSmoothPoints, setTriggerSmoothPoints] = useState(1)
+  const [triggerDerivativeAfterSmooth, setTriggerDerivativeAfterSmooth] = useState(false)
   const [triggerRectify, setTriggerRectify] = useState(false)
   const [averageHp, setAverageHp] = useState(0)
   const [averageLp, setAverageLp] = useState(0)
@@ -2074,9 +2085,10 @@ export default function EEGViewer() {
       lp: triggerLp,
       notch: triggerNotch,
       triggerSmoothPoints,
+      triggerDerivativeAfterSmooth,
       rectifyTrigger: triggerRectify,
     })
-  }, [processedEpoch, triggerAvgOpen, triggerChannelName, triggerHp, triggerLp, triggerNotch, triggerRectify, triggerSmoothPoints])
+  }, [processedEpoch, triggerAvgOpen, triggerChannelName, triggerHp, triggerLp, triggerNotch, triggerRectify, triggerSmoothPoints, triggerDerivativeAfterSmooth])
 
   useEffect(() => {
     if (!triggerAvgOpen) {
@@ -2094,6 +2106,7 @@ export default function EEGViewer() {
       triggerLp,
       triggerNotch,
       triggerSmoothPoints,
+      triggerDerivativeAfterSmooth,
       triggerRectify,
     })
     if (triggerThresholdRangeSignatureRef.current === nextSignature) return
@@ -2119,6 +2132,7 @@ export default function EEGViewer() {
     triggerLp,
     triggerNotch,
     triggerSmoothPoints,
+    triggerDerivativeAfterSmooth,
     triggerRectify,
   ])
 
@@ -2139,6 +2153,7 @@ export default function EEGViewer() {
       lp: triggerLp,
       notch: triggerNotch,
       triggerSmoothPoints,
+      triggerDerivativeAfterSmooth,
       averageHp,
       averageLp,
       averageNotch,
@@ -2157,6 +2172,7 @@ export default function EEGViewer() {
     triggerLp,
     triggerNotch,
     triggerSmoothPoints,
+    triggerDerivativeAfterSmooth,
     averageHp,
     averageLp,
     averageNotch,
@@ -2210,6 +2226,7 @@ export default function EEGViewer() {
           lp: triggerLp,
           notch: triggerNotch,
           triggerSmoothPoints,
+          triggerDerivativeAfterSmooth,
           averageHp,
           averageLp,
           averageNotch,
@@ -2245,6 +2262,7 @@ export default function EEGViewer() {
     triggerLp,
     triggerNotch,
     triggerSmoothPoints,
+    triggerDerivativeAfterSmooth,
     averageHp,
     averageLp,
     averageNotch,
@@ -2357,6 +2375,7 @@ export default function EEGViewer() {
     setTriggerLp(45)
     setTriggerNotch(0)
     setTriggerSmoothPoints(1)
+    setTriggerDerivativeAfterSmooth(false)
     setAverageHp(0)
     setAverageLp(0)
     setAverageNotch(0)
@@ -3145,6 +3164,8 @@ export default function EEGViewer() {
     setTriggerHp(0)
     setTriggerLp(45)
     setTriggerNotch(0)
+    setTriggerSmoothPoints(1)
+    setTriggerDerivativeAfterSmooth(false)
     setTriggerRectify(false)
     setTriggerRectifyAverage(false)
     setTriggerThresholdStep(Math.round((TRIGGER_THRESHOLD_POSITIONS - 1) * 0.7))
@@ -4336,6 +4357,7 @@ export default function EEGViewer() {
           triggerLp={triggerLp}
           triggerNotch={triggerNotch}
           triggerSmoothPoints={triggerSmoothPoints}
+          triggerDerivativeAfterSmooth={triggerDerivativeAfterSmooth}
           averageHp={averageHp}
           averageLp={averageLp}
           averageNotch={averageNotch}
@@ -4352,6 +4374,7 @@ export default function EEGViewer() {
           onTriggerLpChange={setTriggerLp}
           onTriggerNotchChange={setTriggerNotch}
           onTriggerSmoothPointsChange={setTriggerSmoothPoints}
+          onTriggerDerivativeAfterSmoothChange={() => setTriggerDerivativeAfterSmooth((value) => !value)}
           onAverageHpChange={setAverageHp}
           onAverageLpChange={setAverageLp}
           onAverageNotchChange={setAverageNotch}

@@ -547,6 +547,7 @@ describe('EEG viewer utils', () => {
       lp: 0,
       notch: 0,
       triggerSmoothPoints: 1,
+      triggerDerivativeAfterSmooth: false,
       rectifyTrigger: true,
     })
     expect(Array.from(filtered)).toEqual([5, 2, 0, 2, 5])
@@ -559,9 +560,23 @@ describe('EEG viewer utils', () => {
       lp: 0,
       notch: 0,
       triggerSmoothPoints: 3,
+      triggerDerivativeAfterSmooth: false,
       rectifyTrigger: false,
     })
     expect(Array.from(filtered)).toEqual([0, 0, 3, 3, 3])
+  })
+
+  it('puede calcular la derivada después del smooth en la señal trigger', () => {
+    const signal = Float32Array.from([0, 0, 9, 0, 0])
+    const filtered = filterSignalForTrigger(signal, 100, {
+      hp: 0,
+      lp: 0,
+      notch: 0,
+      triggerSmoothPoints: 3,
+      triggerDerivativeAfterSmooth: true,
+      rectifyTrigger: false,
+    })
+    expect(Array.from(filtered)).toEqual([0, 0, 3, 0, 0])
   })
 
   it('puede filtrar también las señales que se promedian', () => {
@@ -591,6 +606,7 @@ describe('EEG viewer utils', () => {
       lp: 0,
       notch: 0,
       triggerSmoothPoints: 1,
+      triggerDerivativeAfterSmooth: false,
       averageHp: 0,
       averageLp: 0,
       averageNotch: 0,
@@ -620,6 +636,7 @@ describe('EEG viewer utils', () => {
       lp: 0,
       notch: 0,
       triggerSmoothPoints: 1,
+      triggerDerivativeAfterSmooth: false,
       averageHp: 0,
       averageLp: 0,
       averageNotch: 0,

@@ -78,6 +78,7 @@ export interface TriggerAverageOptions {
   lp: number
   notch: number
   triggerSmoothPoints: number
+  triggerDerivativeAfterSmooth: boolean
   averageHp: number
   averageLp: number
   averageNotch: number
@@ -281,7 +282,7 @@ function createNotchCoefficients(centerHz: number, sampleRate: number): BiquadCo
 export function filterSignalForTrigger(
   signal: Float32Array,
   sampleRate: number,
-  options: Pick<TriggerAverageOptions, 'hp' | 'lp' | 'notch' | 'rectifyTrigger' | 'triggerSmoothPoints'>,
+  options: Pick<TriggerAverageOptions, 'hp' | 'lp' | 'notch' | 'rectifyTrigger' | 'triggerSmoothPoints' | 'triggerDerivativeAfterSmooth'>,
 ): Float32Array {
   let filtered = Float32Array.from(signal) as Float32Array
 
@@ -311,6 +312,15 @@ export function filterSignalForTrigger(
       smoothed[i] = running / Math.max(denom, 1)
     }
     filtered = smoothed
+  }
+
+  if (options.triggerDerivativeAfterSmooth) {
+    const derived = new Float32Array(filtered.length)
+    if (filtered.length > 0) derived[0] = 0
+    for (let i = 1; i < filtered.length; i++) {
+      derived[i] = (filtered[i] ?? 0) - (filtered[i - 1] ?? 0)
+    }
+    filtered = derived
   }
 
   return filtered

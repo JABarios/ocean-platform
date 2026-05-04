@@ -1273,6 +1273,9 @@ function TriggerAverageModal({
   averageHp,
   averageLp,
   averageNotch,
+  triggerPreSec,
+  triggerPostSec,
+  triggerRefractorySec,
   triggerRectify,
   rectifyAverage,
   eventSampleIndexes,
@@ -1285,6 +1288,9 @@ function TriggerAverageModal({
   onAverageHpChange,
   onAverageLpChange,
   onAverageNotchChange,
+  onTriggerPreSecChange,
+  onTriggerPostSecChange,
+  onTriggerRefractorySecChange,
   onTriggerRectifyChange,
   onRectifyAverageChange,
   onAverageScopeChange,
@@ -1307,6 +1313,9 @@ function TriggerAverageModal({
   averageHp: number
   averageLp: number
   averageNotch: number
+  triggerPreSec: number
+  triggerPostSec: number
+  triggerRefractorySec: number
   triggerRectify: boolean
   rectifyAverage: boolean
   eventSampleIndexes: number[]
@@ -1319,6 +1328,9 @@ function TriggerAverageModal({
   onAverageHpChange: (value: number) => void
   onAverageLpChange: (value: number) => void
   onAverageNotchChange: (value: number) => void
+  onTriggerPreSecChange: (value: number) => void
+  onTriggerPostSecChange: (value: number) => void
+  onTriggerRefractorySecChange: (value: number) => void
   onTriggerRectifyChange: () => void
   onRectifyAverageChange: () => void
   onAverageScopeChange: (value: 'page' | 'record') => void
@@ -1597,6 +1609,76 @@ function TriggerAverageModal({
                 <button type="button" onClick={() => onThresholdNudge(1)} style={{ width: 28, height: 28, background: '#ffffff', border: '1px solid #86efac', borderRadius: 4, color: '#166534', cursor: 'pointer', fontWeight: 700 }}>+</button>
               </div>
             </label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#166534', fontSize: '0.72rem' }}>
+              <span style={{ fontWeight: 700 }}>Ventana (s)</span>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span>Desde</span>
+                  <input
+                    type="number"
+                    step="0.05"
+                    min="-30"
+                    max="0"
+                    value={-triggerPreSec}
+                    onChange={(e) => {
+                      const parsed = parseFloat(e.target.value)
+                      const clamped = Math.max(-30, Math.min(0, Number.isFinite(parsed) ? parsed : -triggerPreSec))
+                      onTriggerPreSecChange(Math.abs(clamped))
+                    }}
+                    style={{
+                      width: 72,
+                      background: '#ffffff',
+                      border: '1px solid #bbf7d0',
+                      borderRadius: 4,
+                      padding: '0.2rem 0.35rem',
+                      color: '#166534',
+                    }}
+                  />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span>Hasta</span>
+                  <input
+                    type="number"
+                    step="0.05"
+                    min="0"
+                    max="30"
+                    value={triggerPostSec}
+                    onChange={(e) => {
+                      const parsed = parseFloat(e.target.value)
+                      const clamped = Math.max(0, Math.min(30, Number.isFinite(parsed) ? parsed : triggerPostSec))
+                      onTriggerPostSecChange(clamped)
+                    }}
+                    style={{
+                      width: 72,
+                      background: '#ffffff',
+                      border: '1px solid #bbf7d0',
+                      borderRadius: 4,
+                      padding: '0.2rem 0.35rem',
+                      color: '#166534',
+                    }}
+                  />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span>Refract</span>
+                  <input
+                    type="number"
+                    step="0.05"
+                    min="0"
+                    max="30"
+                    value={triggerRefractorySec}
+                    onChange={(e) => onTriggerRefractorySecChange(Math.max(0, Math.min(30, parseFloat(e.target.value) || 0)))}
+                    style={{
+                      width: 78,
+                      background: '#ffffff',
+                      border: '1px solid #bbf7d0',
+                      borderRadius: 4,
+                      padding: '0.2rem 0.35rem',
+                      color: '#166534',
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem' }}>
                 <input type="checkbox" checked={triggerRectify} onChange={onTriggerRectifyChange} />
@@ -4216,6 +4298,9 @@ export default function EEGViewer() {
           averageHp={averageHp}
           averageLp={averageLp}
           averageNotch={averageNotch}
+          triggerPreSec={triggerPreSec}
+          triggerPostSec={triggerPostSec}
+          triggerRefractorySec={triggerRefractorySec}
           triggerRectify={triggerRectify}
           rectifyAverage={triggerRectifyAverage}
           eventSampleIndexes={triggerAverageResult?.events.map((event) => event.sampleIndex) ?? []}
@@ -4228,6 +4313,9 @@ export default function EEGViewer() {
           onAverageHpChange={setAverageHp}
           onAverageLpChange={setAverageLp}
           onAverageNotchChange={setAverageNotch}
+          onTriggerPreSecChange={setTriggerPreSec}
+          onTriggerPostSecChange={setTriggerPostSec}
+          onTriggerRefractorySecChange={setTriggerRefractorySec}
           onTriggerRectifyChange={() => setTriggerRectify((value) => !value)}
           onRectifyAverageChange={() => setTriggerRectifyAverage((value) => !value)}
           onAverageScopeChange={setTriggerAverageScope}

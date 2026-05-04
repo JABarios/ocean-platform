@@ -111,8 +111,8 @@ function getPercentile(sorted: Float32Array, ratio: number): number {
 
 export function computeTriggerThresholdRange(
   signal: Float32Array,
-  lowPercentile = 0.05,
-  highPercentile = 0.95,
+  lowPercentile = 0.02,
+  highPercentile = 0.98,
 ): { min: number; max: number } | null {
   if (signal.length === 0) return null
   const sorted = Float32Array.from(signal).sort()

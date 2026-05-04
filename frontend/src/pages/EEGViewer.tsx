@@ -1113,15 +1113,7 @@ function TriggerSignalPreview({
   const draggingRef = useRef(false)
 
   const scales = useMemo(() => {
-    let min = Number.POSITIVE_INFINITY
-    let max = Number.NEGATIVE_INFINITY
-    for (let i = 0; i < signal.length; i++) {
-      const value = signal[i] ?? 0
-      if (value < min) min = value
-      if (value > max) max = value
-    }
-    if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return { min: -1, max: 1 }
-    return { min, max }
+    return computeTriggerThresholdRange(signal) ?? { min: -1, max: 1 }
   }, [signal])
 
   const projectStepFromY = useCallback((y: number, height: number) => {
@@ -1175,7 +1167,8 @@ function TriggerSignalPreview({
     ctx.beginPath()
     for (let i = 0; i < signal.length; i++) {
       const x = left + (i / Math.max(signal.length - 1, 1)) * plotW
-      const norm = (signal[i] - scales.min) / range
+      const clampedValue = Math.max(scales.min, Math.min(scales.max, signal[i] ?? 0))
+      const norm = (clampedValue - scales.min) / range
       const y = top + plotH * (1 - norm)
       if (i === 0) ctx.moveTo(x, y)
       else ctx.lineTo(x, y)

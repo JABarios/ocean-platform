@@ -603,6 +603,7 @@ function NumericSuggestInput({
   compact = false,
   step = 0.1,
   min = 0,
+  max,
 }: {
   label: string
   value: number
@@ -612,6 +613,7 @@ function NumericSuggestInput({
   compact?: boolean
   step?: number
   min?: number
+  max?: number
 }) {
   const [text, setText] = useState(String(value))
 
@@ -630,6 +632,7 @@ function NumericSuggestInput({
         aria-label={label}
         title={`${label} — escribe cualquier valor o elige una sugerencia`}
         min={min}
+        max={max}
         step={step}
         value={text}
         onChange={(e) => {
@@ -1565,6 +1568,29 @@ function TriggerAverageModal({
               <option value="burst">Burst</option>
             </ToolbarSelect>
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              {triggerDetectionMode === 'burst' ? (
+                <NumericSuggestInput
+                  label="Rearme"
+                  value={triggerBurstRearmFraction}
+                  onCommit={(value) => onTriggerBurstRearmFractionChange(Math.max(0, Math.min(0.5, value)))}
+                  suggestions={[0, 0.05, 0.1, 0.15, 0.2]}
+                  width={84}
+                  step={0.01}
+                  min={0}
+                  max={0.5}
+                />
+              ) : (
+                <NumericSuggestInput
+                  label="Refract"
+                  value={triggerRefractorySec}
+                  onCommit={(value) => onTriggerRefractorySecChange(Math.max(0, Math.min(30, value)))}
+                  suggestions={[0.05, 0.1, 0.25, 0.5, 1, 2]}
+                  width={84}
+                  step={0.05}
+                  min={0}
+                  max={30}
+                />
+              )}
               <NumericSuggestInput
                 label="HP trig"
                 value={triggerHp}
@@ -1685,44 +1711,6 @@ function TriggerAverageModal({
                       color: '#166534',
                     }}
                   />
-                </label>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <span>{triggerDetectionMode === 'burst' ? 'Rearme' : 'Refract'}</span>
-                  {triggerDetectionMode === 'burst' ? (
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      max="0.5"
-                      value={triggerBurstRearmFraction}
-                      onChange={(e) => onTriggerBurstRearmFractionChange(Math.max(0, Math.min(0.5, parseFloat(e.target.value) || 0)))}
-                      style={{
-                        width: 78,
-                        background: '#ffffff',
-                        border: '1px solid #bbf7d0',
-                        borderRadius: 4,
-                        padding: '0.2rem 0.35rem',
-                        color: '#166534',
-                      }}
-                    />
-                  ) : (
-                    <input
-                      type="number"
-                      step="0.05"
-                      min="0"
-                      max="30"
-                      value={triggerRefractorySec}
-                      onChange={(e) => onTriggerRefractorySecChange(Math.max(0, Math.min(30, parseFloat(e.target.value) || 0)))}
-                      style={{
-                        width: 78,
-                        background: '#ffffff',
-                        border: '1px solid #bbf7d0',
-                        borderRadius: 4,
-                        padding: '0.2rem 0.35rem',
-                        color: '#166534',
-                      }}
-                    />
-                  )}
                 </label>
               </div>
             </div>

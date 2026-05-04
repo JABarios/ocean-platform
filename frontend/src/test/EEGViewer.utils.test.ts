@@ -544,7 +544,7 @@ describe('EEG viewer utils', () => {
   it('usa percentiles robustos para la escala del trigger', () => {
     const signal = Float32Array.from([0, 1, 2, 3, 4, 5, 1000])
     const range = computeTriggerThresholdRange(signal)
-    expect(range).toEqual({ min: 0, max: 5 })
+    expect(range).toEqual({ min: 0, max: 6.25 })
   })
 
   it('en modo burst espera a que la señal se rearme antes de disparar otro trigger', () => {

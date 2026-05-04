@@ -192,6 +192,15 @@ interface EmbeddedAnnotation {
   text: string
 }
 
+interface ViewerAnnotation {
+  id: string
+  onsetSec: number
+  durationSec: number
+  text: string
+  color: string
+  source: 'trigger'
+}
+
 interface TriggerOverlayData {
   channelName: string
   threshold: number
@@ -307,6 +316,8 @@ function drawEpoch(
   pageDuration: number,   // actual seconds — derived from nSamples / sfreq
   containerH: number,
   annotations?: EmbeddedAnnotation[],
+  viewerAnnotations?: ViewerAnnotation[],
+  selectedViewerAnnotationId?: string | null,
   selectedChannelName?: string | null,
   triggerOverlay?: TriggerOverlayData | null,
 ): number {                // returns chanH used
@@ -485,6 +496,28 @@ function drawEpoch(
         if (label) {
           ctx.fillText(label, Math.min(x + 3, W - 120), textY)
         }
+      })
+      ctx.restore()
+    }
+  }
+
+  if (viewerAnnotations && viewerAnnotations.length > 0 && pageDuration > 0) {
+    const visibleViewerAnnotations = viewerAnnotations.filter(
+      (annotation) => annotation.onsetSec >= tStart && annotation.onsetSec < tStart + pageDuration,
+    )
+
+    if (visibleViewerAnnotations.length > 0) {
+      ctx.save()
+      visibleViewerAnnotations.forEach((annotation) => {
+        const x = LABEL_WIDTH + ((annotation.onsetSec - tStart) / pageDuration) * waveW
+        if (x <= LABEL_WIDTH + 1 || x >= W - 2) return
+        const selected = annotation.id === selectedViewerAnnotationId
+        ctx.strokeStyle = selected ? 'rgba(249,115,22,1)' : annotation.color
+        ctx.lineWidth = selected ? 2.5 : 1.5
+        ctx.beginPath()
+        ctx.moveTo(x, 0)
+        ctx.lineTo(x, canvas.height)
+        ctx.stroke()
       })
       ctx.restore()
     }
@@ -679,8 +712,11 @@ function DSAHeatmap({
   error,
   currentStartSec,
   currentEndSec,
+  viewerAnnotations,
+  selectedViewerAnnotationId,
   onEpochClick,
   onArtifactEpochClick,
+  onViewerAnnotationSelect,
 }: {
   data: DSAData | null
   artifactEnabled: boolean
@@ -688,8 +724,11 @@ function DSAHeatmap({
   error: string
   currentStartSec: number
   currentEndSec: number
+  viewerAnnotations?: ViewerAnnotation[]
+  selectedViewerAnnotationId?: string | null
   onEpochClick: (epochIndex: number) => void
   onArtifactEpochClick: (epochIndex: number) => void
+  onViewerAnnotationSelect?: (annotationId: string) => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -717,37 +756,53 @@ function DSAHeatmap({
       return
     }
 
+    const triggerAnnH = viewerAnnotations && viewerAnnotations.length > 0 ? 10 : 0
     const artifactH = artifactEnabled ? 12 : 0
     const stageH = 12
     const axisH = 18
     const freqW = 34
     const plotX = freqW
-    const plotY = artifactH + stageH
+    const plotY = triggerAnnH + artifactH + stageH
     const plotW = Math.max(1, width - freqW - 2)
-    const plotH = Math.max(1, height - artifactH - stageH - axisH - 2)
+    const plotH = Math.max(1, height - triggerAnnH - artifactH - stageH - axisH - 2)
+
+    if (triggerAnnH > 0 && viewerAnnotations) {
+      const totalSec = data.nEpochs * data.epochSec
+      viewerAnnotations.forEach((annotation) => {
+        const x = plotX + ((Math.max(0, Math.min(totalSec, annotation.onsetSec))) / Math.max(totalSec, 1e-6)) * plotW
+        const selected = annotation.id === selectedViewerAnnotationId
+        ctx.fillStyle = selected ? '#f97316' : annotation.color
+        ctx.fillRect(Math.max(plotX, x - 1), 0, selected ? 4 : 2, triggerAnnH)
+      })
+      ctx.strokeStyle = '#111827'
+      ctx.strokeRect(plotX, 0, plotW, triggerAnnH)
+      ctx.fillStyle = '#64748b'
+      ctx.font = '9px monospace'
+      ctx.fillText('Eventos', 2, triggerAnnH - 2)
+    }
 
     if (artifactEnabled && data.artifactStatuses.length > 0) {
       for (let ep = 0; ep < data.artifactStatuses.length; ep++) {
         const x1 = plotX + Math.floor((ep * plotW) / data.artifactStatuses.length)
         const x2 = plotX + Math.floor(((ep + 1) * plotW) / data.artifactStatuses.length)
         ctx.fillStyle = artifactColor(data.artifactStatuses[ep] ?? 0)
-        ctx.fillRect(x1, 0, Math.max(1, x2 - x1), artifactH)
+        ctx.fillRect(x1, triggerAnnH, Math.max(1, x2 - x1), artifactH)
       }
       ctx.strokeStyle = '#111827'
-      ctx.strokeRect(plotX, 0, plotW, artifactH)
+      ctx.strokeRect(plotX, triggerAnnH, plotW, artifactH)
       ctx.fillStyle = '#64748b'
       ctx.font = '9px monospace'
-      ctx.fillText('Artef.', 2, artifactH - 3)
+      ctx.fillText('Artef.', 2, triggerAnnH + artifactH - 3)
     }
 
     for (let ep = 0; ep < data.nEpochs; ep++) {
       const x1 = plotX + Math.floor((ep * plotW) / data.nEpochs)
       const x2 = plotX + Math.floor(((ep + 1) * plotW) / data.nEpochs)
       ctx.fillStyle = stageColor(data.stages[ep] ?? 0)
-      ctx.fillRect(x1, artifactH, Math.max(1, x2 - x1), stageH)
+      ctx.fillRect(x1, triggerAnnH + artifactH, Math.max(1, x2 - x1), stageH)
     }
     ctx.strokeStyle = '#111827'
-    ctx.strokeRect(plotX, artifactH, plotW, stageH)
+    ctx.strokeRect(plotX, triggerAnnH + artifactH, plotW, stageH)
 
     for (let fi = 0; fi < data.nFreqs; fi++) {
       const f = data.freqMin + fi * data.freqStep
@@ -763,9 +818,20 @@ function DSAHeatmap({
 
     const currentX1 = plotX + (currentStartSec / (data.nEpochs * data.epochSec)) * plotW
     const currentX2 = plotX + (currentEndSec / (data.nEpochs * data.epochSec)) * plotW
-    ctx.strokeStyle = 'rgba(37,99,235,0.85)'
-    ctx.lineWidth = 2
-    ctx.strokeRect(currentX1, plotY, Math.max(2, currentX2 - currentX1), plotH)
+    const currentW = Math.max(2, currentX2 - currentX1)
+    ctx.fillStyle = 'rgba(255,255,255,0.18)'
+    ctx.fillRect(currentX1, plotY, currentW, plotH)
+    ctx.strokeStyle = 'rgba(255,255,255,0.96)'
+    ctx.lineWidth = 4
+    ctx.strokeRect(currentX1, plotY, currentW, plotH)
+    ctx.strokeStyle = 'rgba(15,23,42,0.85)'
+    ctx.lineWidth = 1.5
+    ctx.beginPath()
+    ctx.moveTo(currentX1, plotY)
+    ctx.lineTo(currentX1, plotY + plotH)
+    ctx.moveTo(currentX1 + currentW, plotY)
+    ctx.lineTo(currentX1 + currentW, plotY + plotH)
+    ctx.stroke()
 
     const ticks = [1, 4, 8, 13, 20, 30]
     ctx.fillStyle = '#475569'
@@ -807,7 +873,7 @@ function DSAHeatmap({
     ctx.fillStyle = '#64748b'
     ctx.font = '11px monospace'
     ctx.fillText(`${data.channelName} · ${Math.round(totalSec / 60)} min`, plotX + 6, height - 4)
-  }, [artifactEnabled, currentEndSec, currentStartSec, data, error, loading])
+  }, [artifactEnabled, currentEndSec, currentStartSec, data, error, loading, selectedViewerAnnotationId, viewerAnnotations])
 
   useEffect(() => {
     redraw()
@@ -828,8 +894,27 @@ function DSAHeatmap({
     const y = e.clientY - rect.top
     const freqW = 34
     const plotW = Math.max(1, (canvasRef.current?.width ?? rect.width) - freqW - 2)
+    const triggerAnnH = viewerAnnotations && viewerAnnotations.length > 0 ? 10 : 0
     const artifactH = artifactEnabled ? 12 : 0
-    if (artifactEnabled && y <= artifactH && data.artifactStatuses.length > 0) {
+    if (viewerAnnotations && viewerAnnotations.length > 0 && y <= triggerAnnH && onViewerAnnotationSelect) {
+      const totalSec = data.nEpochs * data.epochSec
+      const relAnn = (x - freqW) / plotW
+      const targetSec = Math.max(0, Math.min(totalSec, relAnn * totalSec))
+      let bestId: string | null = null
+      let bestDist = Infinity
+      viewerAnnotations.forEach((annotation) => {
+        const dist = Math.abs(annotation.onsetSec - targetSec)
+        if (dist < bestDist) {
+          bestId = annotation.id
+          bestDist = dist
+        }
+      })
+      if (bestId) {
+        onViewerAnnotationSelect(bestId)
+        return
+      }
+    }
+    if (artifactEnabled && y >= triggerAnnH && y <= triggerAnnH + artifactH && data.artifactStatuses.length > 0) {
       const relArtifact = (x - freqW) / plotW
       const clampedArtifact = Math.max(0, Math.min(0.999999, relArtifact))
       onArtifactEpochClick(Math.floor(clampedArtifact * data.artifactStatuses.length))
@@ -838,7 +923,7 @@ function DSAHeatmap({
     const rel = (x - freqW) / plotW
     const clamped = Math.max(0, Math.min(0.999999, rel))
     onEpochClick(Math.floor(clamped * data.nEpochs))
-  }, [artifactEnabled, data, onArtifactEpochClick, onEpochClick])
+  }, [artifactEnabled, data, onArtifactEpochClick, onEpochClick, onViewerAnnotationSelect, viewerAnnotations])
 
   return (
     <div
@@ -950,16 +1035,22 @@ function TimelineBar({
   currentStartSec,
   currentEndSec,
   annotations,
+  viewerAnnotations,
+  selectedViewerAnnotationId,
   artifactStatuses,
   artifactEpochSec,
+  onViewerAnnotationSelect,
   onSeek,
 }: {
   totalSeconds: number
   currentStartSec: number
   currentEndSec: number
   annotations?: EmbeddedAnnotation[]
+  viewerAnnotations?: ViewerAnnotation[]
+  selectedViewerAnnotationId?: string | null
   artifactStatuses?: number[]
   artifactEpochSec?: number
+  onViewerAnnotationSelect?: (annotationId: string) => void
   onSeek: (targetSec: number) => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -983,37 +1074,49 @@ function TimelineBar({
 
     const padX = 10
     const trackX = padX
+    const triggerAnnH = viewerAnnotations && viewerAnnotations.length > 0 ? 10 : 0
     const trackY = 12
     const trackW = Math.max(1, width - padX * 2)
     const artifactH = artifactStatuses && artifactStatuses.length > 0 ? 10 : 0
     const trackH = artifactH > 0 ? 16 : 22
+    const safeTotal = Math.max(totalSeconds, 1)
+
+    if (triggerAnnH > 0 && viewerAnnotations) {
+      viewerAnnotations.forEach((annotation) => {
+        const markerX = trackX + (Math.max(0, Math.min(safeTotal, annotation.onsetSec)) / safeTotal) * trackW
+        const selected = annotation.id === selectedViewerAnnotationId
+        ctx.fillStyle = selected ? '#f97316' : annotation.color
+        ctx.fillRect(Math.max(trackX, markerX - 1), trackY, selected ? 4 : 2, triggerAnnH)
+      })
+      ctx.strokeStyle = '#cbd5e1'
+      ctx.strokeRect(trackX, trackY, trackW, triggerAnnH)
+    }
 
     if (artifactH > 0 && artifactEpochSec && artifactStatuses) {
       for (let ep = 0; ep < artifactStatuses.length; ep++) {
         const x1 = trackX + Math.floor((ep * trackW) / artifactStatuses.length)
         const x2 = trackX + Math.floor(((ep + 1) * trackW) / artifactStatuses.length)
         ctx.fillStyle = artifactColor(artifactStatuses[ep] ?? 0)
-        ctx.fillRect(x1, trackY, Math.max(1, x2 - x1), artifactH)
+        ctx.fillRect(x1, trackY + triggerAnnH, Math.max(1, x2 - x1), artifactH)
       }
     }
 
     ctx.fillStyle = '#e2e8f0'
-    ctx.fillRect(trackX, trackY + artifactH, trackW, trackH)
+    ctx.fillRect(trackX, trackY + triggerAnnH + artifactH, trackW, trackH)
     ctx.strokeStyle = '#94a3b8'
-    ctx.strokeRect(trackX, trackY + artifactH, trackW, trackH)
+    ctx.strokeRect(trackX, trackY + triggerAnnH + artifactH, trackW, trackH)
 
-    const safeTotal = Math.max(totalSeconds, 1)
     const viewX1 = trackX + (Math.max(0, currentStartSec) / safeTotal) * trackW
     const viewX2 = trackX + (Math.min(safeTotal, currentEndSec) / safeTotal) * trackW
     ctx.fillStyle = 'rgba(37,99,235,0.18)'
-    ctx.fillRect(viewX1, trackY + artifactH, Math.max(2, viewX2 - viewX1), trackH)
+    ctx.fillRect(viewX1, trackY + triggerAnnH + artifactH, Math.max(2, viewX2 - viewX1), trackH)
     ctx.strokeStyle = 'rgba(37,99,235,0.95)'
     ctx.lineWidth = 2
-    ctx.strokeRect(viewX1, trackY + artifactH, Math.max(2, viewX2 - viewX1), trackH)
+    ctx.strokeRect(viewX1, trackY + triggerAnnH + artifactH, Math.max(2, viewX2 - viewX1), trackH)
 
     ctx.beginPath()
-    ctx.moveTo(viewX1, trackY + artifactH - 4)
-    ctx.lineTo(viewX1, trackY + artifactH + trackH + 4)
+    ctx.moveTo(viewX1, trackY + triggerAnnH + artifactH - 4)
+    ctx.lineTo(viewX1, trackY + triggerAnnH + artifactH + trackH + 4)
     ctx.strokeStyle = '#1d4ed8'
     ctx.lineWidth = 2
     ctx.stroke()
@@ -1027,8 +1130,8 @@ function TimelineBar({
       const tSec = Math.round(i * tickStepSec)
       const x = trackX + (tSec / safeTotal) * trackW
       ctx.beginPath()
-      ctx.moveTo(x, trackY + artifactH + trackH)
-      ctx.lineTo(x, trackY + artifactH + trackH + 4)
+      ctx.moveTo(x, trackY + triggerAnnH + artifactH + trackH)
+      ctx.lineTo(x, trackY + triggerAnnH + artifactH + trackH + 4)
       ctx.stroke()
       ctx.fillText(fmtTimeGrid(tSec), x + 2, height - 6)
     }
@@ -1053,7 +1156,7 @@ function TimelineBar({
       })
       ctx.restore()
     }
-  }, [annotations, artifactEpochSec, artifactStatuses, currentEndSec, currentStartSec, totalSeconds])
+  }, [annotations, artifactEpochSec, artifactStatuses, currentEndSec, currentStartSec, selectedViewerAnnotationId, totalSeconds, viewerAnnotations])
 
   useEffect(() => {
     redraw()
@@ -1070,11 +1173,31 @@ function TimelineBar({
   const handleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect()
     const x = e.clientX - rect.left
+    const y = e.clientY - rect.top
     const padX = 10
     const trackW = Math.max(1, rect.width - padX * 2)
+    const triggerAnnH = viewerAnnotations && viewerAnnotations.length > 0 ? 10 : 0
+    const trackY = 12
+    if (viewerAnnotations && viewerAnnotations.length > 0 && y >= trackY && y <= trackY + triggerAnnH && onViewerAnnotationSelect) {
+      const safeTotal = Math.max(totalSeconds, 1)
+      const targetSec = Math.max(0, Math.min(safeTotal, ((x - padX) / trackW) * safeTotal))
+      let bestId: string | null = null
+      let bestDist = Infinity
+      viewerAnnotations.forEach((annotation) => {
+        const dist = Math.abs(annotation.onsetSec - targetSec)
+        if (dist < bestDist) {
+          bestId = annotation.id
+          bestDist = dist
+        }
+      })
+      if (bestId) {
+        onViewerAnnotationSelect(bestId)
+        return
+      }
+    }
     const rel = Math.max(0, Math.min(0.999999, (x - padX) / trackW))
     onSeek(rel * Math.max(totalSeconds, 1))
-  }, [onSeek, totalSeconds])
+  }, [onSeek, onViewerAnnotationSelect, totalSeconds, viewerAnnotations])
 
   return (
     <div
@@ -1306,9 +1429,15 @@ function TriggerAverageModal({
   triggerRefractorySec,
   triggerRectify,
   rectifyAverage,
+  excludeArtifactEvents,
+  artifactEventsAvailable,
   eventSampleIndexes,
   previewEventCount,
+  viewerAnnotationsCount,
   onClose,
+  onCreateViewerAnnotations,
+  onClearViewerAnnotations,
+  onStepViewerAnnotation,
   onTriggerChannelChange,
   onTriggerDetectionModeChange,
   onTriggerHpChange,
@@ -1326,6 +1455,7 @@ function TriggerAverageModal({
   onTriggerRefractorySecChange,
   onTriggerRectifyChange,
   onRectifyAverageChange,
+  onExcludeArtifactEventsChange,
   onAverageScopeChange,
   onThresholdChange,
   onThresholdNudge,
@@ -1356,9 +1486,15 @@ function TriggerAverageModal({
   triggerRefractorySec: number
   triggerRectify: boolean
   rectifyAverage: boolean
+  excludeArtifactEvents: boolean
+  artifactEventsAvailable: boolean
   eventSampleIndexes: number[]
   previewEventCount: number
+  viewerAnnotationsCount: number
   onClose: () => void
+  onCreateViewerAnnotations: () => void
+  onClearViewerAnnotations: () => void
+  onStepViewerAnnotation: (direction: -1 | 1) => void
   onTriggerChannelChange: (value: string) => void
   onTriggerDetectionModeChange: (value: 'event' | 'burst') => void
   onTriggerHpChange: (value: number) => void
@@ -1376,6 +1512,7 @@ function TriggerAverageModal({
   onTriggerRefractorySecChange: (value: number) => void
   onTriggerRectifyChange: () => void
   onRectifyAverageChange: () => void
+  onExcludeArtifactEventsChange: () => void
   onAverageScopeChange: (value: 'page' | 'record') => void
   onThresholdChange: (value: number) => void
   onThresholdNudge: (delta: number) => void
@@ -1651,6 +1788,10 @@ function TriggerAverageModal({
                 <input type="checkbox" checked={triggerDerivativeAfterSmooth} onChange={onTriggerDerivativeAfterSmoothChange} />
                 Derivada tras smooth
               </label>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: artifactEventsAvailable ? '#166534' : '#94a3b8', fontSize: '0.75rem' }}>
+                <input type="checkbox" checked={excludeArtifactEvents} onChange={onExcludeArtifactEventsChange} disabled={!artifactEventsAvailable} />
+                Excluir eventos en artefacto
+              </label>
             </div>
             <div style={{
               paddingTop: '0.15rem',
@@ -1695,6 +1836,91 @@ function TriggerAverageModal({
                 <button type="button" onClick={() => onThresholdNudge(1)} style={{ width: 28, height: 28, background: '#ffffff', border: '1px solid #86efac', borderRadius: 4, color: '#166534', cursor: 'pointer', fontWeight: 700 }}>+</button>
               </div>
             </label>
+            <div style={{
+              paddingTop: '0.15rem',
+              borderTop: '1px dashed #bbf7d0',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.45rem',
+            }}>
+              <div style={{ color: '#166534', fontSize: '0.73rem', fontWeight: 700 }}>
+                Marcas del visor
+              </div>
+              <div style={{ display: 'flex', gap: '0.45rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  onClick={onCreateViewerAnnotations}
+                  disabled={!result}
+                  style={{
+                    background: result ? '#fff7ed' : '#ffedd5',
+                    border: '1px solid #fdba74',
+                    borderRadius: 5,
+                    color: '#c2410c',
+                    fontSize: '0.76rem',
+                    padding: '0.34rem 0.65rem',
+                    cursor: result ? 'pointer' : 'not-allowed',
+                    fontWeight: 700,
+                  }}
+                >
+                  Marcar eventos
+                </button>
+                {viewerAnnotationsCount > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => onStepViewerAnnotation(-1)}
+                      style={{
+                        background: '#fff7ed',
+                        border: '1px solid #fdba74',
+                        borderRadius: 5,
+                        color: '#c2410c',
+                        fontSize: '0.76rem',
+                        padding: '0.28rem 0.5rem',
+                        cursor: 'pointer',
+                        fontWeight: 700,
+                      }}
+                    >
+                      ‹
+                    </button>
+                    <span style={{ color: '#c2410c', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
+                      {viewerAnnotationsCount} marcas
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onStepViewerAnnotation(1)}
+                      style={{
+                        background: '#fff7ed',
+                        border: '1px solid #fdba74',
+                        borderRadius: 5,
+                        color: '#c2410c',
+                        fontSize: '0.76rem',
+                        padding: '0.28rem 0.5rem',
+                        cursor: 'pointer',
+                        fontWeight: 700,
+                      }}
+                    >
+                      ›
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onClearViewerAnnotations}
+                      style={{
+                        background: '#fff7ed',
+                        border: '1px solid #fdba74',
+                        borderRadius: 5,
+                        color: '#c2410c',
+                        fontSize: '0.76rem',
+                        padding: '0.34rem 0.55rem',
+                        cursor: 'pointer',
+                        fontWeight: 700,
+                      }}
+                    >
+                      Limpiar
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#166534', fontSize: '0.72rem' }}>
               <span style={{ fontWeight: 700 }}>Ventana (s)</span>
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -1945,6 +2171,7 @@ export default function EEGViewer() {
   const [averageNotch, setAverageNotch] = useState(0)
   const [averageGainMult, setAverageGainMult] = useState(1)
   const [triggerRectifyAverage, setTriggerRectifyAverage] = useState(false)
+  const [excludeArtifactEvents, setExcludeArtifactEvents] = useState(true)
   const [triggerThresholdStep, setTriggerThresholdStep] = useState(Math.round((TRIGGER_THRESHOLD_POSITIONS - 1) * 0.7))
   const [triggerAverageScope, setTriggerAverageScope] = useState<'page' | 'record'>('page')
   const [triggerPreSec, setTriggerPreSec] = useState(1)
@@ -1954,6 +2181,8 @@ export default function EEGViewer() {
   const [fullRecordTriggerAverageResult, setFullRecordTriggerAverageResult] = useState<TriggeredAverageResult | null>(null)
   const [fullRecordTriggerAverageLoading, setFullRecordTriggerAverageLoading] = useState(false)
   const [fullRecordTriggerAverageError, setFullRecordTriggerAverageError] = useState('')
+  const [viewerAnnotations, setViewerAnnotations] = useState<ViewerAnnotation[]>([])
+  const [selectedViewerAnnotationId, setSelectedViewerAnnotationId] = useState<string | null>(null)
 
   const canvasRef  = useRef<HTMLCanvasElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)
@@ -2263,6 +2492,10 @@ export default function EEGViewer() {
       rectifyAverage: triggerRectifyAverage,
       refractorySec: triggerRefractorySec,
       burstRearmFraction: triggerBurstRearmFraction,
+      excludeArtifactEvents,
+      artifactStatuses: dsaData?.artifactStatuses,
+      artifactEpochSec: dsaData?.artifactEpochSec,
+      recordStartSec: recordOffset,
     })
   }, [
     processedEpoch,
@@ -2284,6 +2517,9 @@ export default function EEGViewer() {
     triggerRectifyAverage,
     triggerRefractorySec,
     triggerBurstRearmFraction,
+    excludeArtifactEvents,
+    dsaData,
+    recordOffset,
   ])
 
   useEffect(() => {
@@ -2345,6 +2581,10 @@ export default function EEGViewer() {
           rectifyAverage: triggerRectifyAverage,
           refractorySec: triggerRefractorySec,
           burstRearmFraction: triggerBurstRearmFraction,
+          excludeArtifactEvents,
+          artifactStatuses: dsaData?.artifactStatuses,
+          artifactEpochSec: dsaData?.artifactEpochSec,
+          recordStartSec: 0,
         })
 
         if (triggerAverageLoadVersionRef.current !== requestVersion) return
@@ -2387,11 +2627,33 @@ export default function EEGViewer() {
     triggerBurstRearmFraction,
     recordTriggerThresholdValue,
     triggerThresholdRange,
+    excludeArtifactEvents,
+    dsaData,
   ])
 
   const activeTriggerAverageResult = triggerAverageScope === 'record'
     ? fullRecordTriggerAverageResult
     : triggerAverageResult
+
+  const createViewerAnnotationsFromTrigger = useCallback(() => {
+    if (!activeTriggerAverageResult || !triggerChannelName) return
+    const baseEvents = activeTriggerAverageResult.events
+    const nextAnnotations = baseEvents.map((event, index) => {
+      const absoluteOnsetSec = triggerAverageScope === 'record'
+        ? event.onsetSec
+        : recordOffset + event.onsetSec
+      return {
+        id: `trigger-${sourceKind}-${sourceId}-${Math.round(absoluteOnsetSec * 1000)}-${index}`,
+        onsetSec: absoluteOnsetSec,
+        durationSec: 0,
+        text: `${triggerChannelName} #${index + 1}`,
+        color: 'rgba(249,115,22,0.95)',
+        source: 'trigger' as const,
+      }
+    })
+    setViewerAnnotations(nextAnnotations)
+    setSelectedViewerAnnotationId(nextAnnotations[0]?.id ?? null)
+  }, [activeTriggerAverageResult, recordOffset, sourceId, sourceKind, triggerAverageScope, triggerChannelName])
 
   const triggerOverlay = useMemo<TriggerOverlayData | null>(() => {
     if (!triggerAvgOpen || !processedEpoch || !triggerChannelName) return null
@@ -2420,6 +2682,11 @@ export default function EEGViewer() {
       return Object.fromEntries(nextEntries)
     })
   }, [processedEpoch, selectedChannelName])
+
+  useEffect(() => {
+    setViewerAnnotations([])
+    setSelectedViewerAnnotationId(null)
+  }, [sourceKind, sourceId])
 
   // Actual page duration in seconds (not records!) — fixes time grid
   const pageDuration = processedEpoch
@@ -2640,7 +2907,19 @@ export default function EEGViewer() {
 
     const containerH = container.clientHeight || processedEpoch.nChannels * 60
     const tStart     = recordOffset
-    const chanH      = drawEpoch(canvas, processedEpoch, scales, tStart, pageDuration, containerH, edfAnnotations, selectedChannelName, triggerOverlay)
+    const chanH      = drawEpoch(
+      canvas,
+      processedEpoch,
+      scales,
+      tStart,
+      pageDuration,
+      containerH,
+      edfAnnotations,
+      viewerAnnotations,
+      selectedViewerAnnotationId,
+      selectedChannelName,
+      triggerOverlay,
+    )
     const { sbMuV, sbPxH } = computeSBSize(chanH, canvas.height)
 
     renderMetaRef.current = {
@@ -2651,7 +2930,7 @@ export default function EEGViewer() {
     }
     refreshOverlay()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [processedEpoch, scales, refRange, gainMult, recordOffset, pageDuration, refreshOverlay, edfAnnotations, selectedChannelName, triggerOverlay])
+  }, [processedEpoch, scales, refRange, gainMult, recordOffset, pageDuration, refreshOverlay, edfAnnotations, viewerAnnotations, selectedViewerAnnotationId, selectedChannelName, triggerOverlay])
 
   // ── Draw effect ───────────────────────────────────────────────────────────────
 
@@ -3139,6 +3418,26 @@ export default function EEGViewer() {
     setEpoch(result.epoch)
     setRecordOffset(result.startSec)
   }, [pageDuration, recordDurationSec, totalSeconds, windowSecs])
+
+  const jumpToViewerAnnotation = useCallback((annotationId: string, center = true) => {
+    const annotation = viewerAnnotations.find((item) => item.id === annotationId)
+    if (!annotation) return
+    setSelectedViewerAnnotationId(annotation.id)
+    goToSecondPosition(annotation.onsetSec, center)
+  }, [goToSecondPosition, viewerAnnotations])
+
+  const stepViewerAnnotation = useCallback((direction: -1 | 1) => {
+    if (viewerAnnotations.length === 0) return
+    const currentIndex = selectedViewerAnnotationId
+      ? viewerAnnotations.findIndex((item) => item.id === selectedViewerAnnotationId)
+      : -1
+    const fallbackIndex = currentIndex >= 0 ? currentIndex : 0
+    const nextIndex = Math.max(0, Math.min(viewerAnnotations.length - 1, fallbackIndex + direction))
+    const next = viewerAnnotations[nextIndex]
+    if (!next) return
+    setSelectedViewerAnnotationId(next.id)
+    goToSecondPosition(next.onsetSec, true)
+  }, [goToSecondPosition, selectedViewerAnnotationId, viewerAnnotations])
 
   const shiftBySeconds = useCallback((deltaSec: number) => {
     const currentStartSec = recordOffset
@@ -4442,6 +4741,8 @@ export default function EEGViewer() {
           error={dsaError}
           currentStartSec={tStart}
           currentEndSec={tStart + pageDuration}
+          viewerAnnotations={viewerAnnotations}
+          selectedViewerAnnotationId={selectedViewerAnnotationId}
           onEpochClick={(epochIndex) => {
             if (!dsaData) return
             goToDSAEpoch(epochIndex, dsaData.epochSec)
@@ -4450,6 +4751,7 @@ export default function EEGViewer() {
             if (!dsaData) return
             goToDSAEpoch(epochIndex, dsaData.artifactEpochSec)
           }}
+          onViewerAnnotationSelect={(annotationId) => jumpToViewerAnnotation(annotationId)}
         />
       ) : (
         <TimelineBar
@@ -4457,8 +4759,11 @@ export default function EEGViewer() {
           currentStartSec={tStart}
           currentEndSec={Math.min(totalSeconds, tStart + pageDuration)}
           annotations={edfAnnotations}
+          viewerAnnotations={viewerAnnotations}
+          selectedViewerAnnotationId={selectedViewerAnnotationId}
           artifactStatuses={artifactReject ? dsaData?.artifactStatuses : undefined}
           artifactEpochSec={artifactReject ? dsaData?.artifactEpochSec : undefined}
+          onViewerAnnotationSelect={(annotationId) => jumpToViewerAnnotation(annotationId)}
           onSeek={(targetSec) => goToSecondPosition(targetSec, true)}
         />
       )}
@@ -4489,9 +4794,19 @@ export default function EEGViewer() {
           triggerRefractorySec={triggerRefractorySec}
           triggerRectify={triggerRectify}
           rectifyAverage={triggerRectifyAverage}
+          excludeArtifactEvents={excludeArtifactEvents}
+          artifactEventsAvailable={!!dsaData?.artifactStatuses?.length && !!dsaData?.artifactEpochSec}
           eventSampleIndexes={triggerAverageResult?.events.map((event) => event.sampleIndex) ?? []}
           previewEventCount={triggerAverageResult?.events.length ?? 0}
+          viewerAnnotationsCount={viewerAnnotations.length}
           onClose={() => setTriggerAvgModalOpen(false)}
+          onCreateViewerAnnotations={createViewerAnnotationsFromTrigger}
+          onClearViewerAnnotations={() => {
+            setViewerAnnotations([])
+            setSelectedViewerAnnotationId(null)
+          }}
+          onStepViewerAnnotation={stepViewerAnnotation}
+          onExcludeArtifactEventsChange={() => setExcludeArtifactEvents((value) => !value)}
           onTriggerChannelChange={setTriggerChannelName}
           onTriggerDetectionModeChange={setTriggerDetectionMode}
           onTriggerHpChange={setTriggerHp}

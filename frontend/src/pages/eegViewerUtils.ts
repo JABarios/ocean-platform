@@ -87,6 +87,10 @@ export interface TriggerAverageOptions {
   rectifyAverage: boolean
   refractorySec: number
   burstRearmFraction: number
+  excludeArtifactEvents?: boolean
+  artifactStatuses?: number[]
+  artifactEpochSec?: number
+  recordStartSec?: number
 }
 
 export interface TriggerEvent {
@@ -444,9 +448,16 @@ export function computeTriggeredAverage(
   const preSamples = Math.max(0, Math.round(Math.max(0, options.preSec) * epoch.sfreq))
   const postSamples = Math.max(1, Math.round(Math.max(0, options.postSec) * epoch.sfreq))
   const windowSamples = preSamples + postSamples + 1
-  const validEvents = rawEvents.filter(
-    (event) => event.sampleIndex >= preSamples && event.sampleIndex + postSamples < epoch.nSamples,
-  )
+  const validEvents = rawEvents.filter((event) => {
+    if (event.sampleIndex < preSamples || event.sampleIndex + postSamples >= epoch.nSamples) return false
+    if (!options.excludeArtifactEvents || !options.artifactStatuses || !options.artifactEpochSec || options.artifactEpochSec <= 0) {
+      return true
+    }
+    const absoluteOnsetSec = (options.recordStartSec ?? 0) + event.onsetSec
+    const artifactIndex = Math.floor(absoluteOnsetSec / options.artifactEpochSec)
+    const artifactStatus = options.artifactStatuses[artifactIndex] ?? 0
+    return artifactStatus === 0
+  })
   if (validEvents.length === 0) return null
 
   const averageSourceData = epoch.data.map((channelData) =>

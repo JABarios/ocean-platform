@@ -3952,7 +3952,7 @@ export default function EEGViewer() {
       {triggerAvgOpen && (
         <div style={{
           display: 'flex',
-          alignItems: 'flex-end',
+          alignItems: 'center',
           gap: '0.55rem',
           flexWrap: 'wrap',
           padding: '0.45rem 0.6rem 0.55rem 0.6rem',
@@ -3967,174 +3967,8 @@ export default function EEGViewer() {
             lineHeight: 1.45,
             paddingBottom: '0.15rem',
           }}>
-            1. Pulsa el nombre de un canal para usarlo como trigger. 2. Ajusta el umbral con `↑/↓`, con los botones `−/+` o arrastrando la línea roja horizontal. El paso fino es `0.05`. 3. Abre el promedio para ver todos los canales a la vez.
+            1. Pulsa el nombre de un canal para usarlo como trigger. 2. Pulsa `Abrir promedio` para ajustar filtros, umbral y ventana dentro de la ventana emergente.
           </div>
-          <ToolbarSelect label="Canal trigger" value={triggerChannelName} onChange={setTriggerChannelName} width={compactToolbar ? 118 : 142} compact={compactToolbar}>
-            {triggerChannelOptions.map((channel) => (
-              <option key={channel.name} value={channel.name}>{channel.name}</option>
-            ))}
-          </ToolbarSelect>
-          <NumericSuggestInput
-            label="HP trig"
-            value={triggerHp}
-            onCommit={setTriggerHp}
-            suggestions={HP_OPTIONS.map((option) => option.value)}
-            compact={compactToolbar}
-            width={compactToolbar ? 68 : 76}
-          />
-          <NumericSuggestInput
-            label="LP trig"
-            value={triggerLp}
-            onCommit={setTriggerLp}
-            suggestions={[0, ...LP_OPTIONS.map((option) => option.value)]}
-            compact={compactToolbar}
-            width={compactToolbar ? 68 : 76}
-          />
-          <ToolbarSelect label="Notch trig" value={triggerNotch} onChange={(value) => setTriggerNotch(parseFloat(value) || 0)} compact={compactToolbar}>
-            {NOTCH_OPTIONS.map((option) => <option key={option.value} value={option.value}>{`N ${option.label}`}</option>)}
-          </ToolbarSelect>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#166534', fontSize: '0.72rem' }}>
-            Umbral
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <button
-                type="button"
-                onClick={() => nudgeTriggerThreshold(-1)}
-                style={{
-                  width: 28,
-                  height: 28,
-                  background: '#ffffff',
-                  border: '1px solid #86efac',
-                  borderRadius: 4,
-                  color: '#166534',
-                  cursor: 'pointer',
-                  fontWeight: 700,
-                }}
-              >
-                −
-              </button>
-              <div style={{
-                minWidth: 122,
-                background: '#ffffff',
-                border: '1px solid #bbf7d0',
-                borderRadius: 4,
-                padding: '0.28rem 0.4rem',
-                color: '#166534',
-                fontFamily: 'monospace',
-                fontSize: '0.78rem',
-              }}>
-                {`${triggerThresholdStep + 1}/${TRIGGER_THRESHOLD_POSITIONS} · ${triggerThresholdValue.toFixed(2)} µV`}
-              </div>
-              <button
-                type="button"
-                onClick={() => nudgeTriggerThreshold(1)}
-                style={{
-                  width: 28,
-                  height: 28,
-                  background: '#ffffff',
-                  border: '1px solid #86efac',
-                  borderRadius: 4,
-                  color: '#166534',
-                  cursor: 'pointer',
-                  fontWeight: 700,
-                }}
-              >
-                +
-              </button>
-            </div>
-          </label>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#166534', fontSize: '0.72rem' }}>
-            <span style={{ fontWeight: 700 }}>Ventana (s)</span>
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <span>Desde</span>
-                <input
-                  type="number"
-                  step="0.05"
-                  min="-30"
-                  max="0"
-                  value={-triggerPreSec}
-                  onChange={(e) => {
-                    const parsed = parseFloat(e.target.value)
-                    const clamped = Math.max(-30, Math.min(0, Number.isFinite(parsed) ? parsed : -triggerPreSec))
-                    setTriggerPreSec(Math.abs(clamped))
-                  }}
-                  style={{
-                    width: 72,
-                    background: '#ffffff',
-                    border: '1px solid #bbf7d0',
-                    borderRadius: 4,
-                    padding: '0.2rem 0.35rem',
-                    color: '#166534',
-                  }}
-                />
-              </label>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <span>Hasta</span>
-                <input
-                  type="number"
-                  step="0.05"
-                  min="0"
-                  max="30"
-                  value={triggerPostSec}
-                  onChange={(e) => {
-                    const parsed = parseFloat(e.target.value)
-                    const clamped = Math.max(0, Math.min(30, Number.isFinite(parsed) ? parsed : triggerPostSec))
-                    setTriggerPostSec(clamped)
-                  }}
-                  style={{
-                    width: 72,
-                    background: '#ffffff',
-                    border: '1px solid #bbf7d0',
-                    borderRadius: 4,
-                    padding: '0.2rem 0.35rem',
-                    color: '#166534',
-                  }}
-                />
-              </label>
-            </div>
-          </div>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#166534', fontSize: '0.72rem' }}>
-            Refract (s)
-            <input
-              type="number"
-              step="0.05"
-              min="0"
-              value={triggerRefractorySec}
-              onChange={(e) => setTriggerRefractorySec(Math.max(0, parseFloat(e.target.value) || 0))}
-              style={{
-                width: 82,
-                background: '#ffffff',
-                border: '1px solid #bbf7d0',
-                borderRadius: 4,
-                padding: '0.2rem 0.35rem',
-                color: '#166534',
-              }}
-            />
-          </label>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem', paddingBottom: 2 }}>
-            <input
-              type="checkbox"
-              checked={triggerRectify}
-              onChange={() => setTriggerRectify((value) => !value)}
-            />
-            Rectificar trigger
-          </label>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem', paddingBottom: 2 }}>
-            <input
-              type="checkbox"
-              checked={triggerRectifyAverage}
-              onChange={() => setTriggerRectifyAverage((value) => !value)}
-            />
-            Rectificar promedio
-          </label>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem', paddingBottom: 2 }}>
-            <input
-              type="checkbox"
-              checked={triggerAverageScope === 'record'}
-              onChange={(e) => setTriggerAverageScope(e.target.checked ? 'record' : 'page')}
-            />
-            Promediar registro entero
-          </label>
           {selectedChannelName && selectedChannelName !== triggerChannelName && (
             <button
               type="button"
@@ -4153,7 +3987,7 @@ export default function EEGViewer() {
               Usar {selectedChannelName}
             </button>
           )}
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, paddingBottom: 2 }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, paddingBottom: 2, marginLeft: 'auto' }}>
             <span style={{ color: '#166534', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
               {triggerAverageScope === 'record'
                 ? (

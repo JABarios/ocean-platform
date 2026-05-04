@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "vitest run --reporter=verbose"
+    "test": "vitest run --reporter=verbose",
+    "viewer:harness": "python3 ../tools/eeg-viewer-harness/server.py"
   },
   "dependencies": {
     "node-forge": "^1.4.0",

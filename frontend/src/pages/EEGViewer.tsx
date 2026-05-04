@@ -1102,7 +1102,6 @@ function TriggerSignalPreview({
   eventSampleIndexes,
   sampleRate,
   onThresholdStepChange,
-  scalesOverride,
   compact = false,
 }: {
   signal: Float32Array
@@ -1110,7 +1109,6 @@ function TriggerSignalPreview({
   eventSampleIndexes: number[]
   sampleRate: number
   onThresholdStepChange: (nextStep: number) => void
-  scalesOverride?: { min: number; max: number } | null
   compact?: boolean
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -1118,9 +1116,8 @@ function TriggerSignalPreview({
   const draggingRef = useRef(false)
 
   const scales = useMemo(() => {
-    if (scalesOverride) return scalesOverride
     return computeTriggerThresholdRange(signal) ?? { min: -1, max: 1 }
-  }, [scalesOverride, signal])
+  }, [signal])
 
   const projectStepFromY = useCallback((y: number, height: number) => {
     const top = 16
@@ -1291,8 +1288,8 @@ function TriggerAverageModal({
   triggerChannelName,
   triggerSignal,
   triggerThreshold,
+  recordTriggerThreshold,
   triggerThresholdStep,
-  triggerThresholdRange,
   triggerDetectionMode,
   triggerHp,
   triggerLp,
@@ -1341,8 +1338,8 @@ function TriggerAverageModal({
   triggerChannelName: string
   triggerSignal: Float32Array | null
   triggerThreshold: number
+  recordTriggerThreshold: number | null
   triggerThresholdStep: number
-  triggerThresholdRange: { min: number; max: number } | null
   triggerDetectionMode: 'event' | 'burst'
   triggerHp: number
   triggerLp: number
@@ -1691,7 +1688,9 @@ function TriggerAverageModal({
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 <button type="button" onClick={() => onThresholdNudge(-1)} style={{ width: 28, height: 28, background: '#ffffff', border: '1px solid #86efac', borderRadius: 4, color: '#166534', cursor: 'pointer', fontWeight: 700 }}>−</button>
                 <div style={{ minWidth: 128, background: '#ffffff', border: '1px solid #bbf7d0', borderRadius: 4, padding: '0.34rem 0.45rem', color: '#166534', fontFamily: 'monospace', fontSize: '0.8rem' }}>
-                  {`${triggerThresholdStep + 1}/${TRIGGER_THRESHOLD_POSITIONS} · ${triggerThreshold.toFixed(2)} µV`}
+                  {averageScope === 'record' && Number.isFinite(recordTriggerThreshold ?? NaN)
+                    ? `${triggerThresholdStep + 1}/${TRIGGER_THRESHOLD_POSITIONS} · pág ${triggerThreshold.toFixed(2)} / reg ${(recordTriggerThreshold ?? 0).toFixed(2)} µV`
+                    : `${triggerThresholdStep + 1}/${TRIGGER_THRESHOLD_POSITIONS} · ${triggerThreshold.toFixed(2)} µV`}
                 </div>
                 <button type="button" onClick={() => onThresholdNudge(1)} style={{ width: 28, height: 28, background: '#ffffff', border: '1px solid #86efac', borderRadius: 4, color: '#166534', cursor: 'pointer', fontWeight: 700 }}>+</button>
               </div>
@@ -1826,7 +1825,6 @@ function TriggerAverageModal({
                   eventSampleIndexes={eventSampleIndexes}
                   sampleRate={averagedEpoch?.sfreq ?? 1}
                   onThresholdStepChange={onThresholdChange}
-                  scalesOverride={triggerThresholdRange}
                   compact
                 />
               </div>
@@ -2152,12 +2150,16 @@ export default function EEGViewer() {
       setTriggerThresholdRange(null)
       return
     }
+    if (triggerAverageScope !== 'record') {
+      triggerThresholdRangeLoadVersionRef.current += 1
+      setTriggerThresholdRange(null)
+      return
+    }
     if (!triggerChannelName) return
 
     const nextSignature = JSON.stringify({
       sourceKind,
       sourceId,
-      averageScope: triggerAverageScope,
       triggerChannelName,
       triggerDetectionMode,
       triggerHp,
@@ -2171,53 +2173,43 @@ export default function EEGViewer() {
     if (triggerThresholdRangeSignatureRef.current === nextSignature) return
     triggerThresholdRangeSignatureRef.current = nextSignature
 
-    if (triggerAverageScope === 'record') {
-      const kappa = kappaRef.current
-      if (!kappa) return
+    const kappa = kappaRef.current
+    if (!kappa) return
 
-      const requestVersion = ++triggerThresholdRangeLoadVersionRef.current
-      setTriggerThresholdRange(null)
+    const requestVersion = ++triggerThresholdRangeLoadVersionRef.current
+    setTriggerThresholdRange(null)
 
-      const timer = window.setTimeout(() => {
-        try {
-          const safeRecordDurationSec = Math.max(recordDurationSec, 1e-6)
-          const totalRecords = Math.max(1, Math.ceil(Math.max(totalSeconds, safeRecordDurationSec) / safeRecordDurationSec))
-          const rawFullEpoch = kappa.readEpoch(0, totalRecords)
-          if (!rawFullEpoch) return
+    const timer = window.setTimeout(() => {
+      try {
+        const safeRecordDurationSec = Math.max(recordDurationSec, 1e-6)
+        const totalRecords = Math.max(1, Math.ceil(Math.max(totalSeconds, safeRecordDurationSec) / safeRecordDurationSec))
+        const rawFullEpoch = kappa.readEpoch(0, totalRecords)
+        if (!rawFullEpoch) return
 
-          const processedFullEpoch = processEpochForViewer(rawFullEpoch)
-          const triggerIndex = processedFullEpoch.channelNames.findIndex((name) => name === triggerChannelName)
-          if (triggerIndex < 0) return
+        const processedFullEpoch = processEpochForViewer(rawFullEpoch)
+        const triggerIndex = processedFullEpoch.channelNames.findIndex((name) => name === triggerChannelName)
+        if (triggerIndex < 0) return
 
-          const nextRange = computeTriggerThresholdRange(filterSignalForTrigger(processedFullEpoch.data[triggerIndex], processedFullEpoch.sfreq, {
-            hp: triggerHp,
-            lp: triggerLp,
-            notch: triggerNotch,
-            triggerSmoothPoints,
-            triggerDerivativeAfterSmooth,
-            rectifyTrigger: triggerRectify,
-          }))
-          if (!nextRange) return
-          if (requestVersion !== triggerThresholdRangeLoadVersionRef.current) return
-          setTriggerThresholdRange(nextRange)
-        } catch {
-          // The full-record average loader will surface read errors; keep threshold setup quiet here.
-        }
-      }, 0)
+        const nextRange = computeTriggerThresholdRange(filterSignalForTrigger(processedFullEpoch.data[triggerIndex], processedFullEpoch.sfreq, {
+          hp: triggerHp,
+          lp: triggerLp,
+          notch: triggerNotch,
+          triggerSmoothPoints,
+          triggerDerivativeAfterSmooth,
+          rectifyTrigger: triggerRectify,
+        }))
+        if (!nextRange) return
+        if (requestVersion !== triggerThresholdRangeLoadVersionRef.current) return
+        setTriggerThresholdRange(nextRange)
+      } catch {
+        // The full-record average loader will surface read errors; keep threshold setup quiet here.
+      }
+    }, 0)
 
-      return () => window.clearTimeout(timer)
-    }
-
-    if (!triggerSignalPreview || triggerSignalPreview.length === 0) return
-
-    const nextRange = computeTriggerThresholdRange(triggerSignalPreview)
-    if (!nextRange) return
-
-    setTriggerThresholdRange(nextRange)
+    return () => window.clearTimeout(timer)
   }, [
     triggerAvgOpen,
     triggerAverageScope,
-    triggerSignalPreview,
     sourceKind,
     sourceId,
     triggerChannelName,
@@ -2234,24 +2226,28 @@ export default function EEGViewer() {
     totalSeconds,
   ])
 
-  const resolvedTriggerThresholdRange = useMemo(() => {
-    if (triggerAverageScope === 'record') return triggerThresholdRange
-    if (triggerThresholdRange) return triggerThresholdRange
+  const previewTriggerThresholdRange = useMemo(() => {
     if (!triggerSignalPreview || triggerSignalPreview.length === 0) return null
     return computeTriggerThresholdRange(triggerSignalPreview)
-  }, [triggerAverageScope, triggerThresholdRange, triggerSignalPreview])
+  }, [triggerSignalPreview])
 
-  const triggerThresholdValue = useMemo(() => {
-    if (!resolvedTriggerThresholdRange) return 0
+  const previewTriggerThresholdValue = useMemo(() => {
+    if (!previewTriggerThresholdRange) return 0
     const ratio = triggerThresholdStep / Math.max(TRIGGER_THRESHOLD_POSITIONS - 1, 1)
-    return resolvedTriggerThresholdRange.min + ratio * (resolvedTriggerThresholdRange.max - resolvedTriggerThresholdRange.min)
-  }, [resolvedTriggerThresholdRange, triggerThresholdStep])
+    return previewTriggerThresholdRange.min + ratio * (previewTriggerThresholdRange.max - previewTriggerThresholdRange.min)
+  }, [previewTriggerThresholdRange, triggerThresholdStep])
+
+  const recordTriggerThresholdValue = useMemo(() => {
+    if (!triggerThresholdRange) return 0
+    const ratio = triggerThresholdStep / Math.max(TRIGGER_THRESHOLD_POSITIONS - 1, 1)
+    return triggerThresholdRange.min + ratio * (triggerThresholdRange.max - triggerThresholdRange.min)
+  }, [triggerThresholdRange, triggerThresholdStep])
 
   const triggerAverageResult = useMemo(() => {
     if (!triggerAvgOpen || !processedEpoch || !triggerChannelName) return null
     return computeTriggeredAverage(processedEpoch, {
       triggerChannelName,
-      threshold: triggerThresholdValue,
+      threshold: previewTriggerThresholdValue,
       preSec: triggerPreSec,
       postSec: triggerPostSec,
       detectionMode: triggerDetectionMode,
@@ -2272,7 +2268,7 @@ export default function EEGViewer() {
     processedEpoch,
     triggerAvgOpen,
     triggerChannelName,
-    triggerThresholdValue,
+    previewTriggerThresholdValue,
     triggerPreSec,
     triggerPostSec,
     triggerDetectionMode,
@@ -2304,7 +2300,7 @@ export default function EEGViewer() {
       setFullRecordTriggerAverageResult(null)
       return
     }
-    if (!resolvedTriggerThresholdRange) {
+    if (!triggerThresholdRange) {
       setFullRecordTriggerAverageLoading(false)
       setFullRecordTriggerAverageError('')
       setFullRecordTriggerAverageResult(null)
@@ -2333,7 +2329,7 @@ export default function EEGViewer() {
         const processedFullEpoch = processEpochForViewer(rawFullEpoch)
         const nextResult = computeTriggeredAverage(processedFullEpoch, {
           triggerChannelName,
-          threshold: triggerThresholdValue,
+          threshold: recordTriggerThresholdValue,
           preSec: triggerPreSec,
           postSec: triggerPostSec,
           detectionMode: triggerDetectionMode,
@@ -2389,8 +2385,8 @@ export default function EEGViewer() {
     triggerRectifyAverage,
     triggerRefractorySec,
     triggerBurstRearmFraction,
-    triggerThresholdValue,
-    resolvedTriggerThresholdRange,
+    recordTriggerThresholdValue,
+    triggerThresholdRange,
   ])
 
   const activeTriggerAverageResult = triggerAverageScope === 'record'
@@ -2401,12 +2397,12 @@ export default function EEGViewer() {
     if (!triggerAvgOpen || !processedEpoch || !triggerChannelName) return null
     return {
       channelName: triggerChannelName,
-      threshold: triggerThresholdValue,
+      threshold: previewTriggerThresholdValue,
       eventOnsetsSec: triggerAverageResult
         ? triggerAverageResult.events.map((event) => recordOffset + event.onsetSec)
         : [],
     }
-  }, [processedEpoch, recordOffset, triggerAverageResult, triggerAvgOpen, triggerChannelName, triggerThresholdValue])
+  }, [processedEpoch, recordOffset, triggerAverageResult, triggerAvgOpen, triggerChannelName, previewTriggerThresholdValue])
 
   useEffect(() => {
     setTriggerAvgModalOpen(triggerAvgOpen)
@@ -2684,7 +2680,7 @@ export default function EEGViewer() {
     const margin = rm.chanH * 0.08
     const drawH = rm.chanH - margin * 2
     const range = scale.p98 - scale.p2 || 1
-    const norm = Math.max(0, Math.min(1, (triggerThresholdValue - scale.p2) / range))
+    const norm = Math.max(0, Math.min(1, (previewTriggerThresholdValue - scale.p2) / range))
     const y = y0 + margin + drawH * (1 - norm)
     return {
       y,
@@ -2695,7 +2691,7 @@ export default function EEGViewer() {
       margin,
       drawH,
     }
-  }, [processedEpoch, scales, triggerAvgOpen, triggerChannelName, triggerThresholdValue])
+  }, [processedEpoch, scales, triggerAvgOpen, triggerChannelName, previewTriggerThresholdValue])
 
   // ── Mouse handlers ────────────────────────────────────────────────────────────
 
@@ -4474,9 +4470,9 @@ export default function EEGViewer() {
           fullRecordError={fullRecordTriggerAverageError}
           triggerChannelName={triggerChannelName}
           triggerSignal={triggerSignalPreview}
-          triggerThreshold={triggerThresholdValue}
+          triggerThreshold={previewTriggerThresholdValue}
+          recordTriggerThreshold={triggerAverageScope === 'record' && triggerThresholdRange ? recordTriggerThresholdValue : null}
           triggerThresholdStep={triggerThresholdStep}
-          triggerThresholdRange={resolvedTriggerThresholdRange}
           triggerDetectionMode={triggerDetectionMode}
           triggerHp={triggerHp}
           triggerLp={triggerLp}

@@ -77,6 +77,10 @@ export interface TriggerAverageOptions {
   hp: number
   lp: number
   notch: number
+  triggerSmoothPoints: number
+  averageHp: number
+  averageLp: number
+  averageNotch: number
   rectifyTrigger: boolean
   rectifyAverage: boolean
   refractorySec: number
@@ -277,7 +281,7 @@ function createNotchCoefficients(centerHz: number, sampleRate: number): BiquadCo
 export function filterSignalForTrigger(
   signal: Float32Array,
   sampleRate: number,
-  options: Pick<TriggerAverageOptions, 'hp' | 'lp' | 'notch' | 'rectifyTrigger'>,
+  options: Pick<TriggerAverageOptions, 'hp' | 'lp' | 'notch' | 'rectifyTrigger' | 'triggerSmoothPoints'>,
 ): Float32Array {
   let filtered = Float32Array.from(signal) as Float32Array
 
@@ -291,6 +295,44 @@ export function filterSignalForTrigger(
   if (notchCoeffs) filtered = applyBiquad(filtered, notchCoeffs) as Float32Array
 
   if (options.rectifyTrigger) {
+    const rectified = new Float32Array(filtered.length)
+    for (let i = 0; i < filtered.length; i++) rectified[i] = Math.abs(filtered[i] ?? 0)
+    filtered = rectified
+  }
+
+  const smoothPoints = Math.max(1, Math.round(options.triggerSmoothPoints || 1))
+  if (smoothPoints > 1) {
+    const smoothed = new Float32Array(filtered.length)
+    let running = 0
+    for (let i = 0; i < filtered.length; i++) {
+      running += filtered[i] ?? 0
+      if (i >= smoothPoints) running -= filtered[i - smoothPoints] ?? 0
+      const denom = Math.min(i + 1, smoothPoints)
+      smoothed[i] = running / Math.max(denom, 1)
+    }
+    filtered = smoothed
+  }
+
+  return filtered
+}
+
+export function filterSignalForAverage(
+  signal: Float32Array,
+  sampleRate: number,
+  options: Pick<TriggerAverageOptions, 'averageHp' | 'averageLp' | 'averageNotch' | 'rectifyAverage'>,
+): Float32Array {
+  let filtered = Float32Array.from(signal) as Float32Array
+
+  const hpCoeffs = createHighpassCoefficients(options.averageHp, sampleRate)
+  if (hpCoeffs) filtered = applyZeroPhaseBiquad(filtered, hpCoeffs) as Float32Array
+
+  const lpCoeffs = createLowpassCoefficients(options.averageLp, sampleRate)
+  if (lpCoeffs) filtered = applyZeroPhaseBiquad(filtered, lpCoeffs) as Float32Array
+
+  const notchCoeffs = createNotchCoefficients(options.averageNotch, sampleRate)
+  if (notchCoeffs) filtered = applyBiquad(filtered, notchCoeffs) as Float32Array
+
+  if (options.rectifyAverage) {
     const rectified = new Float32Array(filtered.length)
     for (let i = 0; i < filtered.length; i++) rectified[i] = Math.abs(filtered[i] ?? 0)
     filtered = rectified
@@ -342,15 +384,18 @@ export function computeTriggeredAverage(
   )
   if (validEvents.length === 0) return null
 
-  const averagedData = epoch.data.map(() => new Float32Array(windowSamples))
+  const averageSourceData = epoch.data.map((channelData) =>
+    filterSignalForAverage(channelData, epoch.sfreq, options),
+  )
+  const averagedData = averageSourceData.map(() => new Float32Array(windowSamples))
   validEvents.forEach((event) => {
     const start = event.sampleIndex - preSamples
     const end = event.sampleIndex + postSamples + 1
-    epoch.data.forEach((channelData, channelIndex) => {
+    averageSourceData.forEach((channelData, channelIndex) => {
       for (let i = start; i < end; i++) {
         const localIndex = i - start
         const sample = channelData[i] ?? 0
-        averagedData[channelIndex][localIndex] += options.rectifyAverage ? Math.abs(sample) : sample
+        averagedData[channelIndex][localIndex] += sample
       }
     })
   })

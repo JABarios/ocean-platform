@@ -1269,6 +1269,10 @@ function TriggerAverageModal({
   triggerHp,
   triggerLp,
   triggerNotch,
+  triggerSmoothPoints,
+  averageHp,
+  averageLp,
+  averageNotch,
   triggerRectify,
   rectifyAverage,
   eventSampleIndexes,
@@ -1277,6 +1281,10 @@ function TriggerAverageModal({
   onTriggerHpChange,
   onTriggerLpChange,
   onTriggerNotchChange,
+  onTriggerSmoothPointsChange,
+  onAverageHpChange,
+  onAverageLpChange,
+  onAverageNotchChange,
   onTriggerRectifyChange,
   onRectifyAverageChange,
   onAverageScopeChange,
@@ -1295,6 +1303,10 @@ function TriggerAverageModal({
   triggerHp: number
   triggerLp: number
   triggerNotch: number
+  triggerSmoothPoints: number
+  averageHp: number
+  averageLp: number
+  averageNotch: number
   triggerRectify: boolean
   rectifyAverage: boolean
   eventSampleIndexes: number[]
@@ -1303,6 +1315,10 @@ function TriggerAverageModal({
   onTriggerHpChange: (value: number) => void
   onTriggerLpChange: (value: number) => void
   onTriggerNotchChange: (value: number) => void
+  onTriggerSmoothPointsChange: (value: number) => void
+  onAverageHpChange: (value: number) => void
+  onAverageLpChange: (value: number) => void
+  onAverageNotchChange: (value: number) => void
   onTriggerRectifyChange: () => void
   onRectifyAverageChange: () => void
   onAverageScopeChange: (value: 'page' | 'record') => void
@@ -1530,9 +1546,46 @@ function TriggerAverageModal({
                 onCommit={onTriggerLpChange}
                 suggestions={[0, ...LP_OPTIONS.map((option) => option.value)]}
               />
+              <NumericSuggestInput
+                label="Smooth n"
+                value={triggerSmoothPoints}
+                onCommit={(value) => onTriggerSmoothPointsChange(Math.max(1, Math.round(value)))}
+                suggestions={[1, 3, 5, 7, 9, 11, 21]}
+                width={78}
+                step={1}
+                min={1}
+              />
               <ToolbarSelect label="Notch trig" value={triggerNotch} onChange={(value) => onTriggerNotchChange(parseFloat(value) || 0)} width={94}>
                 {NOTCH_OPTIONS.map((option) => <option key={option.value} value={option.value}>{`N ${option.label}`}</option>)}
               </ToolbarSelect>
+            </div>
+            <div style={{
+              paddingTop: '0.15rem',
+              borderTop: '1px dashed #bbf7d0',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.5rem',
+            }}>
+              <div style={{ color: '#166534', fontSize: '0.73rem', fontWeight: 700 }}>
+                Filtros del promedio
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <NumericSuggestInput
+                  label="HP prom"
+                  value={averageHp}
+                  onCommit={onAverageHpChange}
+                  suggestions={HP_OPTIONS.map((option) => option.value)}
+                />
+                <NumericSuggestInput
+                  label="LP prom"
+                  value={averageLp}
+                  onCommit={onAverageLpChange}
+                  suggestions={[0, ...LP_OPTIONS.map((option) => option.value)]}
+                />
+                <ToolbarSelect label="Notch prom" value={averageNotch} onChange={(value) => onAverageNotchChange(parseFloat(value) || 0)} width={94}>
+                  {NOTCH_OPTIONS.map((option) => <option key={option.value} value={option.value}>{`N ${option.label}`}</option>)}
+                </ToolbarSelect>
+              </div>
             </div>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#166534', fontSize: '0.72rem' }}>
               Umbral
@@ -1733,7 +1786,11 @@ export default function EEGViewer() {
   const [triggerHp, setTriggerHp] = useState(0)
   const [triggerLp, setTriggerLp] = useState(45)
   const [triggerNotch, setTriggerNotch] = useState(0)
+  const [triggerSmoothPoints, setTriggerSmoothPoints] = useState(1)
   const [triggerRectify, setTriggerRectify] = useState(false)
+  const [averageHp, setAverageHp] = useState(0)
+  const [averageLp, setAverageLp] = useState(0)
+  const [averageNotch, setAverageNotch] = useState(0)
   const [triggerRectifyAverage, setTriggerRectifyAverage] = useState(false)
   const [triggerThresholdStep, setTriggerThresholdStep] = useState(Math.round((TRIGGER_THRESHOLD_POSITIONS - 1) * 0.7))
   const [triggerAverageScope, setTriggerAverageScope] = useState<'page' | 'record'>('page')
@@ -1924,9 +1981,10 @@ export default function EEGViewer() {
       hp: triggerHp,
       lp: triggerLp,
       notch: triggerNotch,
+      triggerSmoothPoints,
       rectifyTrigger: triggerRectify,
     })
-  }, [processedEpoch, triggerAvgOpen, triggerChannelName, triggerHp, triggerLp, triggerNotch, triggerRectify])
+  }, [processedEpoch, triggerAvgOpen, triggerChannelName, triggerHp, triggerLp, triggerNotch, triggerRectify, triggerSmoothPoints])
 
   const triggerThresholdRange = useMemo(() => {
     if (!triggerSignalPreview || triggerSignalPreview.length === 0) return null
@@ -1957,6 +2015,10 @@ export default function EEGViewer() {
       hp: triggerHp,
       lp: triggerLp,
       notch: triggerNotch,
+      triggerSmoothPoints,
+      averageHp,
+      averageLp,
+      averageNotch,
       rectifyTrigger: triggerRectify,
       rectifyAverage: triggerRectifyAverage,
       refractorySec: triggerRefractorySec,
@@ -1971,6 +2033,10 @@ export default function EEGViewer() {
     triggerHp,
     triggerLp,
     triggerNotch,
+    triggerSmoothPoints,
+    averageHp,
+    averageLp,
+    averageNotch,
     triggerRectify,
     triggerRectifyAverage,
     triggerRefractorySec,
@@ -2020,6 +2086,10 @@ export default function EEGViewer() {
           hp: triggerHp,
           lp: triggerLp,
           notch: triggerNotch,
+          triggerSmoothPoints,
+          averageHp,
+          averageLp,
+          averageNotch,
           rectifyTrigger: triggerRectify,
           rectifyAverage: triggerRectifyAverage,
           refractorySec: triggerRefractorySec,
@@ -2051,6 +2121,10 @@ export default function EEGViewer() {
     triggerHp,
     triggerLp,
     triggerNotch,
+    triggerSmoothPoints,
+    averageHp,
+    averageLp,
+    averageNotch,
     triggerPostSec,
     triggerPreSec,
     triggerRectify,
@@ -2159,6 +2233,10 @@ export default function EEGViewer() {
     setTriggerHp(0)
     setTriggerLp(45)
     setTriggerNotch(0)
+    setTriggerSmoothPoints(1)
+    setAverageHp(0)
+    setAverageLp(0)
+    setAverageNotch(0)
     setTriggerRectify(false)
     setTriggerRectifyAverage(false)
     setTriggerThresholdStep(Math.round((TRIGGER_THRESHOLD_POSITIONS - 1) * 0.7))
@@ -4285,6 +4363,10 @@ export default function EEGViewer() {
           triggerHp={triggerHp}
           triggerLp={triggerLp}
           triggerNotch={triggerNotch}
+          triggerSmoothPoints={triggerSmoothPoints}
+          averageHp={averageHp}
+          averageLp={averageLp}
+          averageNotch={averageNotch}
           triggerRectify={triggerRectify}
           rectifyAverage={triggerRectifyAverage}
           eventSampleIndexes={triggerAverageResult?.events.map((event) => event.sampleIndex) ?? []}
@@ -4293,6 +4375,10 @@ export default function EEGViewer() {
           onTriggerHpChange={setTriggerHp}
           onTriggerLpChange={setTriggerLp}
           onTriggerNotchChange={setTriggerNotch}
+          onTriggerSmoothPointsChange={setTriggerSmoothPoints}
+          onAverageHpChange={setAverageHp}
+          onAverageLpChange={setAverageLp}
+          onAverageNotchChange={setAverageNotch}
           onTriggerRectifyChange={() => setTriggerRectify((value) => !value)}
           onRectifyAverageChange={() => setTriggerRectifyAverage((value) => !value)}
           onAverageScopeChange={setTriggerAverageScope}

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   computeTriggeredAverage,
   detectThresholdCrossings,
+  filterSignalForAverage,
   filterSignalForTrigger,
   MONTAGE_OPTIONS,
   applyMontage,
@@ -545,9 +546,33 @@ describe('EEG viewer utils', () => {
       hp: 0,
       lp: 0,
       notch: 0,
+      triggerSmoothPoints: 1,
       rectifyTrigger: true,
     })
     expect(Array.from(filtered)).toEqual([5, 2, 0, 2, 5])
+  })
+
+  it('suaviza la señal trigger con una media móvil de n puntos', () => {
+    const signal = Float32Array.from([0, 0, 9, 0, 0])
+    const filtered = filterSignalForTrigger(signal, 100, {
+      hp: 0,
+      lp: 0,
+      notch: 0,
+      triggerSmoothPoints: 3,
+      rectifyTrigger: false,
+    })
+    expect(Array.from(filtered)).toEqual([0, 0, 3, 3, 3])
+  })
+
+  it('puede filtrar también las señales que se promedian', () => {
+    const signal = Float32Array.from([-2, -1, 4, -3, -4])
+    const filtered = filterSignalForAverage(signal, 100, {
+      averageHp: 0,
+      averageLp: 0,
+      averageNotch: 0,
+      rectifyAverage: true,
+    })
+    expect(Array.from(filtered)).toEqual([2, 1, 4, 3, 4])
   })
 
   it('calcula el promedio desencadenado sobre la ventana actual', () => {
@@ -565,6 +590,10 @@ describe('EEG viewer utils', () => {
       hp: 0,
       lp: 0,
       notch: 0,
+      triggerSmoothPoints: 1,
+      averageHp: 0,
+      averageLp: 0,
+      averageNotch: 0,
       rectifyTrigger: false,
       rectifyAverage: false,
       refractorySec: 0.02,
@@ -590,6 +619,10 @@ describe('EEG viewer utils', () => {
       hp: 0,
       lp: 0,
       notch: 0,
+      triggerSmoothPoints: 1,
+      averageHp: 0,
+      averageLp: 0,
+      averageNotch: 0,
       rectifyTrigger: false,
       rectifyAverage: true,
       refractorySec: 0.02,

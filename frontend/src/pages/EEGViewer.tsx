@@ -1483,96 +1483,185 @@ function TriggerAverageModal({
           Cerrar
         </button>
       </div>
-      <div style={{ padding: '0.8rem 1rem', borderBottom: '1px solid #e2e8f0', background: '#f0fdf4', display: 'flex', alignItems: 'flex-end', gap: '0.55rem', flexWrap: 'wrap' }}>
-        <ToolbarSelect label="Canal trigger" value={triggerChannelName} onChange={onTriggerChannelChange} width={148}>
-          {triggerChannelOptions.map((channel) => (
-            <option key={channel.name} value={channel.name}>{channel.name}</option>
-          ))}
-        </ToolbarSelect>
-        <NumericSuggestInput
-          label="HP trig"
-          value={triggerHp}
-          onCommit={onTriggerHpChange}
-          suggestions={HP_OPTIONS.map((option) => option.value)}
-        />
-        <NumericSuggestInput
-          label="LP trig"
-          value={triggerLp}
-          onCommit={onTriggerLpChange}
-          suggestions={[0, ...LP_OPTIONS.map((option) => option.value)]}
-        />
-        <ToolbarSelect label="Notch trig" value={triggerNotch} onChange={(value) => onTriggerNotchChange(parseFloat(value) || 0)}>
-          {NOTCH_OPTIONS.map((option) => <option key={option.value} value={option.value}>{`N ${option.label}`}</option>)}
-        </ToolbarSelect>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#166534', fontSize: '0.72rem' }}>
-          Umbral
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            <button type="button" onClick={() => onThresholdNudge(-1)} style={{ width: 28, height: 28, background: '#ffffff', border: '1px solid #86efac', borderRadius: 4, color: '#166534', cursor: 'pointer', fontWeight: 700 }}>−</button>
-            <div style={{ minWidth: 128, background: '#ffffff', border: '1px solid #bbf7d0', borderRadius: 4, padding: '0.34rem 0.45rem', color: '#166534', fontFamily: 'monospace', fontSize: '0.8rem' }}>
-              {`${triggerThresholdStep + 1}/${TRIGGER_THRESHOLD_POSITIONS} · ${triggerThreshold.toFixed(2)} µV`}
-            </div>
-            <button type="button" onClick={() => onThresholdNudge(1)} style={{ width: 28, height: 28, background: '#ffffff', border: '1px solid #86efac', borderRadius: 4, color: '#166534', cursor: 'pointer', fontWeight: 700 }}>+</button>
-          </div>
-        </label>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem', paddingBottom: 2 }}>
-          <input type="checkbox" checked={triggerRectify} onChange={onTriggerRectifyChange} />
-          Rectificar trigger
-        </label>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem', paddingBottom: 2 }}>
-          <input type="checkbox" checked={rectifyAverage} onChange={onRectifyAverageChange} />
-          Rectificar promedio
-        </label>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem', paddingBottom: 2 }}>
-          <input
-            type="checkbox"
-            checked={averageScope === 'record'}
-            onChange={(e) => onAverageScopeChange(e.target.checked ? 'record' : 'page')}
-          />
-          Promediar registro entero
-        </label>
-      </div>
-      <div style={{ flex: 1, overflow: 'auto', background: '#fffdf6', padding: '0.9rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
-        {triggerSignal && triggerChannelName && (
-          <TriggerSignalPreview
-            signal={triggerSignal}
-            threshold={triggerThreshold}
-            eventSampleIndexes={eventSampleIndexes}
-            sampleRate={averagedEpoch?.sfreq ?? 1}
-            onThresholdStepChange={onThresholdChange}
-          />
-        )}
-        {averageScope === 'record' && (
+      <div style={{
+        flex: 1,
+        overflow: 'hidden',
+        background: '#fffdf6',
+        padding: '0.9rem 1rem',
+        display: 'grid',
+        gridTemplateColumns: 'minmax(290px, 340px) minmax(0, 1fr)',
+        gap: '0.9rem',
+      }}>
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '0.9rem',
+          minWidth: 0,
+          overflowY: 'auto',
+          paddingRight: '0.1rem',
+        }}>
           <div style={{
-            padding: '0.7rem 0.85rem',
-            border: '1px solid #bbf7d0',
+            padding: '0.8rem 0.9rem',
+            border: '1px solid #d1fae5',
             borderRadius: 10,
             background: '#f0fdf4',
-            color: '#166534',
-            fontSize: '0.8rem',
-            lineHeight: 1.45,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.7rem',
           }}>
-            El trigger se ajusta sobre la página visible. Con esta opción activa, el promedio busca eventos en todo el registro usando ese mismo umbral.
+            <ToolbarSelect label="Canal trigger" value={triggerChannelName} onChange={onTriggerChannelChange} width={148}>
+              {triggerChannelOptions.map((channel) => (
+                <option key={channel.name} value={channel.name}>{channel.name}</option>
+              ))}
+            </ToolbarSelect>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <NumericSuggestInput
+                label="HP trig"
+                value={triggerHp}
+                onCommit={onTriggerHpChange}
+                suggestions={HP_OPTIONS.map((option) => option.value)}
+              />
+              <NumericSuggestInput
+                label="LP trig"
+                value={triggerLp}
+                onCommit={onTriggerLpChange}
+                suggestions={[0, ...LP_OPTIONS.map((option) => option.value)]}
+              />
+              <ToolbarSelect label="Notch trig" value={triggerNotch} onChange={(value) => onTriggerNotchChange(parseFloat(value) || 0)} width={94}>
+                {NOTCH_OPTIONS.map((option) => <option key={option.value} value={option.value}>{`N ${option.label}`}</option>)}
+              </ToolbarSelect>
+            </div>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#166534', fontSize: '0.72rem' }}>
+              Umbral
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <button type="button" onClick={() => onThresholdNudge(-1)} style={{ width: 28, height: 28, background: '#ffffff', border: '1px solid #86efac', borderRadius: 4, color: '#166534', cursor: 'pointer', fontWeight: 700 }}>−</button>
+                <div style={{ minWidth: 128, background: '#ffffff', border: '1px solid #bbf7d0', borderRadius: 4, padding: '0.34rem 0.45rem', color: '#166534', fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                  {`${triggerThresholdStep + 1}/${TRIGGER_THRESHOLD_POSITIONS} · ${triggerThreshold.toFixed(2)} µV`}
+                </div>
+                <button type="button" onClick={() => onThresholdNudge(1)} style={{ width: 28, height: 28, background: '#ffffff', border: '1px solid #86efac', borderRadius: 4, color: '#166534', cursor: 'pointer', fontWeight: 700 }}>+</button>
+              </div>
+            </label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem' }}>
+                <input type="checkbox" checked={triggerRectify} onChange={onTriggerRectifyChange} />
+                Rectificar trigger
+              </label>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem' }}>
+                <input type="checkbox" checked={rectifyAverage} onChange={onRectifyAverageChange} />
+                Rectificar promedio
+              </label>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem' }}>
+                <input
+                  type="checkbox"
+                  checked={averageScope === 'record'}
+                  onChange={(e) => onAverageScopeChange(e.target.checked ? 'record' : 'page')}
+                />
+                Promediar registro entero
+              </label>
+            </div>
           </div>
-        )}
-        {averageScope === 'record' && fullRecordLoading && (
+          {averageScope === 'record' && (
+            <div style={{
+              padding: '0.7rem 0.85rem',
+              border: '1px solid #bbf7d0',
+              borderRadius: 10,
+              background: '#f0fdf4',
+              color: '#166534',
+              fontSize: '0.8rem',
+              lineHeight: 1.45,
+            }}>
+              El trigger se ajusta sobre la página visible. Con esta opción activa, el promedio busca eventos en todo el registro usando ese mismo umbral.
+            </div>
+          )}
+          {averageScope === 'record' && fullRecordLoading && (
+            <div style={{
+              padding: '1rem',
+              border: '1px dashed #86efac',
+              borderRadius: 10,
+              color: '#166534',
+              background: '#f7fee7',
+              fontSize: '0.88rem',
+              lineHeight: 1.5,
+            }}>
+              Calculando el promedio sobre todo el registro…
+            </div>
+          )}
           <div style={{
-            padding: '1rem',
-            border: '1px dashed #86efac',
+            padding: '0.85rem 0.9rem',
+            border: '1px solid #dbeafe',
             borderRadius: 10,
-            color: '#166534',
-            background: '#f7fee7',
-            fontSize: '0.88rem',
+            background: '#f8fbff',
+            color: '#475569',
+            fontSize: '0.8rem',
             lineHeight: 1.5,
           }}>
-            Calculando el promedio sobre todo el registro…
+            El panel derecho muestra todos los canales promediados. Mantén esta vista abierta mientras ajustas el trigger aquí a la izquierda.
           </div>
-        )}
+        </div>
+        <div style={{
+          minWidth: 0,
+          minHeight: 0,
+          display: 'grid',
+          gridTemplateRows: triggerSignal && triggerChannelName ? 'minmax(220px, 260px) minmax(0, 1fr)' : 'minmax(0, 1fr)',
+          gap: '0.9rem',
+        }}>
+          {triggerSignal && triggerChannelName && (
+            <div style={{
+              border: '1px solid #d1fae5',
+              borderRadius: 10,
+              background: '#ffffff',
+              overflow: 'hidden',
+              minHeight: 0,
+            }}>
+              <div style={{
+                padding: '0.55rem 0.8rem',
+                borderBottom: '1px solid #d1fae5',
+                background: '#f0fdf4',
+                color: '#166534',
+                fontSize: '0.78rem',
+                fontWeight: 600,
+              }}>
+                Canal trigger filtrado
+              </div>
+              <div style={{ padding: '0.7rem' }}>
+                <TriggerSignalPreview
+                  signal={triggerSignal}
+                  threshold={triggerThreshold}
+                  eventSampleIndexes={eventSampleIndexes}
+                  sampleRate={averagedEpoch?.sfreq ?? 1}
+                  onThresholdStepChange={onThresholdChange}
+                />
+              </div>
+            </div>
+          )}
         {averagedEpoch ? (
-          <div ref={wrapRef} style={{ flex: 1, overflow: 'auto', background: '#fffdf6' }}>
-            <canvas ref={canvasRef} style={{ display: 'block', width: '100%' }} />
+          <div style={{
+            minWidth: 0,
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            border: '1px solid #e2e8f0',
+            borderRadius: 10,
+            background: '#fffef8',
+            overflow: 'hidden',
+          }}>
+            <div style={{
+              padding: '0.55rem 0.8rem',
+              borderBottom: '1px solid #e2e8f0',
+              background: '#fffdf4',
+              color: '#475569',
+              fontSize: '0.78rem',
+              fontWeight: 600,
+            }}>
+              Resultado multicanal
+            </div>
+            <div ref={wrapRef} style={{ flex: 1, overflow: 'auto', minHeight: 0, background: '#fffdf6' }}>
+              <canvas ref={canvasRef} style={{ display: 'block', width: '100%' }} />
+            </div>
           </div>
         ) : (
           <div style={{
+            minWidth: 0,
             padding: '1rem',
             border: '1px dashed #86efac',
             borderRadius: 10,
@@ -1580,12 +1669,14 @@ function TriggerAverageModal({
             background: '#f7fee7',
             fontSize: '0.88rem',
             lineHeight: 1.5,
+            overflow: 'auto',
           }}>
             {fullRecordError || (averageScope === 'record'
               ? 'No hay eventos válidos todavía en todo el registro. Ajusta el umbral, los filtros o la rectificación del trigger y verás enseguida si aparecen marcas verdes en la vista del canal.'
               : 'No hay eventos válidos todavía en esta ventana. Ajusta el umbral, los filtros o la rectificación del trigger y verás enseguida si aparecen marcas verdes en la vista del canal.')}
           </div>
         )}
+        </div>
       </div>
     </div>
   )

@@ -9,6 +9,7 @@ import {
   WINDOW_OPTIONS,
   applyMontage,
   computeTriggeredAverage,
+  filterSignalForTrigger,
   getAverageReferenceCandidates,
   getChannelColor,
   getDsaChannels,
@@ -1015,35 +1016,224 @@ function TimelineBar({
   )
 }
 
+function TriggerSignalPreview({
+  signal,
+  threshold,
+  eventSampleIndexes,
+  sampleRate,
+  onThresholdChange,
+}: {
+  signal: Float32Array
+  threshold: number
+  eventSampleIndexes: number[]
+  sampleRate: number
+  onThresholdChange: (nextThreshold: number) => void
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const draggingRef = useRef(false)
+
+  const scales = useMemo(() => {
+    const sorted = Array.from(signal).sort((a, b) => a - b)
+    const p2 = sorted[Math.floor(sorted.length * 0.02)] ?? -1
+    const p98 = sorted[Math.floor(sorted.length * 0.98)] ?? 1
+    return { p2, p98: p98 <= p2 ? p2 + 1 : p98 }
+  }, [signal])
+
+  const projectThresholdFromY = useCallback((y: number, height: number) => {
+    const top = 16
+    const bottom = Math.max(top + 1, height - 18)
+    const clampedY = Math.max(top, Math.min(bottom, y))
+    const norm = 1 - ((clampedY - top) / Math.max(bottom - top, 1))
+    return scales.p2 + norm * (scales.p98 - scales.p2)
+  }, [scales])
+
+  const redraw = useCallback(() => {
+    const wrap = wrapRef.current
+    const canvas = canvasRef.current
+    if (!wrap || !canvas) return
+    const width = wrap.clientWidth || 900
+    const height = 220
+    canvas.width = width
+    canvas.height = height
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    ctx.fillStyle = '#fffdf6'
+    ctx.fillRect(0, 0, width, height)
+
+    const left = 12
+    const right = width - 10
+    const top = 16
+    const bottom = height - 18
+    const plotW = Math.max(1, right - left)
+    const plotH = Math.max(1, bottom - top)
+    const range = scales.p98 - scales.p2 || 1
+
+    ctx.strokeStyle = '#e2e8f0'
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.rect(left, top, plotW, plotH)
+    ctx.stroke()
+
+    const zeroLineY = top + plotH * (1 - ((0 - scales.p2) / range))
+    if (zeroLineY >= top && zeroLineY <= bottom) {
+      ctx.strokeStyle = 'rgba(148,163,184,0.5)'
+      ctx.beginPath()
+      ctx.moveTo(left, zeroLineY)
+      ctx.lineTo(right, zeroLineY)
+      ctx.stroke()
+    }
+
+    ctx.strokeStyle = '#0f766e'
+    ctx.lineWidth = 1.2
+    ctx.beginPath()
+    for (let i = 0; i < signal.length; i++) {
+      const x = left + (i / Math.max(signal.length - 1, 1)) * plotW
+      const norm = (signal[i] - scales.p2) / range
+      const y = top + plotH * (1 - norm)
+      if (i === 0) ctx.moveTo(x, y)
+      else ctx.lineTo(x, y)
+    }
+    ctx.stroke()
+
+    const thresholdNorm = (threshold - scales.p2) / range
+    const thresholdY = top + plotH * (1 - Math.max(0, Math.min(1, thresholdNorm)))
+    ctx.strokeStyle = '#dc2626'
+    ctx.lineWidth = 2
+    ctx.setLineDash([6, 4])
+    ctx.beginPath()
+    ctx.moveTo(left, thresholdY)
+    ctx.lineTo(right, thresholdY)
+    ctx.stroke()
+    ctx.setLineDash([])
+    ctx.fillStyle = '#991b1b'
+    ctx.font = '11px monospace'
+    ctx.fillText(`${threshold.toFixed(1)} µV`, Math.max(left + 4, right - 90), Math.max(top + 12, thresholdY - 6))
+
+    ctx.strokeStyle = 'rgba(22,163,74,0.9)'
+    ctx.lineWidth = 1
+    eventSampleIndexes.forEach((sampleIndex) => {
+      const x = left + (sampleIndex / Math.max(signal.length - 1, 1)) * plotW
+      ctx.beginPath()
+      ctx.moveTo(x, top)
+      ctx.lineTo(x, bottom)
+      ctx.stroke()
+    })
+
+    ctx.fillStyle = '#475569'
+    ctx.font = '10px monospace'
+    const tickCount = 6
+    for (let i = 0; i <= tickCount; i++) {
+      const sampleIndex = Math.round((i / tickCount) * Math.max(signal.length - 1, 1))
+      const x = left + (sampleIndex / Math.max(signal.length - 1, 1)) * plotW
+      const t = sampleIndex / Math.max(sampleRate, 1)
+      ctx.beginPath()
+      ctx.moveTo(x, bottom)
+      ctx.lineTo(x, bottom + 4)
+      ctx.stroke()
+      ctx.fillText(`${t.toFixed(2)}s`, Math.min(x + 2, right - 36), height - 4)
+    }
+  }, [eventSampleIndexes, sampleRate, scales, signal, threshold])
+
+  useEffect(() => {
+    redraw()
+  }, [redraw])
+
+  useEffect(() => {
+    const wrap = wrapRef.current
+    if (!wrap) return
+    const ro = new ResizeObserver(() => redraw())
+    ro.observe(wrap)
+    return () => ro.disconnect()
+  }, [redraw])
+
+  const handlePointer = useCallback((clientY: number) => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    onThresholdChange(Number(projectThresholdFromY(clientY - rect.top, rect.height).toFixed(1)))
+  }, [onThresholdChange, projectThresholdFromY])
+
+  return (
+    <div ref={wrapRef} style={{ background: '#ffffff', border: '1px solid #d1fae5', borderRadius: 10, padding: '0.5rem' }}>
+      <div style={{ color: '#166534', fontSize: '0.76rem', marginBottom: 6 }}>
+        Vista del canal trigger filtrado. Arrastra la línea roja aquí o usa `↑ / ↓` y `− / +`.
+      </div>
+      <canvas
+        ref={canvasRef}
+        onMouseDown={(e) => { draggingRef.current = true; handlePointer(e.clientY) }}
+        onMouseMove={(e) => { if (draggingRef.current) handlePointer(e.clientY) }}
+        onMouseUp={() => { draggingRef.current = false }}
+        onMouseLeave={() => { draggingRef.current = false }}
+        style={{ display: 'block', width: '100%', cursor: 'ns-resize' }}
+      />
+    </div>
+  )
+}
+
 function TriggerAverageModal({
   result,
   triggerChannelName,
-  rectifyTrigger,
+  triggerSignal,
+  triggerThreshold,
+  triggerHp,
+  triggerLp,
+  triggerNotch,
+  triggerRectify,
   rectifyAverage,
+  eventSampleIndexes,
   onClose,
+  onTriggerChannelChange,
+  onTriggerHpChange,
+  onTriggerLpChange,
+  onTriggerNotchChange,
+  onTriggerRectifyChange,
+  onRectifyAverageChange,
+  onThresholdChange,
+  onThresholdNudge,
+  triggerChannelOptions,
 }: {
-  result: TriggeredAverageResult
+  result: TriggeredAverageResult | null
   triggerChannelName: string
-  rectifyTrigger: boolean
+  triggerSignal: Float32Array | null
+  triggerThreshold: number
+  triggerHp: number
+  triggerLp: number
+  triggerNotch: number
+  triggerRectify: boolean
   rectifyAverage: boolean
+  eventSampleIndexes: number[]
   onClose: () => void
+  onTriggerChannelChange: (value: string) => void
+  onTriggerHpChange: (value: number) => void
+  onTriggerLpChange: (value: number) => void
+  onTriggerNotchChange: (value: number) => void
+  onTriggerRectifyChange: () => void
+  onRectifyAverageChange: () => void
+  onThresholdChange: (value: number) => void
+  onThresholdNudge: (delta: number) => void
+  triggerChannelOptions: Array<{ name: string; type: string }>
 }) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
-  const { averagedEpoch, events, preSamples } = result
+  const averagedEpoch = result?.averagedEpoch ?? null
+  const preSamples = result?.preSamples ?? 0
+  const eventCount = result?.events.length ?? 0
   const { scales } = useMemo(
-    () => computeScales(averagedEpoch, 1, false, {}),
+    () => averagedEpoch ? computeScales(averagedEpoch, 1, false, {}) : { scales: [] as { p2: number; p98: number }[], refRange: 1 },
     [averagedEpoch],
   )
 
   const redraw = useCallback(() => {
     const wrap = wrapRef.current
     const canvas = canvasRef.current
-    if (!wrap || !canvas) return
+    if (!wrap || !canvas || !averagedEpoch) return
 
     const width = wrap.clientWidth || 1100
-    const height = wrap.clientHeight || Math.max(400, averagedEpoch.nChannels * 44)
+    const height = Math.max(320, averagedEpoch.nChannels * 36 + 36)
     canvas.width = width
     canvas.height = height
 
@@ -1155,66 +1345,118 @@ function TriggerAverageModal({
 
   return (
     <div
-      onClick={onClose}
       style={{
         position: 'fixed',
-        inset: 0,
+        top: 18,
+        right: 18,
         zIndex: 40,
-        background: 'rgba(15,23,42,0.42)',
+        width: 'min(1320px, calc(100vw - 36px))',
+        height: 'min(90vh, 960px)',
+        background: '#ffffff',
+        border: '1px solid #cbd5e1',
+        borderRadius: 12,
+        boxShadow: '0 18px 50px rgba(15,23,42,0.24)',
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '1rem',
+        flexDirection: 'column',
+        overflow: 'hidden',
       }}
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: 'min(1400px, 96vw)',
-          height: 'min(88vh, 900px)',
-          background: '#ffffff',
-          border: '1px solid #cbd5e1',
-          borderRadius: 12,
-          boxShadow: '0 18px 50px rgba(15,23,42,0.24)',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}
-      >
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 12,
-          padding: '0.8rem 1rem',
-          borderBottom: '1px solid #e2e8f0',
-          background: '#fffdf6',
-        }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <div style={{ color: '#0f172a', fontWeight: 700 }}>Promedio desencadenado</div>
-            <div style={{ color: '#64748b', fontSize: '0.82rem' }}>
-              Trigger: {triggerChannelName} · N={events.length} · Rectif trigger: {rectifyTrigger ? 'sí' : 'no'} · Rectif promedio: {rectifyAverage ? 'sí' : 'no'}
-            </div>
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 12,
+        padding: '0.8rem 1rem',
+        borderBottom: '1px solid #e2e8f0',
+        background: '#fffdf6',
+      }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ color: '#0f172a', fontWeight: 700 }}>Promedio desencadenado</div>
+          <div style={{ color: '#64748b', fontSize: '0.82rem' }}>
+            Trigger: {triggerChannelName || 'sin canal'} · N={eventCount} · Rectif trigger: {triggerRectify ? 'sí' : 'no'} · Rectif promedio: {rectifyAverage ? 'sí' : 'no'}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            style={{
-              background: '#ffffff',
-              border: '1px solid #cbd5e1',
-              borderRadius: 6,
-              color: '#334155',
-              padding: '0.45rem 0.7rem',
-              cursor: 'pointer',
-              fontWeight: 600,
-            }}
-          >
-            Cerrar
-          </button>
         </div>
-        <div ref={wrapRef} style={{ flex: 1, overflow: 'auto', background: '#fffdf6' }}>
-          <canvas ref={canvasRef} style={{ display: 'block', width: '100%' }} />
-        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          style={{
+            background: '#ffffff',
+            border: '1px solid #cbd5e1',
+            borderRadius: 6,
+            color: '#334155',
+            padding: '0.45rem 0.7rem',
+            cursor: 'pointer',
+            fontWeight: 600,
+          }}
+        >
+          Cerrar
+        </button>
+      </div>
+      <div style={{ padding: '0.8rem 1rem', borderBottom: '1px solid #e2e8f0', background: '#f0fdf4', display: 'flex', alignItems: 'flex-end', gap: '0.55rem', flexWrap: 'wrap' }}>
+        <ToolbarSelect label="Canal trigger" value={triggerChannelName} onChange={onTriggerChannelChange} width={148}>
+          {triggerChannelOptions.map((channel) => (
+            <option key={channel.name} value={channel.name}>{channel.name}</option>
+          ))}
+        </ToolbarSelect>
+        <ToolbarSelect label="HP trig" value={triggerHp} onChange={(value) => onTriggerHpChange(parseFloat(value) || 0)}>
+          {HP_OPTIONS.map((option) => <option key={option.value} value={option.value}>{`HP ${option.label}`}</option>)}
+        </ToolbarSelect>
+        <ToolbarSelect label="LP trig" value={triggerLp} onChange={(value) => onTriggerLpChange(parseFloat(value) || 0)}>
+          {[{ label: 'Ninguno', value: 0 }, ...LP_OPTIONS].map((option) => <option key={option.value} value={option.value}>{`LP ${option.label}`}</option>)}
+        </ToolbarSelect>
+        <ToolbarSelect label="Notch trig" value={triggerNotch} onChange={(value) => onTriggerNotchChange(parseFloat(value) || 0)}>
+          {NOTCH_OPTIONS.map((option) => <option key={option.value} value={option.value}>{`N ${option.label}`}</option>)}
+        </ToolbarSelect>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#166534', fontSize: '0.72rem' }}>
+          Umbral
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <button type="button" onClick={() => onThresholdNudge(-0.5)} style={{ width: 28, height: 28, background: '#ffffff', border: '1px solid #86efac', borderRadius: 4, color: '#166534', cursor: 'pointer', fontWeight: 700 }}>−</button>
+            <input
+              type="number"
+              step="0.1"
+              value={triggerThreshold}
+              onChange={(e) => onThresholdChange(parseFloat(e.target.value) || 0)}
+              style={{ width: 92, background: '#ffffff', border: '1px solid #bbf7d0', borderRadius: 4, padding: '0.2rem 0.35rem', color: '#166534' }}
+            />
+            <button type="button" onClick={() => onThresholdNudge(0.5)} style={{ width: 28, height: 28, background: '#ffffff', border: '1px solid #86efac', borderRadius: 4, color: '#166534', cursor: 'pointer', fontWeight: 700 }}>+</button>
+          </div>
+        </label>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem', paddingBottom: 2 }}>
+          <input type="checkbox" checked={triggerRectify} onChange={onTriggerRectifyChange} />
+          Rectificar trigger
+        </label>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem', paddingBottom: 2 }}>
+          <input type="checkbox" checked={rectifyAverage} onChange={onRectifyAverageChange} />
+          Rectificar promedio
+        </label>
+      </div>
+      <div style={{ flex: 1, overflow: 'auto', background: '#fffdf6', padding: '0.9rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
+        {triggerSignal && triggerChannelName && (
+          <TriggerSignalPreview
+            signal={triggerSignal}
+            threshold={triggerThreshold}
+            eventSampleIndexes={eventSampleIndexes}
+            sampleRate={averagedEpoch?.sfreq ?? 1}
+            onThresholdChange={onThresholdChange}
+          />
+        )}
+        {averagedEpoch ? (
+          <div ref={wrapRef} style={{ flex: 1, overflow: 'auto', background: '#fffdf6' }}>
+            <canvas ref={canvasRef} style={{ display: 'block', width: '100%' }} />
+          </div>
+        ) : (
+          <div style={{
+            padding: '1rem',
+            border: '1px dashed #86efac',
+            borderRadius: 10,
+            color: '#166534',
+            background: '#f7fee7',
+            fontSize: '0.88rem',
+            lineHeight: 1.5,
+          }}>
+            No hay eventos válidos todavía en esta ventana. Ajusta el umbral, los filtros o la rectificación del trigger y verás enseguida si aparecen marcas verdes en la vista del canal.
+          </div>
+        )}
       </div>
     </div>
   )
@@ -1484,6 +1726,18 @@ export default function EEGViewer() {
     triggerRefractorySec,
   ])
 
+  const triggerSignalPreview = useMemo(() => {
+    if (!triggerAvgOpen || !processedEpoch || !triggerChannelName) return null
+    const triggerIndex = processedEpoch.channelNames.findIndex((name) => name === triggerChannelName)
+    if (triggerIndex < 0) return null
+    return filterSignalForTrigger(processedEpoch.data[triggerIndex], processedEpoch.sfreq, {
+      hp: triggerHp,
+      lp: triggerLp,
+      notch: triggerNotch,
+      rectifyTrigger: triggerRectify,
+    })
+  }, [processedEpoch, triggerAvgOpen, triggerChannelName, triggerHp, triggerLp, triggerNotch, triggerRectify])
+
   const triggerOverlay = useMemo<TriggerOverlayData | null>(() => {
     if (!triggerAvgOpen || !processedEpoch || !triggerChannelName) return null
     return {
@@ -1496,7 +1750,7 @@ export default function EEGViewer() {
   }, [processedEpoch, recordOffset, triggerAverageResult, triggerAvgOpen, triggerChannelName, triggerThreshold])
 
   useEffect(() => {
-    if (!triggerAvgOpen) setTriggerAvgModalOpen(false)
+    setTriggerAvgModalOpen(triggerAvgOpen)
   }, [triggerAvgOpen])
 
   useEffect(() => {
@@ -2479,12 +2733,12 @@ export default function EEGViewer() {
     const onKey = (e: KeyboardEvent) => {
       if (triggerAvgOpen && triggerChannelName && e.key === 'ArrowUp' && !e.shiftKey) {
         e.preventDefault()
-        nudgeTriggerThreshold(5)
+        nudgeTriggerThreshold(0.5)
         return
       }
       if (triggerAvgOpen && triggerChannelName && e.key === 'ArrowDown' && !e.shiftKey) {
         e.preventDefault()
-        nudgeTriggerThreshold(-5)
+        nudgeTriggerThreshold(-0.5)
         return
       }
       if (e.shiftKey && e.key === 'ArrowLeft') {
@@ -3310,7 +3564,7 @@ export default function EEGViewer() {
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <button
                 type="button"
-                onClick={() => nudgeTriggerThreshold(-5)}
+                onClick={() => nudgeTriggerThreshold(-0.5)}
                 style={{
                   width: 28,
                   height: 28,
@@ -3340,7 +3594,7 @@ export default function EEGViewer() {
               />
               <button
                 type="button"
-                onClick={() => nudgeTriggerThreshold(5)}
+                onClick={() => nudgeTriggerThreshold(0.5)}
                 style={{
                   width: 28,
                   height: 28,
@@ -3644,13 +3898,28 @@ export default function EEGViewer() {
           onSeek={(targetSec) => goToSecondPosition(targetSec, true)}
         />
       )}
-      {triggerAvgModalOpen && triggerAverageResult && (
+      {triggerAvgModalOpen && triggerAvgOpen && (
         <TriggerAverageModal
           result={triggerAverageResult}
           triggerChannelName={triggerChannelName}
-          rectifyTrigger={triggerRectify}
+          triggerSignal={triggerSignalPreview}
+          triggerThreshold={triggerThreshold}
+          triggerHp={triggerHp}
+          triggerLp={triggerLp}
+          triggerNotch={triggerNotch}
+          triggerRectify={triggerRectify}
           rectifyAverage={triggerRectifyAverage}
+          eventSampleIndexes={triggerAverageResult?.events.map((event) => event.sampleIndex) ?? []}
           onClose={() => setTriggerAvgModalOpen(false)}
+          onTriggerChannelChange={setTriggerChannelName}
+          onTriggerHpChange={setTriggerHp}
+          onTriggerLpChange={setTriggerLp}
+          onTriggerNotchChange={setTriggerNotch}
+          onTriggerRectifyChange={() => setTriggerRectify((value) => !value)}
+          onRectifyAverageChange={() => setTriggerRectifyAverage((value) => !value)}
+          onThresholdChange={(value) => setTriggerThreshold(value)}
+          onThresholdNudge={nudgeTriggerThreshold}
+          triggerChannelOptions={triggerChannelOptions}
         />
       )}
     </div>

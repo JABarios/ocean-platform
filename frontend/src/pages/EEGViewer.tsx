@@ -1409,16 +1409,16 @@ function TriggerAverageModal({
         </ToolbarSelect>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#166534', fontSize: '0.72rem' }}>
           Umbral
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            <button type="button" onClick={() => onThresholdNudge(-0.5)} style={{ width: 28, height: 28, background: '#ffffff', border: '1px solid #86efac', borderRadius: 4, color: '#166534', cursor: 'pointer', fontWeight: 700 }}>−</button>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <button type="button" onClick={() => onThresholdNudge(-0.05)} style={{ width: 28, height: 28, background: '#ffffff', border: '1px solid #86efac', borderRadius: 4, color: '#166534', cursor: 'pointer', fontWeight: 700 }}>−</button>
             <input
               type="number"
-              step="0.1"
+              step="0.05"
               value={triggerThreshold}
               onChange={(e) => onThresholdChange(parseFloat(e.target.value) || 0)}
               style={{ width: 92, background: '#ffffff', border: '1px solid #bbf7d0', borderRadius: 4, padding: '0.2rem 0.35rem', color: '#166534' }}
             />
-            <button type="button" onClick={() => onThresholdNudge(0.5)} style={{ width: 28, height: 28, background: '#ffffff', border: '1px solid #86efac', borderRadius: 4, color: '#166534', cursor: 'pointer', fontWeight: 700 }}>+</button>
+            <button type="button" onClick={() => onThresholdNudge(0.05)} style={{ width: 28, height: 28, background: '#ffffff', border: '1px solid #86efac', borderRadius: 4, color: '#166534', cursor: 'pointer', fontWeight: 700 }}>+</button>
           </div>
         </label>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem', paddingBottom: 2 }}>
@@ -2556,7 +2556,7 @@ export default function EEGViewer() {
     setGainMult(nextGain)
   }, [selectedChannelName])
   const nudgeTriggerThreshold = useCallback((delta: number) => {
-    setTriggerThreshold((current) => Number((current + delta).toFixed(1)))
+    setTriggerThreshold((current) => Number((current + delta).toFixed(2)))
   }, [])
   const handleWindowChange = (val: string) => {
     const newWin = parseInt(val)
@@ -2733,12 +2733,12 @@ export default function EEGViewer() {
     const onKey = (e: KeyboardEvent) => {
       if (triggerAvgOpen && triggerChannelName && e.key === 'ArrowUp' && !e.shiftKey) {
         e.preventDefault()
-        nudgeTriggerThreshold(0.5)
+        nudgeTriggerThreshold(0.05)
         return
       }
       if (triggerAvgOpen && triggerChannelName && e.key === 'ArrowDown' && !e.shiftKey) {
         e.preventDefault()
-        nudgeTriggerThreshold(-0.5)
+        nudgeTriggerThreshold(-0.05)
         return
       }
       if (e.shiftKey && e.key === 'ArrowLeft') {
@@ -3543,7 +3543,7 @@ export default function EEGViewer() {
             lineHeight: 1.45,
             paddingBottom: '0.15rem',
           }}>
-            1. Pulsa el nombre de un canal para usarlo como trigger. 2. Ajusta el umbral con `↑/↓`, con los botones `−/+` o arrastrando la línea roja horizontal. 3. Abre el promedio para ver todos los canales a la vez.
+            1. Pulsa el nombre de un canal para usarlo como trigger. 2. Ajusta el umbral con `↑/↓`, con los botones `−/+` o arrastrando la línea roja horizontal. El paso fino es `0.05`. 3. Abre el promedio para ver todos los canales a la vez.
           </div>
           <ToolbarSelect label="Canal trigger" value={triggerChannelName} onChange={setTriggerChannelName} width={compactToolbar ? 118 : 142} compact={compactToolbar}>
             {triggerChannelOptions.map((channel) => (
@@ -3564,7 +3564,7 @@ export default function EEGViewer() {
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <button
                 type="button"
-                onClick={() => nudgeTriggerThreshold(-0.5)}
+                onClick={() => nudgeTriggerThreshold(-0.05)}
                 style={{
                   width: 28,
                   height: 28,
@@ -3580,7 +3580,7 @@ export default function EEGViewer() {
               </button>
               <input
                 type="number"
-                step="0.5"
+                step="0.05"
                 value={triggerThreshold}
                 onChange={(e) => setTriggerThreshold(parseFloat(e.target.value) || 0)}
                 style={{
@@ -3594,7 +3594,7 @@ export default function EEGViewer() {
               />
               <button
                 type="button"
-                onClick={() => nudgeTriggerThreshold(0.5)}
+                onClick={() => nudgeTriggerThreshold(0.05)}
                 style={{
                   width: 28,
                   height: 28,

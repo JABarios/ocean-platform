@@ -1273,6 +1273,7 @@ function TriggerAverageModal({
   averageHp,
   averageLp,
   averageNotch,
+  averageGainMult,
   triggerPreSec,
   triggerPostSec,
   triggerRefractorySec,
@@ -1288,6 +1289,7 @@ function TriggerAverageModal({
   onAverageHpChange,
   onAverageLpChange,
   onAverageNotchChange,
+  onAverageGainMultChange,
   onTriggerPreSecChange,
   onTriggerPostSecChange,
   onTriggerRefractorySecChange,
@@ -1313,6 +1315,7 @@ function TriggerAverageModal({
   averageHp: number
   averageLp: number
   averageNotch: number
+  averageGainMult: number
   triggerPreSec: number
   triggerPostSec: number
   triggerRefractorySec: number
@@ -1328,6 +1331,7 @@ function TriggerAverageModal({
   onAverageHpChange: (value: number) => void
   onAverageLpChange: (value: number) => void
   onAverageNotchChange: (value: number) => void
+  onAverageGainMultChange: (value: number) => void
   onTriggerPreSecChange: (value: number) => void
   onTriggerPostSecChange: (value: number) => void
   onTriggerRefractorySecChange: (value: number) => void
@@ -1345,8 +1349,8 @@ function TriggerAverageModal({
   const preSamples = result?.preSamples ?? 0
   const eventCount = result?.events.length ?? 0
   const { scales } = useMemo(
-    () => averagedEpoch ? computeScales(averagedEpoch, 1, false, {}) : { scales: [] as { p2: number; p98: number }[], refRange: 1 },
-    [averagedEpoch],
+    () => averagedEpoch ? computeScales(averagedEpoch, averageGainMult, false, {}) : { scales: [] as { p2: number; p98: number }[], refRange: 1 },
+    [averageGainMult, averagedEpoch],
   )
 
   const redraw = useCallback(() => {
@@ -1596,6 +1600,9 @@ function TriggerAverageModal({
                 />
                 <ToolbarSelect label="Notch prom" value={averageNotch} onChange={(value) => onAverageNotchChange(parseFloat(value) || 0)} width={94}>
                   {NOTCH_OPTIONS.map((option) => <option key={option.value} value={option.value}>{`N ${option.label}`}</option>)}
+                </ToolbarSelect>
+                <ToolbarSelect label="Gan prom" value={averageGainMult} onChange={(value) => onAverageGainMultChange(parseFloat(value) || 1)} width={92}>
+                  {GAIN_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </ToolbarSelect>
               </div>
             </div>
@@ -1873,12 +1880,14 @@ export default function EEGViewer() {
   const [averageHp, setAverageHp] = useState(0)
   const [averageLp, setAverageLp] = useState(0)
   const [averageNotch, setAverageNotch] = useState(0)
+  const [averageGainMult, setAverageGainMult] = useState(1)
   const [triggerRectifyAverage, setTriggerRectifyAverage] = useState(false)
   const [triggerThresholdStep, setTriggerThresholdStep] = useState(Math.round((TRIGGER_THRESHOLD_POSITIONS - 1) * 0.7))
   const [triggerAverageScope, setTriggerAverageScope] = useState<'page' | 'record'>('page')
   const [triggerPreSec, setTriggerPreSec] = useState(1)
   const [triggerPostSec, setTriggerPostSec] = useState(2)
   const [triggerRefractorySec, setTriggerRefractorySec] = useState(0.25)
+  const [triggerThresholdRange, setTriggerThresholdRange] = useState<{ min: number; max: number } | null>(null)
   const [fullRecordTriggerAverageResult, setFullRecordTriggerAverageResult] = useState<TriggeredAverageResult | null>(null)
   const [fullRecordTriggerAverageLoading, setFullRecordTriggerAverageLoading] = useState(false)
   const [fullRecordTriggerAverageError, setFullRecordTriggerAverageError] = useState('')
@@ -1896,6 +1905,7 @@ export default function EEGViewer() {
   const extrasButtonRef = useRef<HTMLButtonElement>(null)
   const extrasMenuRef = useRef<HTMLDivElement>(null)
   const loadVersionRef = useRef(0)
+  const triggerThresholdRangeSignatureRef = useRef('')
   const triggerAverageLoadVersionRef = useRef(0)
   const restoreInFlightRef = useRef(false)
   const viewerStateReadyRef = useRef(false)
@@ -2068,8 +2078,26 @@ export default function EEGViewer() {
     })
   }, [processedEpoch, triggerAvgOpen, triggerChannelName, triggerHp, triggerLp, triggerNotch, triggerRectify, triggerSmoothPoints])
 
-  const triggerThresholdRange = useMemo(() => {
-    if (!triggerSignalPreview || triggerSignalPreview.length === 0) return null
+  useEffect(() => {
+    if (!triggerAvgOpen) {
+      triggerThresholdRangeSignatureRef.current = ''
+      setTriggerThresholdRange(null)
+      return
+    }
+    if (!triggerSignalPreview || triggerSignalPreview.length === 0) return
+
+    const nextSignature = JSON.stringify({
+      sourceKind,
+      sourceId,
+      triggerChannelName,
+      triggerHp,
+      triggerLp,
+      triggerNotch,
+      triggerSmoothPoints,
+      triggerRectify,
+    })
+    if (triggerThresholdRangeSignatureRef.current === nextSignature) return
+
     let min = Number.POSITIVE_INFINITY
     let max = Number.NEGATIVE_INFINITY
     for (let i = 0; i < triggerSignalPreview.length; i++) {
@@ -2077,9 +2105,22 @@ export default function EEGViewer() {
       if (value < min) min = value
       if (value > max) max = value
     }
-    if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return null
-    return { min, max }
-  }, [triggerSignalPreview])
+    if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return
+
+    triggerThresholdRangeSignatureRef.current = nextSignature
+    setTriggerThresholdRange({ min, max })
+  }, [
+    triggerAvgOpen,
+    triggerSignalPreview,
+    sourceKind,
+    sourceId,
+    triggerChannelName,
+    triggerHp,
+    triggerLp,
+    triggerNotch,
+    triggerSmoothPoints,
+    triggerRectify,
+  ])
 
   const triggerThresholdValue = useMemo(() => {
     if (!triggerThresholdRange) return 0
@@ -4298,6 +4339,7 @@ export default function EEGViewer() {
           averageHp={averageHp}
           averageLp={averageLp}
           averageNotch={averageNotch}
+          averageGainMult={averageGainMult}
           triggerPreSec={triggerPreSec}
           triggerPostSec={triggerPostSec}
           triggerRefractorySec={triggerRefractorySec}
@@ -4313,6 +4355,7 @@ export default function EEGViewer() {
           onAverageHpChange={setAverageHp}
           onAverageLpChange={setAverageLp}
           onAverageNotchChange={setAverageNotch}
+          onAverageGainMultChange={setAverageGainMult}
           onTriggerPreSecChange={setTriggerPreSec}
           onTriggerPostSecChange={setTriggerPostSec}
           onTriggerRefractorySecChange={setTriggerRefractorySec}

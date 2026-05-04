@@ -1142,10 +1142,13 @@ function TriggerSignalPreview({
     ctx.fillStyle = '#fffdf6'
     ctx.fillRect(0, 0, width, height)
 
-    const left = 12
-    const right = width - 10
-    const top = 16
-    const bottom = height - 18
+    const leftAxisW = compact ? 46 : 54
+    const rightPad = 10
+    const top = compact ? 10 : 16
+    const bottomAxisH = compact ? 16 : 18
+    const left = leftAxisW
+    const right = width - rightPad
+    const bottom = height - bottomAxisH
     const plotW = Math.max(1, right - left)
     const plotH = Math.max(1, bottom - top)
     const range = scales.max - scales.min || 1
@@ -1164,6 +1167,23 @@ function TriggerSignalPreview({
       ctx.lineTo(right, zeroLineY)
       ctx.stroke()
     }
+
+    ctx.fillStyle = '#64748b'
+    ctx.font = compact ? '9px monospace' : '10px monospace'
+    ctx.textAlign = 'right'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(`${scales.max.toFixed(1)}`, left - 6, top + 1)
+    if (zeroLineY >= top && zeroLineY <= bottom) {
+      ctx.fillText('0', left - 6, zeroLineY)
+    }
+    ctx.fillText(`${scales.min.toFixed(1)}`, left - 6, bottom - 1)
+    ctx.save()
+    ctx.translate(10, top + plotH / 2)
+    ctx.rotate(-Math.PI / 2)
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText('µV', 0, 0)
+    ctx.restore()
 
     ctx.strokeStyle = '#0f766e'
     ctx.lineWidth = 1.2
@@ -1189,6 +1209,12 @@ function TriggerSignalPreview({
     ctx.stroke()
     ctx.setLineDash([])
 
+    ctx.fillStyle = '#dc2626'
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'bottom'
+    ctx.font = compact ? '9px monospace' : '10px monospace'
+    ctx.fillText(`${threshold.toFixed(1)} µV`, left + 4, Math.max(top + 10, thresholdY - 2))
+
     ctx.strokeStyle = 'rgba(22,163,74,0.9)'
     ctx.lineWidth = 1
     eventSampleIndexes.forEach((sampleIndex) => {
@@ -1199,20 +1225,20 @@ function TriggerSignalPreview({
       ctx.stroke()
     })
 
-    if (!compact) {
-      ctx.fillStyle = '#475569'
-      ctx.font = '10px monospace'
-      const tickCount = 6
-      for (let i = 0; i <= tickCount; i++) {
-        const sampleIndex = Math.round((i / tickCount) * Math.max(signal.length - 1, 1))
-        const x = left + (sampleIndex / Math.max(signal.length - 1, 1)) * plotW
-        const t = sampleIndex / Math.max(sampleRate, 1)
-        ctx.beginPath()
-        ctx.moveTo(x, bottom)
-        ctx.lineTo(x, bottom + 4)
-        ctx.stroke()
-        ctx.fillText(`${t.toFixed(2)}s`, Math.min(x + 2, right - 36), height - 4)
-      }
+    ctx.fillStyle = '#475569'
+    ctx.font = compact ? '9px monospace' : '10px monospace'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'top'
+    const tickCount = compact ? 4 : 6
+    for (let i = 0; i <= tickCount; i++) {
+      const sampleIndex = Math.round((i / tickCount) * Math.max(signal.length - 1, 1))
+      const x = left + (sampleIndex / Math.max(signal.length - 1, 1)) * plotW
+      const t = sampleIndex / Math.max(sampleRate, 1)
+      ctx.beginPath()
+      ctx.moveTo(x, bottom)
+      ctx.lineTo(x, bottom + 4)
+      ctx.stroke()
+      ctx.fillText(`${t.toFixed(2)}s`, x, bottom + 4)
     }
   }, [compact, eventSampleIndexes, sampleRate, scales, signal, threshold])
 

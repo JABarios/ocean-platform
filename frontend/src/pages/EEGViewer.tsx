@@ -1098,12 +1098,14 @@ function TriggerSignalPreview({
   eventSampleIndexes,
   sampleRate,
   onThresholdStepChange,
+  compact = false,
 }: {
   signal: Float32Array
   threshold: number
   eventSampleIndexes: number[]
   sampleRate: number
   onThresholdStepChange: (nextStep: number) => void
+  compact?: boolean
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -1134,7 +1136,7 @@ function TriggerSignalPreview({
     const canvas = canvasRef.current
     if (!wrap || !canvas) return
     const width = wrap.clientWidth || 900
-    const height = 220
+    const height = compact ? 112 : 220
     canvas.width = width
     canvas.height = height
 
@@ -1189,9 +1191,6 @@ function TriggerSignalPreview({
     ctx.lineTo(right, thresholdY)
     ctx.stroke()
     ctx.setLineDash([])
-    ctx.fillStyle = '#991b1b'
-    ctx.font = '11px monospace'
-    ctx.fillText(`${threshold.toFixed(2)} µV`, Math.max(left + 4, right - 100), Math.max(top + 12, thresholdY - 6))
 
     ctx.strokeStyle = 'rgba(22,163,74,0.9)'
     ctx.lineWidth = 1
@@ -1203,20 +1202,22 @@ function TriggerSignalPreview({
       ctx.stroke()
     })
 
-    ctx.fillStyle = '#475569'
-    ctx.font = '10px monospace'
-    const tickCount = 6
-    for (let i = 0; i <= tickCount; i++) {
-      const sampleIndex = Math.round((i / tickCount) * Math.max(signal.length - 1, 1))
-      const x = left + (sampleIndex / Math.max(signal.length - 1, 1)) * plotW
-      const t = sampleIndex / Math.max(sampleRate, 1)
-      ctx.beginPath()
-      ctx.moveTo(x, bottom)
-      ctx.lineTo(x, bottom + 4)
-      ctx.stroke()
-      ctx.fillText(`${t.toFixed(2)}s`, Math.min(x + 2, right - 36), height - 4)
+    if (!compact) {
+      ctx.fillStyle = '#475569'
+      ctx.font = '10px monospace'
+      const tickCount = 6
+      for (let i = 0; i <= tickCount; i++) {
+        const sampleIndex = Math.round((i / tickCount) * Math.max(signal.length - 1, 1))
+        const x = left + (sampleIndex / Math.max(signal.length - 1, 1)) * plotW
+        const t = sampleIndex / Math.max(sampleRate, 1)
+        ctx.beginPath()
+        ctx.moveTo(x, bottom)
+        ctx.lineTo(x, bottom + 4)
+        ctx.stroke()
+        ctx.fillText(`${t.toFixed(2)}s`, Math.min(x + 2, right - 36), height - 4)
+      }
     }
-  }, [eventSampleIndexes, sampleRate, scales, signal, threshold])
+  }, [compact, eventSampleIndexes, sampleRate, scales, signal, threshold])
 
   useEffect(() => {
     redraw()
@@ -1238,10 +1239,12 @@ function TriggerSignalPreview({
   }, [onThresholdStepChange, projectStepFromY])
 
   return (
-    <div ref={wrapRef} style={{ background: '#ffffff', border: '1px solid #d1fae5', borderRadius: 10, padding: '0.5rem' }}>
-      <div style={{ color: '#166534', fontSize: '0.76rem', marginBottom: 6 }}>
-        Vista del canal trigger filtrado. Arrastra la línea roja aquí o usa `↑ / ↓` y `− / +`.
-      </div>
+    <div ref={wrapRef} style={{ background: '#ffffff', border: compact ? 'none' : '1px solid #d1fae5', borderRadius: compact ? 0 : 10, padding: compact ? 0 : '0.5rem' }}>
+      {!compact && (
+        <div style={{ color: '#166534', fontSize: '0.76rem', marginBottom: 6 }}>
+          Vista del canal trigger filtrado. Arrastra la línea roja aquí o usa `↑ / ↓` y `− / +`.
+        </div>
+      )}
       <canvas
         ref={canvasRef}
         onMouseDown={(e) => { draggingRef.current = true; handlePointer(e.clientY) }}
@@ -1602,7 +1605,7 @@ function TriggerAverageModal({
           minWidth: 0,
           minHeight: 0,
           display: 'grid',
-          gridTemplateRows: triggerSignal && triggerChannelName ? 'minmax(220px, 260px) minmax(0, 1fr)' : 'minmax(0, 1fr)',
+          gridTemplateRows: triggerSignal && triggerChannelName ? 'minmax(96px, 124px) minmax(0, 1fr)' : 'minmax(0, 1fr)',
           gap: '0.9rem',
         }}>
           {triggerSignal && triggerChannelName && (
@@ -1613,23 +1616,14 @@ function TriggerAverageModal({
               overflow: 'hidden',
               minHeight: 0,
             }}>
-              <div style={{
-                padding: '0.55rem 0.8rem',
-                borderBottom: '1px solid #d1fae5',
-                background: '#f0fdf4',
-                color: '#166534',
-                fontSize: '0.78rem',
-                fontWeight: 600,
-              }}>
-                Canal trigger filtrado
-              </div>
-              <div style={{ padding: '0.7rem' }}>
+              <div style={{ padding: '0.35rem 0.55rem' }}>
                 <TriggerSignalPreview
                   signal={triggerSignal}
                   threshold={triggerThreshold}
                   eventSampleIndexes={eventSampleIndexes}
                   sampleRate={averagedEpoch?.sfreq ?? 1}
                   onThresholdStepChange={onThresholdChange}
+                  compact
                 />
               </div>
             </div>

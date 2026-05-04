@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  computeTriggerThresholdRange,
   computeTriggeredAverage,
   detectThresholdCrossings,
   filterSignalForAverage,
@@ -540,6 +541,18 @@ describe('EEG viewer utils', () => {
     expect(events.map((event) => event.sampleIndex)).toEqual([2, 7, 11])
   })
 
+  it('usa percentiles robustos para la escala del trigger', () => {
+    const signal = Float32Array.from([0, 1, 2, 3, 4, 5, 1000])
+    const range = computeTriggerThresholdRange(signal)
+    expect(range).toEqual({ min: 0, max: 5 })
+  })
+
+  it('en modo burst espera a que la señal se rearme antes de disparar otro trigger', () => {
+    const signal = Float32Array.from([0, 6, 8, 7, 6, 5.5, 4.2, 6.1, 7, 4.8, 2, 6.5])
+    const events = detectThresholdCrossings(signal, 100, 5, 0.25, 'burst', 0.1)
+    expect(events.map((event) => event.sampleIndex)).toEqual([1, 7, 11])
+  })
+
   it('rectifica la señal de trigger cuando se pide', () => {
     const signal = Float32Array.from([-5, -2, 0, 2, 5])
     const filtered = filterSignalForTrigger(signal, 100, {
@@ -602,6 +615,7 @@ describe('EEG viewer utils', () => {
       threshold: 5,
       preSec: 0.01,
       postSec: 0.01,
+      detectionMode: 'event',
       hp: 0,
       lp: 0,
       notch: 0,
@@ -613,6 +627,7 @@ describe('EEG viewer utils', () => {
       rectifyTrigger: false,
       rectifyAverage: false,
       refractorySec: 0.02,
+      burstRearmFraction: 0.1,
     })
 
     expect(result?.events.map((event) => event.sampleIndex)).toEqual([2, 6])
@@ -632,6 +647,7 @@ describe('EEG viewer utils', () => {
       threshold: 5,
       preSec: 0.01,
       postSec: 0.01,
+      detectionMode: 'event',
       hp: 0,
       lp: 0,
       notch: 0,
@@ -643,6 +659,7 @@ describe('EEG viewer utils', () => {
       rectifyTrigger: false,
       rectifyAverage: true,
       refractorySec: 0.02,
+      burstRearmFraction: 0.1,
     })
 
     expect(asArray(result!.averagedEpoch.data[1])).toEqual([1, 4, 3])

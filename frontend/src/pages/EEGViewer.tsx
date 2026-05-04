@@ -8,6 +8,7 @@ import {
   MONTAGE_OPTIONS,
   WINDOW_OPTIONS,
   applyMontage,
+  computeTriggerThresholdRange,
   computeTriggeredAverage,
   filterSignalForTrigger,
   getAverageReferenceCandidates,
@@ -1266,11 +1267,13 @@ function TriggerAverageModal({
   triggerSignal,
   triggerThreshold,
   triggerThresholdStep,
+  triggerDetectionMode,
   triggerHp,
   triggerLp,
   triggerNotch,
   triggerSmoothPoints,
   triggerDerivativeAfterSmooth,
+  triggerBurstRearmFraction,
   averageHp,
   averageLp,
   averageNotch,
@@ -1283,11 +1286,13 @@ function TriggerAverageModal({
   eventSampleIndexes,
   onClose,
   onTriggerChannelChange,
+  onTriggerDetectionModeChange,
   onTriggerHpChange,
   onTriggerLpChange,
   onTriggerNotchChange,
   onTriggerSmoothPointsChange,
   onTriggerDerivativeAfterSmoothChange,
+  onTriggerBurstRearmFractionChange,
   onAverageHpChange,
   onAverageLpChange,
   onAverageNotchChange,
@@ -1310,11 +1315,13 @@ function TriggerAverageModal({
   triggerSignal: Float32Array | null
   triggerThreshold: number
   triggerThresholdStep: number
+  triggerDetectionMode: 'event' | 'burst'
   triggerHp: number
   triggerLp: number
   triggerNotch: number
   triggerSmoothPoints: number
   triggerDerivativeAfterSmooth: boolean
+  triggerBurstRearmFraction: number
   averageHp: number
   averageLp: number
   averageNotch: number
@@ -1327,11 +1334,13 @@ function TriggerAverageModal({
   eventSampleIndexes: number[]
   onClose: () => void
   onTriggerChannelChange: (value: string) => void
+  onTriggerDetectionModeChange: (value: 'event' | 'burst') => void
   onTriggerHpChange: (value: number) => void
   onTriggerLpChange: (value: number) => void
   onTriggerNotchChange: (value: number) => void
   onTriggerSmoothPointsChange: (value: number) => void
   onTriggerDerivativeAfterSmoothChange: () => void
+  onTriggerBurstRearmFractionChange: (value: number) => void
   onAverageHpChange: (value: number) => void
   onAverageLpChange: (value: number) => void
   onAverageNotchChange: (value: number) => void
@@ -1553,6 +1562,15 @@ function TriggerAverageModal({
                 <option key={channel.name} value={channel.name}>{channel.name}</option>
               ))}
             </ToolbarSelect>
+            <ToolbarSelect
+              label="Modo detector"
+              value={triggerDetectionMode}
+              onChange={(value) => onTriggerDetectionModeChange(value as 'event' | 'burst')}
+              width={148}
+            >
+              <option value="event">Evento</option>
+              <option value="burst">Burst</option>
+            </ToolbarSelect>
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
               <NumericSuggestInput
                 label="HP trig"
@@ -1676,23 +1694,42 @@ function TriggerAverageModal({
                   />
                 </label>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <span>Refract</span>
-                  <input
-                    type="number"
-                    step="0.05"
-                    min="0"
-                    max="30"
-                    value={triggerRefractorySec}
-                    onChange={(e) => onTriggerRefractorySecChange(Math.max(0, Math.min(30, parseFloat(e.target.value) || 0)))}
-                    style={{
-                      width: 78,
-                      background: '#ffffff',
-                      border: '1px solid #bbf7d0',
-                      borderRadius: 4,
-                      padding: '0.2rem 0.35rem',
-                      color: '#166534',
-                    }}
-                  />
+                  <span>{triggerDetectionMode === 'burst' ? 'Rearme' : 'Refract'}</span>
+                  {triggerDetectionMode === 'burst' ? (
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max="0.5"
+                      value={triggerBurstRearmFraction}
+                      onChange={(e) => onTriggerBurstRearmFractionChange(Math.max(0, Math.min(0.5, parseFloat(e.target.value) || 0)))}
+                      style={{
+                        width: 78,
+                        background: '#ffffff',
+                        border: '1px solid #bbf7d0',
+                        borderRadius: 4,
+                        padding: '0.2rem 0.35rem',
+                        color: '#166534',
+                      }}
+                    />
+                  ) : (
+                    <input
+                      type="number"
+                      step="0.05"
+                      min="0"
+                      max="30"
+                      value={triggerRefractorySec}
+                      onChange={(e) => onTriggerRefractorySecChange(Math.max(0, Math.min(30, parseFloat(e.target.value) || 0)))}
+                      style={{
+                        width: 78,
+                        background: '#ffffff',
+                        border: '1px solid #bbf7d0',
+                        borderRadius: 4,
+                        padding: '0.2rem 0.35rem',
+                        color: '#166534',
+                      }}
+                    />
+                  )}
                 </label>
               </div>
             </div>
@@ -1882,12 +1919,14 @@ export default function EEGViewer() {
   const [triggerAvgOpen, setTriggerAvgOpen] = useState(false)
   const [triggerAvgModalOpen, setTriggerAvgModalOpen] = useState(false)
   const [triggerChannelName, setTriggerChannelName] = useState('')
+  const [triggerDetectionMode, setTriggerDetectionMode] = useState<'event' | 'burst'>('event')
   const [triggerHp, setTriggerHp] = useState(0)
   const [triggerLp, setTriggerLp] = useState(45)
   const [triggerNotch, setTriggerNotch] = useState(0)
   const [triggerSmoothPoints, setTriggerSmoothPoints] = useState(1)
   const [triggerDerivativeAfterSmooth, setTriggerDerivativeAfterSmooth] = useState(false)
   const [triggerRectify, setTriggerRectify] = useState(false)
+  const [triggerBurstRearmFraction, setTriggerBurstRearmFraction] = useState(0.1)
   const [averageHp, setAverageHp] = useState(0)
   const [averageLp, setAverageLp] = useState(0)
   const [averageNotch, setAverageNotch] = useState(0)
@@ -2102,38 +2141,36 @@ export default function EEGViewer() {
       sourceKind,
       sourceId,
       triggerChannelName,
+      triggerDetectionMode,
       triggerHp,
       triggerLp,
       triggerNotch,
       triggerSmoothPoints,
       triggerDerivativeAfterSmooth,
       triggerRectify,
+      triggerBurstRearmFraction,
     })
     if (triggerThresholdRangeSignatureRef.current === nextSignature) return
 
-    let min = Number.POSITIVE_INFINITY
-    let max = Number.NEGATIVE_INFINITY
-    for (let i = 0; i < triggerSignalPreview.length; i++) {
-      const value = triggerSignalPreview[i] ?? 0
-      if (value < min) min = value
-      if (value > max) max = value
-    }
-    if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return
+    const nextRange = computeTriggerThresholdRange(triggerSignalPreview)
+    if (!nextRange) return
 
     triggerThresholdRangeSignatureRef.current = nextSignature
-    setTriggerThresholdRange({ min, max })
+    setTriggerThresholdRange(nextRange)
   }, [
     triggerAvgOpen,
     triggerSignalPreview,
     sourceKind,
     sourceId,
     triggerChannelName,
+    triggerDetectionMode,
     triggerHp,
     triggerLp,
     triggerNotch,
     triggerSmoothPoints,
     triggerDerivativeAfterSmooth,
     triggerRectify,
+    triggerBurstRearmFraction,
   ])
 
   const triggerThresholdValue = useMemo(() => {
@@ -2149,6 +2186,7 @@ export default function EEGViewer() {
       threshold: triggerThresholdValue,
       preSec: triggerPreSec,
       postSec: triggerPostSec,
+      detectionMode: triggerDetectionMode,
       hp: triggerHp,
       lp: triggerLp,
       notch: triggerNotch,
@@ -2160,6 +2198,7 @@ export default function EEGViewer() {
       rectifyTrigger: triggerRectify,
       rectifyAverage: triggerRectifyAverage,
       refractorySec: triggerRefractorySec,
+      burstRearmFraction: triggerBurstRearmFraction,
     })
   }, [
     processedEpoch,
@@ -2168,6 +2207,7 @@ export default function EEGViewer() {
     triggerThresholdValue,
     triggerPreSec,
     triggerPostSec,
+    triggerDetectionMode,
     triggerHp,
     triggerLp,
     triggerNotch,
@@ -2179,6 +2219,7 @@ export default function EEGViewer() {
     triggerRectify,
     triggerRectifyAverage,
     triggerRefractorySec,
+    triggerBurstRearmFraction,
   ])
 
   useEffect(() => {
@@ -2222,6 +2263,7 @@ export default function EEGViewer() {
           threshold: triggerThresholdValue,
           preSec: triggerPreSec,
           postSec: triggerPostSec,
+          detectionMode: triggerDetectionMode,
           hp: triggerHp,
           lp: triggerLp,
           notch: triggerNotch,
@@ -2233,6 +2275,7 @@ export default function EEGViewer() {
           rectifyTrigger: triggerRectify,
           rectifyAverage: triggerRectifyAverage,
           refractorySec: triggerRefractorySec,
+          burstRearmFraction: triggerBurstRearmFraction,
         })
 
         if (triggerAverageLoadVersionRef.current !== requestVersion) return
@@ -2258,6 +2301,7 @@ export default function EEGViewer() {
     triggerAverageScope,
     triggerAvgOpen,
     triggerChannelName,
+    triggerDetectionMode,
     triggerHp,
     triggerLp,
     triggerNotch,
@@ -2271,6 +2315,7 @@ export default function EEGViewer() {
     triggerRectify,
     triggerRectifyAverage,
     triggerRefractorySec,
+    triggerBurstRearmFraction,
     triggerThresholdValue,
   ])
 
@@ -2371,6 +2416,7 @@ export default function EEGViewer() {
     setTriggerAvgOpen(false)
     setTriggerAvgModalOpen(false)
     setTriggerChannelName('')
+    setTriggerDetectionMode('event')
     setTriggerHp(0)
     setTriggerLp(45)
     setTriggerNotch(0)
@@ -2380,6 +2426,7 @@ export default function EEGViewer() {
     setAverageLp(0)
     setAverageNotch(0)
     setTriggerRectify(false)
+    setTriggerBurstRearmFraction(0.1)
     setTriggerRectifyAverage(false)
     setTriggerThresholdStep(Math.round((TRIGGER_THRESHOLD_POSITIONS - 1) * 0.7))
     setTriggerAverageScope('page')
@@ -3161,12 +3208,14 @@ export default function EEGViewer() {
     setChannelGainOverrides({})
     setTriggerAvgOpen(false)
     setTriggerAvgModalOpen(false)
+    setTriggerDetectionMode('event')
     setTriggerHp(0)
     setTriggerLp(45)
     setTriggerNotch(0)
     setTriggerSmoothPoints(1)
     setTriggerDerivativeAfterSmooth(false)
     setTriggerRectify(false)
+    setTriggerBurstRearmFraction(0.1)
     setTriggerRectifyAverage(false)
     setTriggerThresholdStep(Math.round((TRIGGER_THRESHOLD_POSITIONS - 1) * 0.7))
     setTriggerPreSec(0.5)
@@ -3285,12 +3334,12 @@ export default function EEGViewer() {
     const onKey = (e: KeyboardEvent) => {
       if (triggerAvgOpen && triggerChannelName && e.key === 'ArrowUp' && !e.shiftKey) {
         e.preventDefault()
-        nudgeTriggerThreshold(0.05)
+        nudgeTriggerThreshold(1)
         return
       }
       if (triggerAvgOpen && triggerChannelName && e.key === 'ArrowDown' && !e.shiftKey) {
         e.preventDefault()
-        nudgeTriggerThreshold(-0.05)
+        nudgeTriggerThreshold(-1)
         return
       }
       if (e.shiftKey && e.key === 'ArrowLeft') {
@@ -4353,11 +4402,13 @@ export default function EEGViewer() {
           triggerSignal={triggerSignalPreview}
           triggerThreshold={triggerThresholdValue}
           triggerThresholdStep={triggerThresholdStep}
+          triggerDetectionMode={triggerDetectionMode}
           triggerHp={triggerHp}
           triggerLp={triggerLp}
           triggerNotch={triggerNotch}
           triggerSmoothPoints={triggerSmoothPoints}
           triggerDerivativeAfterSmooth={triggerDerivativeAfterSmooth}
+          triggerBurstRearmFraction={triggerBurstRearmFraction}
           averageHp={averageHp}
           averageLp={averageLp}
           averageNotch={averageNotch}
@@ -4370,11 +4421,13 @@ export default function EEGViewer() {
           eventSampleIndexes={triggerAverageResult?.events.map((event) => event.sampleIndex) ?? []}
           onClose={() => setTriggerAvgModalOpen(false)}
           onTriggerChannelChange={setTriggerChannelName}
+          onTriggerDetectionModeChange={setTriggerDetectionMode}
           onTriggerHpChange={setTriggerHp}
           onTriggerLpChange={setTriggerLp}
           onTriggerNotchChange={setTriggerNotch}
           onTriggerSmoothPointsChange={setTriggerSmoothPoints}
           onTriggerDerivativeAfterSmoothChange={() => setTriggerDerivativeAfterSmooth((value) => !value)}
+          onTriggerBurstRearmFractionChange={setTriggerBurstRearmFraction}
           onAverageHpChange={setAverageHp}
           onAverageLpChange={setAverageLp}
           onAverageNotchChange={setAverageNotch}

@@ -74,6 +74,7 @@ export interface TriggerAverageOptions {
   threshold: number
   preSec: number
   postSec: number
+  detectionMode: 'event' | 'burst'
   hp: number
   lp: number
   notch: number
@@ -85,6 +86,7 @@ export interface TriggerAverageOptions {
   rectifyTrigger: boolean
   rectifyAverage: boolean
   refractorySec: number
+  burstRearmFraction: number
 }
 
 export interface TriggerEvent {
@@ -98,6 +100,26 @@ export interface TriggeredAverageResult {
   windowSamples: number
   preSamples: number
   postSamples: number
+}
+
+function getPercentile(sorted: Float32Array, ratio: number): number {
+  if (sorted.length === 0) return 0
+  const clampedRatio = Math.max(0, Math.min(1, ratio))
+  const index = Math.max(0, Math.min(sorted.length - 1, Math.floor(clampedRatio * (sorted.length - 1))))
+  return sorted[index] ?? 0
+}
+
+export function computeTriggerThresholdRange(
+  signal: Float32Array,
+  lowPercentile = 0.05,
+  highPercentile = 0.95,
+): { min: number; max: number } | null {
+  if (signal.length === 0) return null
+  const sorted = Float32Array.from(signal).sort()
+  const min = getPercentile(sorted, lowPercentile)
+  const max = getPercentile(sorted, highPercentile)
+  if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return null
+  return { min, max }
 }
 
 function canonicalizeChannelName(name: string): string {
@@ -356,19 +378,40 @@ export function detectThresholdCrossings(
   sampleRate: number,
   threshold: number,
   refractorySec: number,
+  mode: TriggerAverageOptions['detectionMode'] = 'event',
+  burstRearmFraction = 0.1,
 ): TriggerEvent[] {
   if (signal.length < 2 || !Number.isFinite(sampleRate) || sampleRate <= 0) return []
   const refractorySamples = Math.max(1, Math.round(Math.max(0, refractorySec) * sampleRate))
   const events: TriggerEvent[] = []
+  const signalRange = computeTriggerThresholdRange(signal)
+  const rearmDelta = signalRange
+    ? Math.max(0, Math.min(1, burstRearmFraction)) * (signalRange.max - signalRange.min)
+    : 0
+  const rearmThreshold = threshold - rearmDelta
+
   let nextAllowedIndex = 0
+  let burstArmed = true
 
   for (let i = 1; i < signal.length; i++) {
-    if (i < nextAllowedIndex) continue
     const prev = signal[i - 1] ?? 0
     const curr = signal[i] ?? 0
+    if (mode === 'burst') {
+      if (!burstArmed) {
+        if (curr <= rearmThreshold) burstArmed = true
+        continue
+      }
+    } else if (i < nextAllowedIndex) {
+      continue
+    }
+
     if (prev < threshold && curr >= threshold) {
       events.push({ sampleIndex: i, onsetSec: i / sampleRate })
-      nextAllowedIndex = i + refractorySamples
+      if (mode === 'burst') {
+        burstArmed = false
+      } else {
+        nextAllowedIndex = i + refractorySamples
+      }
     }
   }
 
@@ -384,7 +427,14 @@ export function computeTriggeredAverage(
 
   const filteredTrigger = filterSignalForTrigger(epoch.data[triggerIndex], epoch.sfreq, options)
   const threshold = options.rectifyTrigger ? Math.abs(options.threshold) : options.threshold
-  const rawEvents = detectThresholdCrossings(filteredTrigger, epoch.sfreq, threshold, options.refractorySec)
+  const rawEvents = detectThresholdCrossings(
+    filteredTrigger,
+    epoch.sfreq,
+    threshold,
+    options.refractorySec,
+    options.detectionMode,
+    options.burstRearmFraction,
+  )
 
   const preSamples = Math.max(0, Math.round(Math.max(0, options.preSec) * epoch.sfreq))
   const postSamples = Math.max(1, Math.round(Math.max(0, options.postSec) * epoch.sfreq))

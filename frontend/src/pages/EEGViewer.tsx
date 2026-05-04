@@ -1794,8 +1794,8 @@ export default function EEGViewer() {
   const [triggerRectifyAverage, setTriggerRectifyAverage] = useState(false)
   const [triggerThresholdStep, setTriggerThresholdStep] = useState(Math.round((TRIGGER_THRESHOLD_POSITIONS - 1) * 0.7))
   const [triggerAverageScope, setTriggerAverageScope] = useState<'page' | 'record'>('page')
-  const [triggerPreSec, setTriggerPreSec] = useState(0.5)
-  const [triggerPostSec, setTriggerPostSec] = useState(0.5)
+  const [triggerPreSec, setTriggerPreSec] = useState(1)
+  const [triggerPostSec, setTriggerPostSec] = useState(2)
   const [triggerRefractorySec, setTriggerRefractorySec] = useState(0.25)
   const [fullRecordTriggerAverageResult, setFullRecordTriggerAverageResult] = useState<TriggeredAverageResult | null>(null)
   const [fullRecordTriggerAverageLoading, setFullRecordTriggerAverageLoading] = useState(false)
@@ -2241,8 +2241,8 @@ export default function EEGViewer() {
     setTriggerRectifyAverage(false)
     setTriggerThresholdStep(Math.round((TRIGGER_THRESHOLD_POSITIONS - 1) * 0.7))
     setTriggerAverageScope('page')
-    setTriggerPreSec(0.5)
-    setTriggerPostSec(0.5)
+    setTriggerPreSec(1)
+    setTriggerPostSec(2)
     setTriggerRefractorySec(0.25)
     setFullRecordTriggerAverageResult(null)
     setFullRecordTriggerAverageLoading(false)
@@ -4043,13 +4043,18 @@ export default function EEGViewer() {
             </div>
           </label>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#166534', fontSize: '0.72rem' }}>
-            Pre (s)
+            Desde (s)
             <input
               type="number"
               step="0.05"
-              min="0"
-              value={triggerPreSec}
-              onChange={(e) => setTriggerPreSec(Math.max(0, parseFloat(e.target.value) || 0))}
+              min="-30"
+              max="0"
+              value={-triggerPreSec}
+              onChange={(e) => {
+                const parsed = parseFloat(e.target.value)
+                const clamped = Math.max(-30, Math.min(0, Number.isFinite(parsed) ? parsed : -triggerPreSec))
+                setTriggerPreSec(Math.abs(clamped))
+              }}
               style={{
                 width: 72,
                 background: '#ffffff',
@@ -4061,13 +4066,18 @@ export default function EEGViewer() {
             />
           </label>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#166534', fontSize: '0.72rem' }}>
-            Post (s)
+            Hasta (s)
             <input
               type="number"
               step="0.05"
               min="0"
+              max="30"
               value={triggerPostSec}
-              onChange={(e) => setTriggerPostSec(Math.max(0, parseFloat(e.target.value) || 0))}
+              onChange={(e) => {
+                const parsed = parseFloat(e.target.value)
+                const clamped = Math.max(0, Math.min(30, Number.isFinite(parsed) ? parsed : triggerPostSec))
+                setTriggerPostSec(clamped)
+              }}
               style={{
                 width: 72,
                 background: '#ffffff',

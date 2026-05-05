@@ -5,6 +5,12 @@ import request from 'supertest'
 import app from '../src/index'
 import { createSharedLinkBlob, createUser, generateToken, prisma } from './helpers'
 
+function binaryParser(res: any, callback: (error: Error | null, body?: Buffer) => void) {
+  const chunks: Buffer[] = []
+  res.on('data', (chunk: Buffer) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)))
+  res.on('end', () => callback(null, Buffer.concat(chunks)))
+}
+
 describe('shared links', () => {
   it('crea un enlace efímero cifrado sin requerir login', async () => {
     const tempPath = path.join(os.tmpdir(), `ocean-shared-${Date.now()}.enc`)
@@ -41,9 +47,10 @@ describe('shared links', () => {
     expect(metaRes.body.label).toBe('Consulta rápida')
     expect(metaRes.headers['cache-control']).toContain('no-store')
 
-    const downloadRes = await request(app).get(`/shared-links/${link.id}/download`)
+    const downloadRes = await request(app).get(`/shared-links/${link.id}/download`).buffer(true).parse(binaryParser)
     expect(downloadRes.status).toBe(200)
-    expect(downloadRes.text).toBe('ciphertext-body')
+    expect(downloadRes.headers['content-type']).toContain('application/octet-stream')
+    expect(Buffer.from(downloadRes.body).toString('utf8')).toBe('ciphertext-body')
   })
 
   it('permite revocar el enlace al creador y deja de servirlo', async () => {

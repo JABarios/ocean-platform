@@ -13,6 +13,7 @@ import {
   filterSignalForTrigger,
   getAverageReferenceCandidates,
   getChannelColor,
+  getContralateralChannelName,
   getDsaChannels,
   getEpochReadRequest,
   getMontageHiddenCandidates,
@@ -27,7 +28,7 @@ import type { EpochData, MontageName, PersistedViewerState, TriggeredAverageResu
 import type { CaseItem, SharedLinkBlobInfo } from '../types'
 import { getEncryptedPackageFromCache, saveEncryptedPackageToCache } from './encryptedPackageCache'
 import { extractEdfAnnotations } from '../utils/edfAnnotations'
-import { clearLocalEegSession, createLocalEegSession, getLocalEegSession } from './localEegSession'
+import { clearLocalEegSession, createLocalEegSession, getLocalEegSession, replaceLocalEegSession } from './localEegSession'
 import './EEGViewer.css'
 
 // ─── WASM types ───────────────────────────────────────────────────────────────
@@ -65,6 +66,10 @@ interface KappaInstance {
     freqMax: number
     freqStep: number
     epochSec: number
+  } | null
+  computeArtifactMask: () => {
+    artifactEpochSec: number
+    artifactStatuses: number[]
   } | null
 }
 
@@ -117,6 +122,8 @@ const GAIN_OPTIONS: { label: string; value: number }[] = [
 
 const SCALE_BAR_VALUES_UV = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000]
 const TRIGGER_THRESHOLD_POSITIONS = 25
+const TRIGGER_AVG_SETTINGS_STORAGE_KEY = 'ocean-eeg-trigger-avg-settings-v1'
+const TRIGGER_AVG_PRESETS_STORAGE_KEY = 'ocean-eeg-trigger-avg-presets-v1'
 
 type Phase =
   | 'key-input'
@@ -185,6 +192,37 @@ interface DSAData {
   freqStep: number
   epochSec: number
 }
+
+interface ArtifactMaskData {
+  artifactEpochSec: number
+  artifactStatuses: number[]
+}
+
+interface PersistedTriggerAverageSettings {
+  triggerChannelName: string
+  showTriggerContralateralOverlay: boolean
+  triggerDetectionMode: 'event' | 'burst'
+  triggerHp: number
+  triggerLp: number
+  triggerNotch: number
+  triggerSmoothPoints: number
+  triggerDerivativeAfterSmooth: boolean
+  triggerRectify: boolean
+  triggerBurstRearmFraction: number
+  averageHp: number
+  averageLp: number
+  averageNotch: number
+  averageGainMult: number
+  triggerRectifyAverage: boolean
+  excludeArtifactEvents: boolean
+  triggerThresholdStep: number
+  triggerAverageScope: 'page' | 'record'
+  triggerPreSec: number
+  triggerPostSec: number
+  triggerRefractorySec: number
+}
+
+type TriggerAveragePresetMap = Record<string, PersistedTriggerAverageSettings>
 
 interface EmbeddedAnnotation {
   onsetSec: number
@@ -1221,6 +1259,8 @@ function TimelineBar({
 
 function TriggerSignalPreview({
   signal,
+  overlaySignal,
+  overlayLabel,
   threshold,
   eventSampleIndexes,
   sampleRate,
@@ -1228,6 +1268,8 @@ function TriggerSignalPreview({
   compact = false,
 }: {
   signal: Float32Array
+  overlaySignal?: Float32Array | null
+  overlayLabel?: string | null
   threshold: number
   eventSampleIndexes: number[]
   sampleRate: number
@@ -1308,18 +1350,34 @@ function TriggerSignalPreview({
     ctx.fillText('µV', 0, 0)
     ctx.restore()
 
-    ctx.strokeStyle = '#0f766e'
-    ctx.lineWidth = 1.2
-    ctx.beginPath()
-    for (let i = 0; i < signal.length; i++) {
-      const x = left + (i / Math.max(signal.length - 1, 1)) * plotW
-      const clampedValue = Math.max(scales.min, Math.min(scales.max, signal[i] ?? 0))
-      const norm = (clampedValue - scales.min) / range
-      const y = top + plotH * (1 - norm)
-      if (i === 0) ctx.moveTo(x, y)
-      else ctx.lineTo(x, y)
+    const drawSignal = (data: Float32Array, color: string, lineWidth: number) => {
+      ctx.strokeStyle = color
+      ctx.lineWidth = lineWidth
+      ctx.beginPath()
+      for (let i = 0; i < data.length; i++) {
+        const x = left + (i / Math.max(data.length - 1, 1)) * plotW
+        const clampedValue = Math.max(scales.min, Math.min(scales.max, data[i] ?? 0))
+        const norm = (clampedValue - scales.min) / range
+        const y = top + plotH * (1 - norm)
+        if (i === 0) ctx.moveTo(x, y)
+        else ctx.lineTo(x, y)
+      }
+      ctx.stroke()
     }
-    ctx.stroke()
+
+    if (overlaySignal && overlaySignal.length > 0) {
+      drawSignal(overlaySignal, 'rgba(220, 38, 38, 0.8)', 1)
+    }
+
+    drawSignal(signal, '#0f766e', 1.2)
+
+    if (overlayLabel) {
+      ctx.fillStyle = '#b91c1c'
+      ctx.textAlign = 'right'
+      ctx.textBaseline = 'top'
+      ctx.font = compact ? '9px monospace' : '10px monospace'
+      ctx.fillText(`contra: ${overlayLabel}`, right - 2, top + 2)
+    }
 
     const thresholdNorm = (threshold - scales.min) / range
     const thresholdY = top + plotH * (1 - Math.max(0, Math.min(1, thresholdNorm)))
@@ -1363,7 +1421,7 @@ function TriggerSignalPreview({
       ctx.stroke()
       ctx.fillText(`${t.toFixed(2)}s`, x, bottom + 4)
     }
-  }, [compact, eventSampleIndexes, sampleRate, scales, signal, threshold])
+  }, [compact, eventSampleIndexes, overlayLabel, overlaySignal, sampleRate, scales, signal, threshold])
 
   useEffect(() => {
     redraw()
@@ -1408,10 +1466,15 @@ function TriggerAverageModal({
   averageScope,
   fullRecordLoading,
   fullRecordError,
+  currentStartSec,
+  currentEndSec,
   triggerChannelName,
   triggerSignal,
+  showTriggerContralateralOverlay,
+  onToggleTriggerContralateralOverlay,
+  triggerOverlayChannelName,
+  triggerOverlaySignal,
   triggerThreshold,
-  recordTriggerThreshold,
   triggerThresholdStep,
   triggerDetectionMode,
   triggerHp,
@@ -1431,6 +1494,8 @@ function TriggerAverageModal({
   rectifyAverage,
   excludeArtifactEvents,
   artifactEventsAvailable,
+  artifactStatuses,
+  artifactEpochSec,
   eventSampleIndexes,
   previewEventCount,
   viewerAnnotationsCount,
@@ -1460,15 +1525,28 @@ function TriggerAverageModal({
   onThresholdChange,
   onThresholdNudge,
   triggerChannelOptions,
+  presetDraftName,
+  presetNames,
+  selectedPresetName,
+  onPresetDraftNameChange,
+  onPresetSelect,
+  onSavePreset,
+  onLoadPreset,
+  onDeletePreset,
 }: {
   result: TriggeredAverageResult | null
   averageScope: 'page' | 'record'
   fullRecordLoading: boolean
   fullRecordError: string
+  currentStartSec: number
+  currentEndSec: number
   triggerChannelName: string
   triggerSignal: Float32Array | null
+  showTriggerContralateralOverlay: boolean
+  onToggleTriggerContralateralOverlay: () => void
+  triggerOverlayChannelName: string | null
+  triggerOverlaySignal: Float32Array | null
   triggerThreshold: number
-  recordTriggerThreshold: number | null
   triggerThresholdStep: number
   triggerDetectionMode: 'event' | 'burst'
   triggerHp: number
@@ -1488,6 +1566,8 @@ function TriggerAverageModal({
   rectifyAverage: boolean
   excludeArtifactEvents: boolean
   artifactEventsAvailable: boolean
+  artifactStatuses?: number[]
+  artifactEpochSec?: number
   eventSampleIndexes: number[]
   previewEventCount: number
   viewerAnnotationsCount: number
@@ -1517,6 +1597,14 @@ function TriggerAverageModal({
   onThresholdChange: (value: number) => void
   onThresholdNudge: (delta: number) => void
   triggerChannelOptions: Array<{ name: string; type: string }>
+  presetDraftName: string
+  presetNames: string[]
+  selectedPresetName: string
+  onPresetDraftNameChange: (value: string) => void
+  onPresetSelect: (value: string) => void
+  onSavePreset: () => void
+  onLoadPreset: () => void
+  onDeletePreset: () => void
 }) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -1524,6 +1612,38 @@ function TriggerAverageModal({
   const averagedEpoch = result?.averagedEpoch ?? null
   const preSamples = result?.preSamples ?? 0
   const eventCount = result?.events.length ?? 0
+  const rawEventCount = result?.rawEventCount ?? 0
+  const excludedArtifactCount = result?.excludedArtifactCount ?? 0
+  const cleanArtifactCount = result?.cleanArtifactCount ?? 0
+  const suspectArtifactCount = result?.suspectArtifactCount ?? 0
+  const rejectedArtifactCount = result?.rejectedArtifactCount ?? 0
+  const pageArtifactSummary = useMemo(() => {
+    if (!artifactStatuses?.length || !artifactEpochSec || artifactEpochSec <= 0) return null
+    const startEpochIndex = Math.max(0, Math.floor(currentStartSec / artifactEpochSec))
+    const endEpochIndex = Math.min(
+      artifactStatuses.length - 1,
+      Math.max(startEpochIndex, Math.floor(Math.max(currentStartSec, currentEndSec - 1e-9) / artifactEpochSec)),
+    )
+    let clean = 0
+    let suspect = 0
+    let rejected = 0
+    const states: string[] = []
+    for (let epochIndex = startEpochIndex; epochIndex <= endEpochIndex; epochIndex++) {
+      const status = artifactStatuses[epochIndex] ?? 0
+      if (status === 0) clean += 1
+      else if (status === 1) suspect += 1
+      else if (status === 2) rejected += 1
+      states.push(`${epochIndex}:${status}`)
+    }
+    return {
+      startEpochIndex,
+      endEpochIndex,
+      clean,
+      suspect,
+      rejected,
+      states,
+    }
+  }, [artifactEpochSec, artifactStatuses, currentEndSec, currentStartSec])
   const { scales } = useMemo(
     () => averagedEpoch ? computeScales(averagedEpoch, averageGainMult, false, {}) : { scales: [] as { p2: number; p98: number }[], refRange: 1 },
     [averageGainMult, averagedEpoch],
@@ -1677,6 +1797,22 @@ function TriggerAverageModal({
           <div style={{ color: '#64748b', fontSize: '0.82rem' }}>
             Trigger: {triggerChannelName || 'sin canal'} · {averageScope === 'record' ? `Página: ${previewEventCount} eventos · Promedio registro: N=${eventCount}` : `Promedio página: N=${eventCount}`} · Rectif trigger: {triggerRectify ? 'sí' : 'no'} · Rectif promedio: {rectifyAverage ? 'sí' : 'no'}
           </div>
+          <div style={{ color: '#64748b', fontSize: '0.76rem' }}>
+            Detectados: {rawEventCount} · Excluidos por artefacto: {excludedArtifactCount} · Usados: {eventCount}
+          </div>
+          <div style={{ color: '#64748b', fontSize: '0.74rem' }}>
+            Limpios: {cleanArtifactCount} · Suspect: {suspectArtifactCount} · Rejected: {rejectedArtifactCount}
+          </div>
+          <div style={{ color: '#64748b', fontSize: '0.74rem' }}>
+            Página {fmtTimeGrid(Math.max(0, currentStartSec))}-{fmtTimeGrid(Math.max(0, currentEndSec))} · {pageArtifactSummary
+              ? `ép ${pageArtifactSummary.startEpochIndex}-${pageArtifactSummary.endEpochIndex} · limpias ${pageArtifactSummary.clean} · suspect ${pageArtifactSummary.suspect} · rejected ${pageArtifactSummary.rejected}`
+              : 'sin máscara de artefactos disponible'}
+          </div>
+          {pageArtifactSummary && (
+            <div style={{ color: '#94a3b8', fontSize: '0.71rem', fontFamily: 'monospace' }}>
+              {pageArtifactSummary.states.join(' ')}
+            </div>
+          )}
         </div>
         <button
           type="button"
@@ -1720,11 +1856,109 @@ function TriggerAverageModal({
             flexDirection: 'column',
             gap: '0.7rem',
           }}>
-            <ToolbarSelect label="Canal trigger" value={triggerChannelName} onChange={onTriggerChannelChange} width={148}>
-              {triggerChannelOptions.map((channel) => (
-                <option key={channel.name} value={channel.name}>{channel.name}</option>
-              ))}
-            </ToolbarSelect>
+            <div style={{
+              paddingBottom: '0.2rem',
+              borderBottom: '1px dashed #bbf7d0',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.45rem',
+            }}>
+              <div style={{ color: '#166534', fontSize: '0.73rem', fontWeight: 700 }}>
+                Opciones guardadas
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#166534', fontSize: '0.72rem' }}>
+                  Nombre
+                  <input
+                    type="text"
+                    value={presetDraftName}
+                    onChange={(e) => onPresetDraftNameChange(e.target.value)}
+                    placeholder="p. ej. husos C3"
+                    style={{
+                      width: 150,
+                      background: '#ffffff',
+                      border: '1px solid #bbf7d0',
+                      borderRadius: 4,
+                      padding: '0.28rem 0.4rem',
+                      color: '#166534',
+                    }}
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={onSavePreset}
+                  style={{
+                    background: '#ffffff',
+                    border: '1px solid #86efac',
+                    borderRadius: 5,
+                    color: '#166534',
+                    fontSize: '0.76rem',
+                    padding: '0.38rem 0.65rem',
+                    cursor: 'pointer',
+                    fontWeight: 700,
+                  }}
+                >
+                  Guardar opciones
+                </button>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <ToolbarSelect label="Preset" value={selectedPresetName} onChange={onPresetSelect} width={170}>
+                  <option value="">Selecciona…</option>
+                  {presetNames.map((presetName) => (
+                    <option key={presetName} value={presetName}>{presetName}</option>
+                  ))}
+                </ToolbarSelect>
+                <button
+                  type="button"
+                  onClick={onLoadPreset}
+                  disabled={!selectedPresetName}
+                  style={{
+                    background: selectedPresetName ? '#ffffff' : '#dcfce7',
+                    border: '1px solid #86efac',
+                    borderRadius: 5,
+                    color: '#166534',
+                    fontSize: '0.76rem',
+                    padding: '0.38rem 0.65rem',
+                    cursor: selectedPresetName ? 'pointer' : 'not-allowed',
+                    fontWeight: 700,
+                  }}
+                >
+                  Cargar
+                </button>
+                <button
+                  type="button"
+                  onClick={onDeletePreset}
+                  disabled={!selectedPresetName}
+                  style={{
+                    background: selectedPresetName ? '#fff7ed' : '#ffedd5',
+                    border: '1px solid #fdba74',
+                    borderRadius: 5,
+                    color: '#c2410c',
+                    fontSize: '0.76rem',
+                    padding: '0.38rem 0.65rem',
+                    cursor: selectedPresetName ? 'pointer' : 'not-allowed',
+                    fontWeight: 700,
+                  }}
+                >
+                  Borrar
+                </button>
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.7rem', flexWrap: 'wrap' }}>
+              <ToolbarSelect label="Canal trigger" value={triggerChannelName} onChange={onTriggerChannelChange} width={148}>
+                {triggerChannelOptions.map((channel) => (
+                  <option key={channel.name} value={channel.name}>{channel.name}</option>
+                ))}
+              </ToolbarSelect>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#475569', fontSize: '0.82rem', whiteSpace: 'nowrap', paddingBottom: '0.2rem' }}>
+                <input
+                  type="checkbox"
+                  checked={showTriggerContralateralOverlay}
+                  onChange={onToggleTriggerContralateralOverlay}
+                />
+                Mostrar contra
+              </label>
+            </div>
             <ToolbarSelect
               label="Modo detector"
               value={triggerDetectionMode}
@@ -1829,9 +2063,7 @@ function TriggerAverageModal({
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 <button type="button" onClick={() => onThresholdNudge(-1)} style={{ width: 28, height: 28, background: '#ffffff', border: '1px solid #86efac', borderRadius: 4, color: '#166534', cursor: 'pointer', fontWeight: 700 }}>−</button>
                 <div style={{ minWidth: 128, background: '#ffffff', border: '1px solid #bbf7d0', borderRadius: 4, padding: '0.34rem 0.45rem', color: '#166534', fontFamily: 'monospace', fontSize: '0.8rem' }}>
-                  {averageScope === 'record' && Number.isFinite(recordTriggerThreshold ?? NaN)
-                    ? `${triggerThresholdStep + 1}/${TRIGGER_THRESHOLD_POSITIONS} · pág ${triggerThreshold.toFixed(2)} / reg ${(recordTriggerThreshold ?? 0).toFixed(2)} µV`
-                    : `${triggerThresholdStep + 1}/${TRIGGER_THRESHOLD_POSITIONS} · ${triggerThreshold.toFixed(2)} µV`}
+                  {`${triggerThresholdStep + 1}/${TRIGGER_THRESHOLD_POSITIONS} · ${triggerThreshold.toFixed(2)} µV`}
                 </div>
                 <button type="button" onClick={() => onThresholdNudge(1)} style={{ width: 28, height: 28, background: '#ffffff', border: '1px solid #86efac', borderRadius: 4, color: '#166534', cursor: 'pointer', fontWeight: 700 }}>+</button>
               </div>
@@ -2047,6 +2279,8 @@ function TriggerAverageModal({
               <div style={{ padding: '0.35rem 0.55rem' }}>
                 <TriggerSignalPreview
                   signal={triggerSignal}
+                  overlaySignal={triggerOverlaySignal}
+                  overlayLabel={triggerOverlayChannelName}
                   threshold={triggerThreshold}
                   eventSampleIndexes={eventSampleIndexes}
                   sampleRate={averagedEpoch?.sfreq ?? 1}
@@ -2147,6 +2381,7 @@ export default function EEGViewer() {
   const [extrasMenuPos, setExtrasMenuPos] = useState<{ top: number; left: number } | null>(null)
   const [dsaChannel,      setDsaChannel]      = useState('off')
   const [artifactReject,  setArtifactReject]  = useState(false)
+  const [artifactMaskData, setArtifactMaskData] = useState<ArtifactMaskData | null>(null)
   const [dsaData,         setDsaData]         = useState<DSAData | null>(null)
   const [dsaLoading,      setDsaLoading]      = useState(false)
   const [dsaError,        setDsaError]        = useState('')
@@ -2158,6 +2393,7 @@ export default function EEGViewer() {
   const [triggerAvgOpen, setTriggerAvgOpen] = useState(false)
   const [triggerAvgModalOpen, setTriggerAvgModalOpen] = useState(false)
   const [triggerChannelName, setTriggerChannelName] = useState('')
+  const [showTriggerContralateralOverlay, setShowTriggerContralateralOverlay] = useState(true)
   const [triggerDetectionMode, setTriggerDetectionMode] = useState<'event' | 'burst'>('event')
   const [triggerHp, setTriggerHp] = useState(0)
   const [triggerLp, setTriggerLp] = useState(45)
@@ -2177,12 +2413,15 @@ export default function EEGViewer() {
   const [triggerPreSec, setTriggerPreSec] = useState(1)
   const [triggerPostSec, setTriggerPostSec] = useState(2)
   const [triggerRefractorySec, setTriggerRefractorySec] = useState(0.25)
-  const [triggerThresholdRange, setTriggerThresholdRange] = useState<{ min: number; max: number } | null>(null)
+  const [lockedRecordTriggerThresholdValue, setLockedRecordTriggerThresholdValue] = useState<number | null>(null)
   const [fullRecordTriggerAverageResult, setFullRecordTriggerAverageResult] = useState<TriggeredAverageResult | null>(null)
   const [fullRecordTriggerAverageLoading, setFullRecordTriggerAverageLoading] = useState(false)
   const [fullRecordTriggerAverageError, setFullRecordTriggerAverageError] = useState('')
   const [viewerAnnotations, setViewerAnnotations] = useState<ViewerAnnotation[]>([])
   const [selectedViewerAnnotationId, setSelectedViewerAnnotationId] = useState<string | null>(null)
+  const [triggerAvgPresets, setTriggerAvgPresets] = useState<TriggerAveragePresetMap>({})
+  const [triggerAvgPresetDraftName, setTriggerAvgPresetDraftName] = useState('')
+  const [selectedTriggerAvgPresetName, setSelectedTriggerAvgPresetName] = useState('')
 
   const canvasRef  = useRef<HTMLCanvasElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)
@@ -2192,17 +2431,17 @@ export default function EEGViewer() {
   const moduleRef  = useRef<KappaModuleInstance | null>(null)
   const currentEdfPathRef = useRef<string | null>(null)
   const dsaCacheRef = useRef<Map<string, DSAData>>(new Map())
+  const artifactMaskCacheRef = useRef<ArtifactMaskData | null>(null)
   const avgRefButtonRef = useRef<HTMLButtonElement>(null)
   const avgRefMenuRef = useRef<HTMLDivElement>(null)
   const extrasButtonRef = useRef<HTMLButtonElement>(null)
   const extrasMenuRef = useRef<HTMLDivElement>(null)
   const loadVersionRef = useRef(0)
-  const triggerThresholdRangeSignatureRef = useRef('')
-  const triggerThresholdRangeLoadVersionRef = useRef(0)
   const triggerAverageLoadVersionRef = useRef(0)
   const restoreInFlightRef = useRef(false)
   const viewerStateReadyRef = useRef(false)
   const persistTimerRef = useRef<number | null>(null)
+  const triggerAvgSettingsReadyRef = useRef(false)
 
   // Imperative overlay refs — no setState on mousemove
   const mousePosRef   = useRef<{ x: number; y: number } | null>(null)
@@ -2213,6 +2452,102 @@ export default function EEGViewer() {
   const triggerThresholdDragRef = useRef(false)
   const renderMetaRef = useRef<RenderMeta | null>(null)
   const touchSwipeRef = useRef<{ startX: number; startY: number; active: boolean } | null>(null)
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(TRIGGER_AVG_PRESETS_STORAGE_KEY)
+      if (!raw) return
+      const parsed = JSON.parse(raw) as TriggerAveragePresetMap
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return
+      setTriggerAvgPresets(parsed)
+    } catch {
+      // ignore malformed presets
+    }
+  }, [])
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(TRIGGER_AVG_SETTINGS_STORAGE_KEY)
+      if (!raw) {
+        triggerAvgSettingsReadyRef.current = true
+        return
+      }
+      const parsed = JSON.parse(raw) as Partial<PersistedTriggerAverageSettings>
+      if (typeof parsed.triggerChannelName === 'string') setTriggerChannelName(parsed.triggerChannelName)
+      if (typeof parsed.showTriggerContralateralOverlay === 'boolean') setShowTriggerContralateralOverlay(parsed.showTriggerContralateralOverlay)
+      if (parsed.triggerDetectionMode === 'event' || parsed.triggerDetectionMode === 'burst') setTriggerDetectionMode(parsed.triggerDetectionMode)
+      if (typeof parsed.triggerHp === 'number') setTriggerHp(parsed.triggerHp)
+      if (typeof parsed.triggerLp === 'number') setTriggerLp(parsed.triggerLp)
+      if (typeof parsed.triggerNotch === 'number') setTriggerNotch(parsed.triggerNotch)
+      if (typeof parsed.triggerSmoothPoints === 'number') setTriggerSmoothPoints(Math.max(1, Math.round(parsed.triggerSmoothPoints)))
+      if (typeof parsed.triggerDerivativeAfterSmooth === 'boolean') setTriggerDerivativeAfterSmooth(parsed.triggerDerivativeAfterSmooth)
+      if (typeof parsed.triggerRectify === 'boolean') setTriggerRectify(parsed.triggerRectify)
+      if (typeof parsed.triggerBurstRearmFraction === 'number') setTriggerBurstRearmFraction(Math.max(0, parsed.triggerBurstRearmFraction))
+      if (typeof parsed.averageHp === 'number') setAverageHp(parsed.averageHp)
+      if (typeof parsed.averageLp === 'number') setAverageLp(parsed.averageLp)
+      if (typeof parsed.averageNotch === 'number') setAverageNotch(parsed.averageNotch)
+      if (typeof parsed.averageGainMult === 'number' && Number.isFinite(parsed.averageGainMult) && parsed.averageGainMult > 0) setAverageGainMult(parsed.averageGainMult)
+      if (typeof parsed.triggerRectifyAverage === 'boolean') setTriggerRectifyAverage(parsed.triggerRectifyAverage)
+      if (typeof parsed.excludeArtifactEvents === 'boolean') setExcludeArtifactEvents(parsed.excludeArtifactEvents)
+      if (typeof parsed.triggerThresholdStep === 'number') {
+        setTriggerThresholdStep(Math.max(0, Math.min(TRIGGER_THRESHOLD_POSITIONS - 1, Math.round(parsed.triggerThresholdStep))))
+      }
+      if (parsed.triggerAverageScope === 'page' || parsed.triggerAverageScope === 'record') setTriggerAverageScope(parsed.triggerAverageScope)
+      if (typeof parsed.triggerPreSec === 'number') setTriggerPreSec(Math.max(0, parsed.triggerPreSec))
+      if (typeof parsed.triggerPostSec === 'number') setTriggerPostSec(Math.max(0, parsed.triggerPostSec))
+      if (typeof parsed.triggerRefractorySec === 'number') setTriggerRefractorySec(Math.max(0, parsed.triggerRefractorySec))
+    } catch {
+      // ignore malformed local viewer preferences
+    } finally {
+      triggerAvgSettingsReadyRef.current = true
+    }
+  }, [])
+
+  const currentTriggerAverageSettings = useMemo<PersistedTriggerAverageSettings>(() => ({
+    triggerChannelName,
+    showTriggerContralateralOverlay,
+    triggerDetectionMode,
+    triggerHp,
+    triggerLp,
+    triggerNotch,
+    triggerSmoothPoints,
+    triggerDerivativeAfterSmooth,
+    triggerRectify,
+    triggerBurstRearmFraction,
+    averageHp,
+    averageLp,
+    averageNotch,
+    averageGainMult,
+    triggerRectifyAverage,
+    excludeArtifactEvents,
+    triggerThresholdStep,
+    triggerAverageScope,
+    triggerPreSec,
+    triggerPostSec,
+    triggerRefractorySec,
+  }), [
+    triggerChannelName,
+    showTriggerContralateralOverlay,
+    triggerDetectionMode,
+    triggerHp,
+    triggerLp,
+    triggerNotch,
+    triggerSmoothPoints,
+    triggerDerivativeAfterSmooth,
+    triggerRectify,
+    triggerBurstRearmFraction,
+    averageHp,
+    averageLp,
+    averageNotch,
+    averageGainMult,
+    triggerRectifyAverage,
+    excludeArtifactEvents,
+    triggerThresholdStep,
+    triggerAverageScope,
+    triggerPreSec,
+    triggerPostSec,
+    triggerRefractorySec,
+  ])
 
   // ── Derived data ─────────────────────────────────────────────────────────────
 
@@ -2358,6 +2693,84 @@ export default function EEGViewer() {
     setTriggerChannelName(preferred?.name ?? '')
   }, [triggerChannelName, triggerChannelOptions, selectedChannelName])
 
+  useEffect(() => {
+    if (!triggerAvgSettingsReadyRef.current) return
+    try {
+      window.localStorage.setItem(TRIGGER_AVG_SETTINGS_STORAGE_KEY, JSON.stringify(currentTriggerAverageSettings))
+    } catch {
+      // ignore localStorage write failures
+    }
+  }, [
+    currentTriggerAverageSettings,
+  ])
+
+  const applyTriggerAverageSettings = useCallback((settings: PersistedTriggerAverageSettings) => {
+    setTriggerChannelName(settings.triggerChannelName)
+    setShowTriggerContralateralOverlay(settings.showTriggerContralateralOverlay)
+    setTriggerDetectionMode(settings.triggerDetectionMode)
+    setTriggerHp(settings.triggerHp)
+    setTriggerLp(settings.triggerLp)
+    setTriggerNotch(settings.triggerNotch)
+    setTriggerSmoothPoints(Math.max(1, Math.round(settings.triggerSmoothPoints)))
+    setTriggerDerivativeAfterSmooth(settings.triggerDerivativeAfterSmooth)
+    setTriggerRectify(settings.triggerRectify)
+    setTriggerBurstRearmFraction(Math.max(0, settings.triggerBurstRearmFraction))
+    setAverageHp(settings.averageHp)
+    setAverageLp(settings.averageLp)
+    setAverageNotch(settings.averageNotch)
+    setAverageGainMult(Number.isFinite(settings.averageGainMult) && settings.averageGainMult > 0 ? settings.averageGainMult : 1)
+    setTriggerRectifyAverage(settings.triggerRectifyAverage)
+    setExcludeArtifactEvents(settings.excludeArtifactEvents)
+    setTriggerThresholdStep(Math.max(0, Math.min(TRIGGER_THRESHOLD_POSITIONS - 1, Math.round(settings.triggerThresholdStep))))
+    setTriggerAverageScope(settings.triggerAverageScope)
+    setTriggerPreSec(Math.max(0, settings.triggerPreSec))
+    setTriggerPostSec(Math.max(0, settings.triggerPostSec))
+    setTriggerRefractorySec(Math.max(0, settings.triggerRefractorySec))
+  }, [])
+
+  const saveTriggerAveragePreset = useCallback(() => {
+    const trimmedName = triggerAvgPresetDraftName.trim()
+    if (!trimmedName) return
+    setTriggerAvgPresets((current) => {
+      const next = {
+        ...current,
+        [trimmedName]: currentTriggerAverageSettings,
+      }
+      try {
+        window.localStorage.setItem(TRIGGER_AVG_PRESETS_STORAGE_KEY, JSON.stringify(next))
+      } catch {
+        // ignore localStorage failures
+      }
+      return next
+    })
+    setSelectedTriggerAvgPresetName(trimmedName)
+  }, [currentTriggerAverageSettings, triggerAvgPresetDraftName])
+
+  const loadTriggerAveragePreset = useCallback(() => {
+    if (!selectedTriggerAvgPresetName) return
+    const preset = triggerAvgPresets[selectedTriggerAvgPresetName]
+    if (!preset) return
+    applyTriggerAverageSettings(preset)
+    setTriggerAvgPresetDraftName(selectedTriggerAvgPresetName)
+  }, [applyTriggerAverageSettings, selectedTriggerAvgPresetName, triggerAvgPresets])
+
+  const deleteTriggerAveragePreset = useCallback(() => {
+    if (!selectedTriggerAvgPresetName) return
+    setTriggerAvgPresets((current) => {
+      if (!(selectedTriggerAvgPresetName in current)) return current
+      const next = { ...current }
+      delete next[selectedTriggerAvgPresetName]
+      try {
+        window.localStorage.setItem(TRIGGER_AVG_PRESETS_STORAGE_KEY, JSON.stringify(next))
+      } catch {
+        // ignore localStorage failures
+      }
+      return next
+    })
+    setTriggerAvgPresetDraftName('')
+    setSelectedTriggerAvgPresetName('')
+  }, [selectedTriggerAvgPresetName])
+
   const triggerSignalPreview = useMemo(() => {
     if (!triggerAvgOpen || !processedEpoch || !triggerChannelName) return null
     const triggerIndex = processedEpoch.channelNames.findIndex((name) => name === triggerChannelName)
@@ -2372,88 +2785,24 @@ export default function EEGViewer() {
     })
   }, [processedEpoch, triggerAvgOpen, triggerChannelName, triggerHp, triggerLp, triggerNotch, triggerRectify, triggerSmoothPoints, triggerDerivativeAfterSmooth])
 
-  useEffect(() => {
-    if (!triggerAvgOpen) {
-      triggerThresholdRangeSignatureRef.current = ''
-      triggerThresholdRangeLoadVersionRef.current += 1
-      setTriggerThresholdRange(null)
-      return
-    }
-    if (triggerAverageScope !== 'record') {
-      triggerThresholdRangeLoadVersionRef.current += 1
-      setTriggerThresholdRange(null)
-      return
-    }
-    if (!triggerChannelName) return
+  const triggerOverlayChannelName = useMemo(() => {
+    if (!showTriggerContralateralOverlay || !triggerAvgOpen || !processedEpoch || !triggerChannelName) return null
+    return getContralateralChannelName(triggerChannelName, processedEpoch.channelNames)
+  }, [processedEpoch, showTriggerContralateralOverlay, triggerAvgOpen, triggerChannelName])
 
-    const nextSignature = JSON.stringify({
-      sourceKind,
-      sourceId,
-      triggerChannelName,
-      triggerDetectionMode,
-      triggerHp,
-      triggerLp,
-      triggerNotch,
+  const triggerOverlaySignalPreview = useMemo(() => {
+    if (!triggerAvgOpen || !processedEpoch || !triggerOverlayChannelName) return null
+    const overlayIndex = processedEpoch.channelNames.findIndex((name) => name === triggerOverlayChannelName)
+    if (overlayIndex < 0) return null
+    return filterSignalForTrigger(processedEpoch.data[overlayIndex], processedEpoch.sfreq, {
+      hp: triggerHp,
+      lp: triggerLp,
+      notch: triggerNotch,
       triggerSmoothPoints,
       triggerDerivativeAfterSmooth,
-      triggerRectify,
-      triggerBurstRearmFraction,
+      rectifyTrigger: triggerRectify,
     })
-    if (triggerThresholdRangeSignatureRef.current === nextSignature) return
-    triggerThresholdRangeSignatureRef.current = nextSignature
-
-    const kappa = kappaRef.current
-    if (!kappa) return
-
-    const requestVersion = ++triggerThresholdRangeLoadVersionRef.current
-    setTriggerThresholdRange(null)
-
-    const timer = window.setTimeout(() => {
-      try {
-        const safeRecordDurationSec = Math.max(recordDurationSec, 1e-6)
-        const totalRecords = Math.max(1, Math.ceil(Math.max(totalSeconds, safeRecordDurationSec) / safeRecordDurationSec))
-        const rawFullEpoch = kappa.readEpoch(0, totalRecords)
-        if (!rawFullEpoch) return
-
-        const processedFullEpoch = processEpochForViewer(rawFullEpoch)
-        const triggerIndex = processedFullEpoch.channelNames.findIndex((name) => name === triggerChannelName)
-        if (triggerIndex < 0) return
-
-        const nextRange = computeTriggerThresholdRange(filterSignalForTrigger(processedFullEpoch.data[triggerIndex], processedFullEpoch.sfreq, {
-          hp: triggerHp,
-          lp: triggerLp,
-          notch: triggerNotch,
-          triggerSmoothPoints,
-          triggerDerivativeAfterSmooth,
-          rectifyTrigger: triggerRectify,
-        }))
-        if (!nextRange) return
-        if (requestVersion !== triggerThresholdRangeLoadVersionRef.current) return
-        setTriggerThresholdRange(nextRange)
-      } catch {
-        // The full-record average loader will surface read errors; keep threshold setup quiet here.
-      }
-    }, 0)
-
-    return () => window.clearTimeout(timer)
-  }, [
-    triggerAvgOpen,
-    triggerAverageScope,
-    sourceKind,
-    sourceId,
-    triggerChannelName,
-    triggerDetectionMode,
-    triggerHp,
-    triggerLp,
-    triggerNotch,
-    triggerSmoothPoints,
-    triggerDerivativeAfterSmooth,
-    triggerRectify,
-    triggerBurstRearmFraction,
-    processEpochForViewer,
-    recordDurationSec,
-    totalSeconds,
-  ])
+  }, [processedEpoch, triggerAvgOpen, triggerOverlayChannelName, triggerHp, triggerLp, triggerNotch, triggerRectify, triggerSmoothPoints, triggerDerivativeAfterSmooth])
 
   const previewTriggerThresholdRange = useMemo(() => {
     if (!triggerSignalPreview || triggerSignalPreview.length === 0) return null
@@ -2466,17 +2815,51 @@ export default function EEGViewer() {
     return previewTriggerThresholdRange.min + ratio * (previewTriggerThresholdRange.max - previewTriggerThresholdRange.min)
   }, [previewTriggerThresholdRange, triggerThresholdStep])
 
-  const recordTriggerThresholdValue = useMemo(() => {
-    if (!triggerThresholdRange) return 0
-    const ratio = triggerThresholdStep / Math.max(TRIGGER_THRESHOLD_POSITIONS - 1, 1)
-    return triggerThresholdRange.min + ratio * (triggerThresholdRange.max - triggerThresholdRange.min)
-  }, [triggerThresholdRange, triggerThresholdStep])
+  useEffect(() => {
+    if (!triggerAvgOpen || triggerAverageScope !== 'record' || !triggerChannelName) {
+      setLockedRecordTriggerThresholdValue(null)
+      return
+    }
+    setLockedRecordTriggerThresholdValue((current) =>
+      current === null ? previewTriggerThresholdValue : current,
+    )
+  }, [triggerAvgOpen, triggerAverageScope, triggerChannelName, previewTriggerThresholdValue])
+
+  useEffect(() => {
+    if (triggerAverageScope !== 'record' || !triggerAvgOpen) return
+    setLockedRecordTriggerThresholdValue(previewTriggerThresholdValue)
+  }, [
+    sourceKind,
+    sourceId,
+    triggerDetectionMode,
+    triggerHp,
+    triggerLp,
+    triggerNotch,
+    triggerSmoothPoints,
+    triggerDerivativeAfterSmooth,
+    triggerRectify,
+    triggerBurstRearmFraction,
+    triggerThresholdStep,
+    triggerPreSec,
+    triggerPostSec,
+    triggerRefractorySec,
+    triggerRectifyAverage,
+    averageHp,
+    averageLp,
+    averageNotch,
+    averageGainMult,
+    excludeArtifactEvents,
+  ])
+
+  const effectiveTriggerThresholdValue = triggerAverageScope === 'record' && lockedRecordTriggerThresholdValue !== null
+    ? lockedRecordTriggerThresholdValue
+    : previewTriggerThresholdValue
 
   const triggerAverageResult = useMemo(() => {
     if (!triggerAvgOpen || !processedEpoch || !triggerChannelName) return null
     return computeTriggeredAverage(processedEpoch, {
       triggerChannelName,
-      threshold: previewTriggerThresholdValue,
+      threshold: effectiveTriggerThresholdValue,
       preSec: triggerPreSec,
       postSec: triggerPostSec,
       detectionMode: triggerDetectionMode,
@@ -2493,15 +2876,15 @@ export default function EEGViewer() {
       refractorySec: triggerRefractorySec,
       burstRearmFraction: triggerBurstRearmFraction,
       excludeArtifactEvents,
-      artifactStatuses: dsaData?.artifactStatuses,
-      artifactEpochSec: dsaData?.artifactEpochSec,
+      artifactStatuses: artifactMaskData?.artifactStatuses,
+      artifactEpochSec: artifactMaskData?.artifactEpochSec,
       recordStartSec: recordOffset,
     })
   }, [
     processedEpoch,
     triggerAvgOpen,
     triggerChannelName,
-    previewTriggerThresholdValue,
+    effectiveTriggerThresholdValue,
     triggerPreSec,
     triggerPostSec,
     triggerDetectionMode,
@@ -2518,7 +2901,57 @@ export default function EEGViewer() {
     triggerRefractorySec,
     triggerBurstRearmFraction,
     excludeArtifactEvents,
-    dsaData,
+    artifactMaskData,
+    recordOffset,
+  ])
+
+  const scopeAlignedPageTriggerAverageResult = useMemo(() => {
+    if (!triggerAvgOpen || !processedEpoch || !triggerChannelName) return null
+    return computeTriggeredAverage(processedEpoch, {
+      triggerChannelName,
+      threshold: effectiveTriggerThresholdValue,
+      preSec: triggerPreSec,
+      postSec: triggerPostSec,
+      detectionMode: triggerDetectionMode,
+      hp: triggerHp,
+      lp: triggerLp,
+      notch: triggerNotch,
+      triggerSmoothPoints,
+      triggerDerivativeAfterSmooth,
+      averageHp,
+      averageLp,
+      averageNotch,
+      rectifyTrigger: triggerRectify,
+      rectifyAverage: triggerRectifyAverage,
+      refractorySec: triggerRefractorySec,
+      burstRearmFraction: triggerBurstRearmFraction,
+      excludeArtifactEvents,
+      artifactStatuses: artifactMaskData?.artifactStatuses,
+      artifactEpochSec: artifactMaskData?.artifactEpochSec,
+      recordStartSec: recordOffset,
+    })
+  }, [
+    processedEpoch,
+    triggerAvgOpen,
+    triggerChannelName,
+    effectiveTriggerThresholdValue,
+    triggerPreSec,
+    triggerPostSec,
+    triggerDetectionMode,
+    triggerHp,
+    triggerLp,
+    triggerNotch,
+    triggerSmoothPoints,
+    triggerDerivativeAfterSmooth,
+    averageHp,
+    averageLp,
+    averageNotch,
+    triggerRectify,
+    triggerRectifyAverage,
+    triggerRefractorySec,
+    triggerBurstRearmFraction,
+    excludeArtifactEvents,
+    artifactMaskData,
     recordOffset,
   ])
 
@@ -2533,12 +2966,6 @@ export default function EEGViewer() {
     if (!triggerChannelName) {
       setFullRecordTriggerAverageLoading(false)
       setFullRecordTriggerAverageError('Selecciona un canal trigger.')
-      setFullRecordTriggerAverageResult(null)
-      return
-    }
-    if (!triggerThresholdRange) {
-      setFullRecordTriggerAverageLoading(false)
-      setFullRecordTriggerAverageError('')
       setFullRecordTriggerAverageResult(null)
       return
     }
@@ -2565,7 +2992,7 @@ export default function EEGViewer() {
         const processedFullEpoch = processEpochForViewer(rawFullEpoch)
         const nextResult = computeTriggeredAverage(processedFullEpoch, {
           triggerChannelName,
-          threshold: recordTriggerThresholdValue,
+          threshold: effectiveTriggerThresholdValue,
           preSec: triggerPreSec,
           postSec: triggerPostSec,
           detectionMode: triggerDetectionMode,
@@ -2582,8 +3009,8 @@ export default function EEGViewer() {
           refractorySec: triggerRefractorySec,
           burstRearmFraction: triggerBurstRearmFraction,
           excludeArtifactEvents,
-          artifactStatuses: dsaData?.artifactStatuses,
-          artifactEpochSec: dsaData?.artifactEpochSec,
+          artifactStatuses: artifactMaskData?.artifactStatuses,
+          artifactEpochSec: artifactMaskData?.artifactEpochSec,
           recordStartSec: 0,
         })
 
@@ -2625,15 +3052,18 @@ export default function EEGViewer() {
     triggerRectifyAverage,
     triggerRefractorySec,
     triggerBurstRearmFraction,
-    recordTriggerThresholdValue,
-    triggerThresholdRange,
+    effectiveTriggerThresholdValue,
     excludeArtifactEvents,
-    dsaData,
+    artifactMaskData,
   ])
 
   const activeTriggerAverageResult = triggerAverageScope === 'record'
     ? fullRecordTriggerAverageResult
     : triggerAverageResult
+  const triggerAveragePresetNames = useMemo(
+    () => Object.keys(triggerAvgPresets).sort((a, b) => a.localeCompare(b, 'es')),
+    [triggerAvgPresets],
+  )
 
   const createViewerAnnotationsFromTrigger = useCallback(() => {
     if (!activeTriggerAverageResult || !triggerChannelName) return
@@ -2659,12 +3089,19 @@ export default function EEGViewer() {
     if (!triggerAvgOpen || !processedEpoch || !triggerChannelName) return null
     return {
       channelName: triggerChannelName,
-      threshold: previewTriggerThresholdValue,
-      eventOnsetsSec: triggerAverageResult
-        ? triggerAverageResult.events.map((event) => recordOffset + event.onsetSec)
+      threshold: effectiveTriggerThresholdValue,
+      eventOnsetsSec: scopeAlignedPageTriggerAverageResult
+        ? scopeAlignedPageTriggerAverageResult.events.map((event) => recordOffset + event.onsetSec)
         : [],
     }
-  }, [processedEpoch, recordOffset, triggerAverageResult, triggerAvgOpen, triggerChannelName, previewTriggerThresholdValue])
+  }, [
+    processedEpoch,
+    recordOffset,
+    scopeAlignedPageTriggerAverageResult,
+    triggerAvgOpen,
+    triggerChannelName,
+    effectiveTriggerThresholdValue,
+  ])
 
   useEffect(() => {
     setTriggerAvgModalOpen(triggerAvgOpen)
@@ -2752,24 +3189,6 @@ export default function EEGViewer() {
     setChannelGainOverrides({})
     setTriggerAvgOpen(false)
     setTriggerAvgModalOpen(false)
-    setTriggerChannelName('')
-    setTriggerDetectionMode('event')
-    setTriggerHp(0)
-    setTriggerLp(45)
-    setTriggerNotch(0)
-    setTriggerSmoothPoints(1)
-    setTriggerDerivativeAfterSmooth(false)
-    setAverageHp(0)
-    setAverageLp(0)
-    setAverageNotch(0)
-    setTriggerRectify(false)
-    setTriggerBurstRearmFraction(0.1)
-    setTriggerRectifyAverage(false)
-    setTriggerThresholdStep(Math.round((TRIGGER_THRESHOLD_POSITIONS - 1) * 0.7))
-    setTriggerAverageScope('page')
-    setTriggerPreSec(1)
-    setTriggerPostSec(2)
-    setTriggerRefractorySec(0.25)
     setFullRecordTriggerAverageResult(null)
     setFullRecordTriggerAverageLoading(false)
     setFullRecordTriggerAverageError('')
@@ -2959,7 +3378,7 @@ export default function EEGViewer() {
     const margin = rm.chanH * 0.08
     const drawH = rm.chanH - margin * 2
     const range = scale.p98 - scale.p2 || 1
-    const norm = Math.max(0, Math.min(1, (previewTriggerThresholdValue - scale.p2) / range))
+    const norm = Math.max(0, Math.min(1, (effectiveTriggerThresholdValue - scale.p2) / range))
     const y = y0 + margin + drawH * (1 - norm)
     return {
       y,
@@ -2970,7 +3389,7 @@ export default function EEGViewer() {
       margin,
       drawH,
     }
-  }, [processedEpoch, scales, triggerAvgOpen, triggerChannelName, previewTriggerThresholdValue])
+  }, [processedEpoch, scales, triggerAvgOpen, triggerChannelName, effectiveTriggerThresholdValue])
 
   // ── Mouse handlers ────────────────────────────────────────────────────────────
 
@@ -3117,6 +3536,7 @@ export default function EEGViewer() {
 
   const startViewer = useCallback(async (key: string) => {
     if (!sourceId) return
+    if (restoreInFlightRef.current) return
     const runVersion = loadVersionRef.current
     const isStale = () => loadVersionRef.current !== runVersion
     try {
@@ -3480,19 +3900,52 @@ export default function EEGViewer() {
     setLocalPickerError('')
     try {
       const buffer = await file.arrayBuffer()
-      const nextSession = createLocalEegSession({
-        filename: file.name,
-        sizeBytes: file.size,
-        buffer,
-      })
-      if (sourceKind === 'local' && sourceId) clearLocalEegSession(sourceId)
-      navigate(`/open/${nextSession.id}`)
+      if (sourceKind === 'local' && sourceId) {
+        replaceLocalEegSession(sourceId, {
+          filename: file.name,
+          sizeBytes: file.size,
+          buffer,
+        })
+        try {
+          if (currentEdfPathRef.current) moduleRef.current?.FS.unlink(currentEdfPathRef.current)
+        } catch {
+          // ignore cleanup failures before re-opening another local EDF
+        }
+        currentEdfPathRef.current = null
+        kappaRef.current = null
+        moduleRef.current = null
+        loadVersionRef.current += 1
+        setPhase('loading-module')
+        setEpoch(null)
+        setRecordOffset(0)
+        setRecordDurationSec(1)
+        setTotalSeconds(0)
+        setMeta(null)
+        setEdfAnnotations([])
+        setAnnotationsOpen(false)
+        setCaseHoverMeta({
+          cacheKey: undefined,
+          ageRange: undefined,
+          sizeBytes: file.size,
+          encryptionMode: 'NONE',
+          label: file.name,
+        })
+        startViewer('')
+      } else {
+        const nextSession = createLocalEegSession({
+          filename: file.name,
+          sizeBytes: file.size,
+          buffer,
+        })
+        if (sourceKind === 'local' && sourceId) clearLocalEegSession(sourceId)
+        navigate(`/open/${nextSession.id}`)
+      }
     } catch (err) {
       setLocalPickerError(err instanceof Error ? err.message : 'El navegador no pudo leer el archivo EDF seleccionado.')
     } finally {
       event.target.value = ''
     }
-  }, [navigate, sourceId, sourceKind])
+  }, [navigate, sourceId, sourceKind, startViewer])
 
   const handleHpChange = (val: string) => {
     const v = parseFloat(val); setHp(v)
@@ -3591,7 +4044,46 @@ export default function EEGViewer() {
     setTriggerPostSec(0.5)
     setTriggerRefractorySec(0.25)
     dsaCacheRef.current.clear()
+    artifactMaskCacheRef.current = null
+    try {
+      window.localStorage.removeItem(TRIGGER_AVG_SETTINGS_STORAGE_KEY)
+    } catch {
+      // ignore localStorage failures
+    }
   }, [recordDurationSec, totalSeconds])
+
+  useEffect(() => {
+    if (phase !== 'viewing') {
+      setArtifactMaskData(null)
+      return
+    }
+
+    if (artifactMaskCacheRef.current) {
+      setArtifactMaskData(artifactMaskCacheRef.current)
+      return
+    }
+
+    let cancelled = false
+    setArtifactMaskData(null)
+
+    const timer = window.setTimeout(() => {
+      try {
+        const result = kappaRef.current?.computeArtifactMask()
+        if (cancelled) return
+        if (!result) throw new Error('No se pudo calcular la máscara de artefactos')
+        artifactMaskCacheRef.current = result
+        setArtifactMaskData(result)
+      } catch {
+        if (cancelled) return
+        setArtifactMaskData(null)
+      }
+    }, 0)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [phase])
 
   useEffect(() => {
     if (phase !== 'viewing' || dsaChannel === 'off') {
@@ -4216,19 +4708,17 @@ export default function EEGViewer() {
               </div>
             )}
             {showArtifactControl && (
-              <label style={{ display: 'flex', cursor: dsaChannel === 'off' ? 'not-allowed' : 'pointer' }}>
+              <label style={{ display: 'flex', cursor: 'pointer' }}>
                 <button
-                  onClick={() => { if (dsaChannel !== 'off') setArtifactReject((v) => !v) }}
-                  disabled={dsaChannel === 'off'}
+                  onClick={() => setArtifactReject((v) => !v)}
                   title="Excluir épocas con artefacto del DSA y mostrar barra de artefactos"
                   style={{
                     background: artifactReject ? '#dcfce7' : '#f8fafc',
                     border: `1px solid ${artifactReject ? '#86efac' : '#cbd5e1'}`,
                     borderRadius: 4, color: artifactReject ? '#166534' : '#475569',
                     fontSize: '0.75rem', padding: '0.16rem 0.45rem',
-                    cursor: dsaChannel === 'off' ? 'not-allowed' : 'pointer',
+                    cursor: 'pointer',
                     fontWeight: artifactReject ? 600 : 400,
-                    opacity: dsaChannel === 'off' ? 0.6 : 1,
                   }}
                 >
                   {artifactReject ? 'Artef ✓' : 'Artef Off'}
@@ -4761,8 +5251,8 @@ export default function EEGViewer() {
           annotations={edfAnnotations}
           viewerAnnotations={viewerAnnotations}
           selectedViewerAnnotationId={selectedViewerAnnotationId}
-          artifactStatuses={artifactReject ? dsaData?.artifactStatuses : undefined}
-          artifactEpochSec={artifactReject ? dsaData?.artifactEpochSec : undefined}
+          artifactStatuses={artifactReject ? artifactMaskData?.artifactStatuses : undefined}
+          artifactEpochSec={artifactReject ? artifactMaskData?.artifactEpochSec : undefined}
           onViewerAnnotationSelect={(annotationId) => jumpToViewerAnnotation(annotationId)}
           onSeek={(targetSec) => goToSecondPosition(targetSec, true)}
         />
@@ -4773,10 +5263,15 @@ export default function EEGViewer() {
           averageScope={triggerAverageScope}
           fullRecordLoading={fullRecordTriggerAverageLoading}
           fullRecordError={fullRecordTriggerAverageError}
+          currentStartSec={tStart}
+          currentEndSec={Math.min(totalSeconds, tStart + pageDuration)}
           triggerChannelName={triggerChannelName}
           triggerSignal={triggerSignalPreview}
-          triggerThreshold={previewTriggerThresholdValue}
-          recordTriggerThreshold={triggerAverageScope === 'record' && triggerThresholdRange ? recordTriggerThresholdValue : null}
+          showTriggerContralateralOverlay={showTriggerContralateralOverlay}
+          onToggleTriggerContralateralOverlay={() => setShowTriggerContralateralOverlay((value) => !value)}
+          triggerOverlayChannelName={triggerOverlayChannelName}
+          triggerOverlaySignal={triggerOverlaySignalPreview}
+          triggerThreshold={effectiveTriggerThresholdValue}
           triggerThresholdStep={triggerThresholdStep}
           triggerDetectionMode={triggerDetectionMode}
           triggerHp={triggerHp}
@@ -4795,9 +5290,11 @@ export default function EEGViewer() {
           triggerRectify={triggerRectify}
           rectifyAverage={triggerRectifyAverage}
           excludeArtifactEvents={excludeArtifactEvents}
-          artifactEventsAvailable={!!dsaData?.artifactStatuses?.length && !!dsaData?.artifactEpochSec}
-          eventSampleIndexes={triggerAverageResult?.events.map((event) => event.sampleIndex) ?? []}
-          previewEventCount={triggerAverageResult?.events.length ?? 0}
+          artifactEventsAvailable={!!artifactMaskData?.artifactStatuses?.length && !!artifactMaskData?.artifactEpochSec}
+          artifactStatuses={artifactMaskData?.artifactStatuses}
+          artifactEpochSec={artifactMaskData?.artifactEpochSec}
+          eventSampleIndexes={scopeAlignedPageTriggerAverageResult?.events.map((event) => event.sampleIndex) ?? []}
+          previewEventCount={scopeAlignedPageTriggerAverageResult?.events.length ?? 0}
           viewerAnnotationsCount={viewerAnnotations.length}
           onClose={() => setTriggerAvgModalOpen(false)}
           onCreateViewerAnnotations={createViewerAnnotationsFromTrigger}
@@ -4828,6 +5325,17 @@ export default function EEGViewer() {
           onThresholdChange={(value) => setTriggerThresholdStep(value)}
           onThresholdNudge={nudgeTriggerThreshold}
           triggerChannelOptions={triggerChannelOptions}
+          presetDraftName={triggerAvgPresetDraftName}
+          presetNames={triggerAveragePresetNames}
+          selectedPresetName={selectedTriggerAvgPresetName}
+          onPresetDraftNameChange={setTriggerAvgPresetDraftName}
+          onPresetSelect={(value) => {
+            setSelectedTriggerAvgPresetName(value)
+            if (value) setTriggerAvgPresetDraftName(value)
+          }}
+          onSavePreset={saveTriggerAveragePreset}
+          onLoadPreset={loadTriggerAveragePreset}
+          onDeletePreset={deleteTriggerAveragePreset}
         />
       )}
     </div>

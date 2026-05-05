@@ -24,6 +24,18 @@ export function getLocalEegSession(id: string): LocalEegSession | null {
   return sessions.get(id) ?? null
 }
 
+export function replaceLocalEegSession(id: string, file: { filename: string; sizeBytes: number; buffer: ArrayBuffer }): LocalEegSession {
+  const session: LocalEegSession = {
+    id,
+    filename: file.filename,
+    sizeBytes: file.sizeBytes,
+    buffer: file.buffer,
+    createdAt: Date.now(),
+  }
+  sessions.set(id, session)
+  return session
+}
+
 export function clearLocalEegSession(id: string) {
   sessions.delete(id)
 }

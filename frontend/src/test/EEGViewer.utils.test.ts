@@ -9,6 +9,7 @@ import {
   applyMontage,
   getAverageReferenceCandidates,
   getChannelColor,
+  getContralateralChannelName,
   getMontageHiddenCandidates,
   getEpochReadRequest,
   getNextArtifactRejectState,
@@ -110,6 +111,12 @@ describe('EEG viewer utils', () => {
     expect(getChannelColor('Fp2 - AVG', 'EEG')).toBe('#b91c1c')
     expect(getChannelColor('Cz - AVG', 'EEG')).toBe('#475569')
     expect(getChannelColor('EOG1', 'EOG')).toBe('#047857')
+  })
+
+  it('encuentra el canal contralateral preservando el sufijo del montaje', () => {
+    expect(getContralateralChannelName('C3 - AVG', ['C4 - AVG', 'C3 - AVG'])).toBe('C4 - AVG')
+    expect(getContralateralChannelName('Fp2 - AVG', ['Fp1 - AVG', 'Fp2 - AVG'])).toBe('Fp1 - AVG')
+    expect(getContralateralChannelName('Cz - AVG', ['C3 - AVG', 'C4 - AVG', 'Cz - AVG'])).toBeNull()
   })
 
   it('aplica montaje promedio restando la media instantánea a cada canal y preserva el orden', () => {

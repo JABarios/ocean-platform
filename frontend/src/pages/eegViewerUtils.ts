@@ -99,8 +99,13 @@ export interface TriggerEvent {
 }
 
 export interface TriggeredAverageResult {
-  averagedEpoch: EpochData
+  averagedEpoch: EpochData | null
   events: TriggerEvent[]
+  rawEventCount: number
+  excludedArtifactCount: number
+  cleanArtifactCount: number
+  suspectArtifactCount: number
+  rejectedArtifactCount: number
   windowSamples: number
   preSamples: number
   postSamples: number
@@ -163,6 +168,54 @@ export function getChannelColor(name: string, type: string): string {
   const num = parseInt(match[1], 10)
   if (Number.isNaN(num)) return CHANNEL_COLORS[type] ?? DEFAULT_COLOR
   return num % 2 === 1 ? LEFT_CHANNEL_COLOR : RIGHT_CHANNEL_COLOR
+}
+
+function getContralateralLeadName(lead: string): string | null {
+  const trimmed = lead.trim()
+  if (!trimmed || /Z$/i.test(trimmed)) return null
+
+  const aliases: Record<string, string> = {
+    T3: 'T4',
+    T4: 'T3',
+    T5: 'T6',
+    T6: 'T5',
+    T7: 'T8',
+    T8: 'T7',
+    P7: 'P8',
+    P8: 'P7',
+  }
+  const upper = trimmed.toUpperCase()
+  if (aliases[upper]) return aliases[upper]
+
+  const match = trimmed.match(/^(.*?)(\d+)([A-Za-z]*)$/)
+  if (!match) return null
+
+  const [, prefix, digits, suffix] = match
+  const num = Number.parseInt(digits, 10)
+  if (!Number.isFinite(num) || num <= 0) return null
+  const paired = num % 2 === 1 ? num + 1 : num - 1
+  return `${prefix}${paired}${suffix}`
+}
+
+export function getContralateralChannelName(
+  selectedChannelName: string,
+  availableChannelNames: string[],
+): string | null {
+  const [leadPart, ...suffixParts] = selectedChannelName.split(' - ')
+  const counterpartLead = getContralateralLeadName(leadPart ?? selectedChannelName)
+  if (!counterpartLead) return null
+
+  const suffix = suffixParts.length > 0 ? ` - ${suffixParts.join(' - ')}` : ''
+  const exact = `${counterpartLead}${suffix}`
+  if (availableChannelNames.includes(exact)) return exact
+
+  const canonicalCounterpart = canonicalizeChannelName(counterpartLead)
+  const exactByCanonical = availableChannelNames.find((name) => {
+    const [candidateLead, ...candidateSuffixParts] = name.split(' - ')
+    const candidateSuffix = candidateSuffixParts.length > 0 ? ` - ${candidateSuffixParts.join(' - ')}` : ''
+    return candidateSuffix === suffix && canonicalizeChannelName(candidateLead) === canonicalCounterpart
+  })
+  return exactByCanonical ?? null
 }
 
 export function getRecordsPerPage(windowSecs: number, recordDurationSec: number): number {
@@ -448,17 +501,40 @@ export function computeTriggeredAverage(
   const preSamples = Math.max(0, Math.round(Math.max(0, options.preSec) * epoch.sfreq))
   const postSamples = Math.max(1, Math.round(Math.max(0, options.postSec) * epoch.sfreq))
   const windowSamples = preSamples + postSamples + 1
+  let excludedArtifactCount = 0
+  let cleanArtifactCount = 0
+  let suspectArtifactCount = 0
+  let rejectedArtifactCount = 0
   const validEvents = rawEvents.filter((event) => {
     if (event.sampleIndex < preSamples || event.sampleIndex + postSamples >= epoch.nSamples) return false
     if (!options.excludeArtifactEvents || !options.artifactStatuses || !options.artifactEpochSec || options.artifactEpochSec <= 0) {
+      cleanArtifactCount += 1
       return true
     }
     const absoluteOnsetSec = (options.recordStartSec ?? 0) + event.onsetSec
     const artifactIndex = Math.floor(absoluteOnsetSec / options.artifactEpochSec)
     const artifactStatus = options.artifactStatuses[artifactIndex] ?? 0
-    return artifactStatus === 0
+    if (artifactStatus === 0) cleanArtifactCount += 1
+    else if (artifactStatus === 1) suspectArtifactCount += 1
+    else if (artifactStatus === 2) rejectedArtifactCount += 1
+    const shouldExclude = artifactStatus === 2
+    if (shouldExclude) excludedArtifactCount += 1
+    return !shouldExclude
   })
-  if (validEvents.length === 0) return null
+  if (validEvents.length === 0) {
+    return {
+      averagedEpoch: null,
+      events: [],
+      rawEventCount: rawEvents.length,
+      excludedArtifactCount,
+      cleanArtifactCount,
+      suspectArtifactCount,
+      rejectedArtifactCount,
+      windowSamples,
+      preSamples,
+      postSamples,
+    }
+  }
 
   const averageSourceData = epoch.data.map((channelData) =>
     filterSignalForAverage(channelData, epoch.sfreq, options),
@@ -487,6 +563,11 @@ export function computeTriggeredAverage(
       data: averagedData,
     },
     events: validEvents,
+    rawEventCount: rawEvents.length,
+    excludedArtifactCount,
+    cleanArtifactCount,
+    suspectArtifactCount,
+    rejectedArtifactCount,
     windowSamples,
     preSamples,
     postSamples,

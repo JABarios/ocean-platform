@@ -1274,4 +1274,93 @@ describe('EEG viewer utils', () => {
     expect(result?.rawEventCount).toBe(0)
     expect(result?.events.length).toBe(0)
   })
+
+  it('filtra eventos fuera de contexto N2 cuando el gate está activo', () => {
+    const epoch = makeEpoch({
+      Trigger: [0, 0, 5, 0, 0, 0, 0, 5, 0, 0],
+      C3: [0, 0, 5, 0, 0, 0, 0, 5, 0, 0],
+    })
+    epoch.sfreq = 2
+    epoch.nSamples = 10
+
+    const result = computeTriggeredAverage(epoch, {
+      triggerChannelName: 'Trigger',
+      threshold: 4,
+      preSec: 0.5,
+      postSec: 0.5,
+      detectionMode: 'event',
+      hp: 0,
+      lp: 0,
+      notch: 0,
+      triggerSmoothPoints: 1,
+      triggerDerivativeAfterSmooth: false,
+      averageHp: 0,
+      averageLp: 0,
+      averageNotch: 0,
+      rectifyTrigger: false,
+      rectifyAverage: false,
+      refractorySec: 0.25,
+      burstRearmFraction: 0.1,
+      spindleSigmaLow: 11,
+      spindleSigmaHigh: 16,
+      spindleBroadLow: 1,
+      spindleBroadHigh: 30,
+      spindleAmplitudeStdMultiplier: 1,
+      spindleMinSec: 0.5,
+      spindleMaxSec: 2,
+      useN2ContextGate: true,
+      n2ContextStatuses: [true, false, true],
+      n2ContextEpochSec: 2,
+      recordStartSec: 0,
+    })
+
+    expect(result?.excludedContextCount).toBe(1)
+    expect(result?.rawEventCount).toBe(1)
+    expect(result?.events).toHaveLength(1)
+    expect(result?.events[0]?.sampleIndex).toBe(2)
+  })
+
+  it('ignora el gate N2 cuando está apagado', () => {
+    const epoch = makeEpoch({
+      Trigger: [0, 0, 5, 0, 0, 0, 0, 5, 0, 0],
+      C3: [0, 0, 5, 0, 0, 0, 0, 5, 0, 0],
+    })
+    epoch.sfreq = 2
+    epoch.nSamples = 10
+
+    const result = computeTriggeredAverage(epoch, {
+      triggerChannelName: 'Trigger',
+      threshold: 4,
+      preSec: 0.5,
+      postSec: 0.5,
+      detectionMode: 'event',
+      hp: 0,
+      lp: 0,
+      notch: 0,
+      triggerSmoothPoints: 1,
+      triggerDerivativeAfterSmooth: false,
+      averageHp: 0,
+      averageLp: 0,
+      averageNotch: 0,
+      rectifyTrigger: false,
+      rectifyAverage: false,
+      refractorySec: 0.25,
+      burstRearmFraction: 0.1,
+      spindleSigmaLow: 11,
+      spindleSigmaHigh: 16,
+      spindleBroadLow: 1,
+      spindleBroadHigh: 30,
+      spindleAmplitudeStdMultiplier: 1,
+      spindleMinSec: 0.5,
+      spindleMaxSec: 2,
+      useN2ContextGate: false,
+      n2ContextStatuses: [false, false, false],
+      n2ContextEpochSec: 2,
+      recordStartSec: 0,
+    })
+
+    expect(result?.excludedContextCount).toBe(0)
+    expect(result?.rawEventCount).toBe(2)
+    expect(result?.events).toHaveLength(2)
+  })
 })

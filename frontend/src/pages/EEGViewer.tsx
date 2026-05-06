@@ -61,6 +61,9 @@ interface KappaInstance {
     channelName: string
     normPow: Float32Array[]
     stages: number[]
+    stageDeltaPct?: Float32Array
+    stageThetaPct?: Float32Array
+    stagePeakHz?: Float32Array
     nEpochs: number
     nFreqs: number
     freqMin: number
@@ -71,6 +74,29 @@ interface KappaInstance {
   computeArtifactMask: () => {
     artifactEpochSec: number
     artifactStatuses: number[]
+  } | null
+  computeSpindleContextForChannel: (channelIndex: number, offsetRecords: number, nRecords: number) => {
+    channelName: string
+    nSamples: number
+    sampleRate: number
+    score: number
+    isNremLike: boolean
+  } | null
+  computeSleepSketchTimeline: () => {
+    epochSec: number
+    relDelta: Float32Array
+    relTheta: Float32Array
+    relAlpha: Float32Array
+    relSigma: Float32Array
+    relBeta: Float32Array
+    peakHz: Float32Array
+    fmd4to12: Float32Array
+    thetaAlphaRatio: Float32Array
+    deltaAlphaRatio: Float32Array
+    posteriorAlpha: Float32Array
+    frontCentralDelta: Float32Array
+    labels: number[]
+    confidence: Float32Array
   } | null
 }
 
@@ -185,6 +211,9 @@ interface DSAData {
   channelName: string
   normPow: Float32Array[]
   stages: number[]
+  stageDeltaPct?: Float32Array
+  stageThetaPct?: Float32Array
+  stagePeakHz?: Float32Array
   nEpochs: number
   nFreqs: number
   freqMin: number
@@ -196,6 +225,31 @@ interface DSAData {
 interface ArtifactMaskData {
   artifactEpochSec: number
   artifactStatuses: number[]
+}
+
+interface N2ContextData {
+  contextEpochSec: number
+  channelIndex: number
+  channelName: string
+  statuses: boolean[]
+  scores: number[]
+}
+
+interface SleepSketchTimelineData {
+  epochSec: number
+  relDelta: Float32Array
+  relTheta: Float32Array
+  relAlpha: Float32Array
+  relSigma: Float32Array
+  relBeta: Float32Array
+  peakHz: Float32Array
+  fmd4to12: Float32Array
+  thetaAlphaRatio: Float32Array
+  deltaAlphaRatio: Float32Array
+  posteriorAlpha: Float32Array
+  frontCentralDelta: Float32Array
+  labels: number[]
+  confidence: Float32Array
 }
 
 interface PersistedTriggerAverageSettings {
@@ -222,6 +276,7 @@ interface PersistedTriggerAverageSettings {
   averageGainMult: number
   triggerRectifyAverage: boolean
   excludeArtifactEvents: boolean
+  useN2ContextGate: boolean
   triggerThresholdStep: number
   triggerAverageScope: 'page' | 'record'
   triggerPreSec: number
@@ -252,6 +307,8 @@ interface TriggerOverlayData {
   eventOnsetsSec: number[]
 }
 
+const N2_CONTEXT_WINDOW_SEC = 4
+
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
 
 function zscoreNormalize(data: Float32Array): Float32Array {
@@ -265,6 +322,42 @@ function zscoreNormalize(data: Float32Array): Float32Array {
   const out = new Float32Array(n)
   for (let i = 0; i < n; i++) out[i] = (data[i] - mean) / std
   return out
+}
+
+function canonicalizeRawChannelLabel(name: string): string {
+  const trimmed = name.trim()
+  if (!trimmed) return ''
+  let canonical = trimmed
+    .replace(/^EEG[\s:_-]*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const aliases: Record<string, string> = {
+    T7: 'T3',
+    T8: 'T4',
+    P7: 'T5',
+    P8: 'T6',
+  }
+  return aliases[canonical.toUpperCase()] ?? canonical
+}
+
+function resolveTriggerSourceChannelIndex(triggerChannelName: string, channelLabels: string[]): number {
+  if (!triggerChannelName || channelLabels.length === 0) return -1
+  const leadName = triggerChannelName.split(' - ')[0]?.trim() ?? triggerChannelName.trim()
+  const canonicalLead = canonicalizeRawChannelLabel(leadName)
+  return channelLabels.findIndex((label) => canonicalizeRawChannelLabel(label) === canonicalLead)
+}
+
+function summarizeScores(scores: number[]): { min: number; max: number; mean: number } | null {
+  if (scores.length === 0) return null
+  let min = scores[0] ?? 0
+  let max = min
+  let sum = 0
+  for (const score of scores) {
+    min = Math.min(min, score)
+    max = Math.max(max, score)
+    sum += score
+  }
+  return { min, max, mean: sum / scores.length }
 }
 
 function fmtTimeGrid(sec: number): string {
@@ -311,6 +404,22 @@ function artifactColor(status: number): string {
   if (status === 2) return '#ef4444'
   if (status === 1) return '#f59e0b'
   return '#22c55e'
+}
+
+function sleepSketchLabelColor(label: number): string {
+  if (label === 3) return '#2563eb' // N3-like
+  if (label === 2) return '#22c55e' // N2-like
+  if (label === 1) return '#f59e0b' // N1-like
+  if (label === 0) return '#ffffff' // Wake-like
+  return '#cbd5e1' // Unknown
+}
+
+function fmdHeatColor(t: number): string {
+  const clamped = Math.max(0, Math.min(1, t))
+  const r = Math.round(220 + (37 - 220) * clamped)
+  const g = Math.round(38 + (99 - 38) * clamped)
+  const b = Math.round(38 + (235 - 38) * clamped)
+  return `rgb(${r}, ${g}, ${b})`
 }
 
 // ─── Canvas helpers ───────────────────────────────────────────────────────────
@@ -365,6 +474,9 @@ function drawEpoch(
   selectedViewerAnnotationId?: string | null,
   selectedChannelName?: string | null,
   triggerOverlay?: TriggerOverlayData | null,
+  artifactStatuses?: number[],
+  artifactEpochSec?: number,
+  showArtifactReviewOverlay?: boolean,
 ): number {                // returns chanH used
   canvas.width  = canvas.offsetWidth || 1200
   const chanH   = Math.max(MIN_CHAN_H, Math.floor(containerH / Math.max(epoch.nChannels, 1)))
@@ -445,6 +557,28 @@ function drawEpoch(
       if (x <= LABEL_WIDTH + 1 || x >= W - 1) continue
       ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke()
       if (x - prevLblX >= MIN_LBL) { ctx.fillText(fmtTimeGrid(t), x, 3); prevLblX = x }
+    }
+    ctx.restore()
+  }
+
+  if (showArtifactReviewOverlay && artifactStatuses && artifactStatuses.length > 0 && artifactEpochSec && artifactEpochSec > 0) {
+    const pageEnd = tStart + pageDuration
+    ctx.save()
+    for (let ep = 0; ep < artifactStatuses.length; ep++) {
+      const status = artifactStatuses[ep] ?? 0
+      if (status === 0) continue
+      const segStart = ep * artifactEpochSec
+      const segEnd = segStart + artifactEpochSec
+      const visStart = Math.max(tStart, segStart)
+      const visEnd = Math.min(pageEnd, segEnd)
+      if (visEnd <= visStart) continue
+      const x1 = LABEL_WIDTH + ((visStart - tStart) / pageDuration) * waveW
+      const x2 = LABEL_WIDTH + ((visEnd - tStart) / pageDuration) * waveW
+      ctx.fillStyle = status === 2 ? 'rgba(220, 38, 38, 0.16)' : 'rgba(245, 158, 11, 0.14)'
+      for (const row of rowInfo) {
+        if ((row.type ?? 'EEG') !== 'EEG') continue
+        ctx.fillRect(x1, row.y0, Math.max(1, x2 - x1), chanH)
+      }
     }
     ctx.restore()
   }
@@ -780,9 +914,11 @@ function NumericSuggestInput({
 
 function DSAHeatmap({
   data,
+  sleepSketchData,
   artifactEnabled,
   loading,
   error,
+  expanded,
   currentStartSec,
   currentEndSec,
   viewerAnnotations,
@@ -790,11 +926,14 @@ function DSAHeatmap({
   onEpochClick,
   onArtifactEpochClick,
   onViewerAnnotationSelect,
+  onToggleExpand,
 }: {
   data: DSAData | null
+  sleepSketchData?: SleepSketchTimelineData | null
   artifactEnabled: boolean
   loading: boolean
   error: string
+  expanded?: boolean
   currentStartSec: number
   currentEndSec: number
   viewerAnnotations?: ViewerAnnotation[]
@@ -802,6 +941,7 @@ function DSAHeatmap({
   onEpochClick: (epochIndex: number) => void
   onArtifactEpochClick: (epochIndex: number) => void
   onViewerAnnotationSelect?: (annotationId: string) => void
+  onToggleExpand?: () => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -812,7 +952,11 @@ function DSAHeatmap({
     if (!canvas || !wrap) return
 
     const width = wrap.clientWidth || 1200
-    const height = 178
+    const metricRows = 7
+    const metricH = expanded ? 24 : 15
+    const metricGap = expanded ? 5 : 3
+    const metricBlockH = metricRows * metricH + (metricRows - 1) * metricGap
+    const height = (expanded ? 320 : 196) + metricBlockH + 10
     canvas.width = width
     canvas.height = height
 
@@ -824,7 +968,7 @@ function DSAHeatmap({
 
     if (!data) {
       ctx.fillStyle = '#64748b'
-      ctx.font = '12px monospace'
+      ctx.font = expanded ? '14px monospace' : '12px monospace'
       ctx.fillText(loading ? 'Calculando DSA…' : (error || 'DSA desactivado'), 12, 26)
       return
     }
@@ -837,7 +981,7 @@ function DSAHeatmap({
     const plotX = freqW
     const plotY = triggerAnnH + artifactH + stageH
     const plotW = Math.max(1, width - freqW - 2)
-    const plotH = Math.max(1, height - triggerAnnH - artifactH - stageH - axisH - 2)
+    const plotH = Math.max(1, height - triggerAnnH - artifactH - stageH - metricBlockH - axisH - 12)
 
     if (triggerAnnH > 0 && viewerAnnotations) {
       const totalSec = data.nEpochs * data.epochSec
@@ -851,7 +995,7 @@ function DSAHeatmap({
       ctx.strokeStyle = '#111827'
       ctx.strokeRect(plotX, 0, plotW, triggerAnnH)
       ctx.fillStyle = '#a21caf'
-      ctx.font = 'bold 9px monospace'
+      ctx.font = expanded ? 'bold 11px monospace' : 'bold 9px monospace'
       ctx.fillText('Trig', 2, triggerAnnH - 2)
     }
 
@@ -865,14 +1009,17 @@ function DSAHeatmap({
       ctx.strokeStyle = '#111827'
       ctx.strokeRect(plotX, triggerAnnH, plotW, artifactH)
       ctx.fillStyle = '#64748b'
-      ctx.font = '9px monospace'
+      ctx.font = expanded ? '11px monospace' : '9px monospace'
       ctx.fillText('Artef.', 2, triggerAnnH + artifactH - 3)
     }
 
+    const stageSource = sleepSketchData?.labels?.length === data.nEpochs ? sleepSketchData.labels : data.stages
     for (let ep = 0; ep < data.nEpochs; ep++) {
       const x1 = plotX + Math.floor((ep * plotW) / data.nEpochs)
       const x2 = plotX + Math.floor(((ep + 1) * plotW) / data.nEpochs)
-      ctx.fillStyle = stageColor(data.stages[ep] ?? 0)
+      ctx.fillStyle = sleepSketchData?.labels?.length === data.nEpochs
+        ? sleepSketchLabelColor(stageSource[ep] ?? 4)
+        : stageColor(stageSource[ep] ?? 0)
       ctx.fillRect(x1, triggerAnnH + artifactH, Math.max(1, x2 - x1), stageH)
     }
     ctx.strokeStyle = '#111827'
@@ -910,7 +1057,7 @@ function DSAHeatmap({
     const ticks = [1, 4, 8, 13, 20, 30]
     ctx.fillStyle = '#475569'
     ctx.strokeStyle = '#111827'
-    ctx.font = '9px monospace'
+    ctx.font = expanded ? '11px monospace' : '9px monospace'
     for (const tick of ticks) {
       if (tick < data.freqMin || tick > data.freqMax) continue
       const y = plotY + plotH - ((tick - data.freqMin) / Math.max(1e-9, data.freqMax - data.freqMin)) * plotH
@@ -921,9 +1068,100 @@ function DSAHeatmap({
       ctx.fillText(String(tick), 2, y + 3)
     }
 
+    const metricTop = plotY + plotH + 4
+    const metricDefs = [
+      { label: 'δ', values: sleepSketchData?.relDelta, stroke: '#16a34a', fill: 'rgba(22,163,74,0.08)', kind: 'trace' as const },
+      { label: 'θ', values: sleepSketchData?.relTheta, stroke: '#d97706', fill: 'rgba(217,119,6,0.08)', kind: 'trace' as const },
+      { label: 'α', values: sleepSketchData?.relAlpha, stroke: '#7c3aed', fill: 'rgba(124,58,237,0.08)', kind: 'trace' as const },
+      { label: 'σ', values: sleepSketchData?.relSigma, stroke: '#0f766e', fill: 'rgba(15,118,110,0.08)', kind: 'trace' as const },
+      { label: 'β', values: sleepSketchData?.relBeta, stroke: '#dc2626', fill: 'rgba(220,38,38,0.08)', kind: 'trace' as const },
+      { label: 'F4-12', values: sleepSketchData?.fmd4to12, stroke: '#475569', fill: 'rgba(71,85,105,0.08)', kind: 'heat' as const },
+      { label: 'Hyp', values: stageSource, stroke: '#64748b', fill: 'rgba(100,116,139,0.08)', kind: 'stage' as const },
+    ]
+
+    metricDefs.forEach((metric, rowIndex) => {
+      const y = metricTop + rowIndex * (metricH + metricGap)
+      ctx.fillStyle = metric.fill
+      ctx.fillRect(plotX, y, plotW, metricH)
+      if (metric.kind === 'stage') {
+        for (let ep = 0; ep < data.nEpochs; ep++) {
+          const x1 = plotX + Math.floor((ep * plotW) / data.nEpochs)
+          const x2 = plotX + Math.floor(((ep + 1) * plotW) / data.nEpochs)
+          ctx.fillStyle = sleepSketchData?.labels?.length === data.nEpochs
+            ? sleepSketchLabelColor((metric.values[ep] ?? 4) as number)
+            : stageColor((metric.values[ep] ?? 0) as number)
+          ctx.fillRect(x1, y, Math.max(1, x2 - x1), metricH)
+        }
+      } else if (metric.kind === 'heat') {
+        const rawValues = (metric.values ?? []) as ArrayLike<number>
+        const finiteValues = Array.from(rawValues).filter((value) => Number.isFinite(value)).sort((a, b) => a - b)
+        const p10 = finiteValues.length > 0 ? finiteValues[Math.floor((finiteValues.length - 1) * 0.1)] : 4
+        const p90 = finiteValues.length > 0 ? finiteValues[Math.floor((finiteValues.length - 1) * 0.9)] : 12
+        const lo = Math.min(p10, p90 - 1e-6)
+        const hi = Math.max(p90, lo + 1e-6)
+        for (let ep = 0; ep < data.nEpochs; ep++) {
+          const x1 = plotX + Math.floor((ep * plotW) / data.nEpochs)
+          const x2 = plotX + Math.floor(((ep + 1) * plotW) / data.nEpochs)
+          const raw = (metric.values?.[ep] ?? 0) as number
+          const t = Math.max(0, Math.min(1, (raw - lo) / (hi - lo)))
+          ctx.fillStyle = fmdHeatColor(t)
+          ctx.fillRect(x1, y, Math.max(1, x2 - x1), metricH)
+        }
+        ctx.fillStyle = '#334155'
+        ctx.font = expanded ? '10px monospace' : '8px monospace'
+        ctx.fillText(`${lo.toFixed(1)}-${hi.toFixed(1)} Hz`, plotX + plotW - 82, y + metricH - 2)
+      } else {
+        const finiteValues = (metric.values ?? []).filter((value) => Number.isFinite(value)) as number[]
+        let localMin = finiteValues.length > 0 ? Math.min(...finiteValues) : 0
+        let localMax = finiteValues.length > 0 ? Math.max(...finiteValues) : 1
+        if (localMax - localMin < 1e-6) {
+          const pad = Math.max(0.05, Math.abs(localMax) * 0.1 || 0.1)
+          localMin -= pad
+          localMax += pad
+        } else {
+          const pad = (localMax - localMin) * 0.08
+          localMin -= pad
+          localMax += pad
+        }
+        const localMid = localMin + (localMax - localMin) * 0.5
+        const midT = Math.max(0, Math.min(1, (localMid - localMin) / Math.max(1e-9, localMax - localMin)))
+        const midY = y + metricH - 1 - midT * Math.max(1, metricH - 2)
+        ctx.strokeStyle = 'rgba(15,23,42,0.18)'
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        ctx.moveTo(plotX, midY)
+        ctx.lineTo(plotX + plotW, midY)
+        ctx.stroke()
+        ctx.strokeStyle = metric.stroke
+        ctx.lineWidth = 1.5
+        ctx.beginPath()
+        for (let ep = 0; ep < data.nEpochs; ep++) {
+          const raw = (metric.values?.[ep] ?? 0) as number
+          const t = Math.max(0, Math.min(1, (raw - localMin) / Math.max(1e-9, localMax - localMin)))
+          const x = plotX + ((ep + 0.5) / Math.max(data.nEpochs, 1)) * plotW
+          const yy = y + metricH - 1 - t * Math.max(1, metricH - 2)
+          if (ep === 0) ctx.moveTo(x, yy)
+          else ctx.lineTo(x, yy)
+        }
+        ctx.stroke()
+        ctx.fillStyle = '#334155'
+        ctx.font = expanded ? '10px monospace' : '8px monospace'
+        ctx.fillText(`${localMin.toFixed(2)}-${localMax.toFixed(2)}`, plotX + plotW - 66, y + metricH - 2)
+      }
+      ctx.strokeStyle = '#111827'
+      ctx.strokeRect(plotX, y, plotW, metricH)
+      ctx.fillStyle = '#64748b'
+      ctx.font = expanded ? '11px monospace' : '9px monospace'
+      ctx.fillText(metric.label, 4, y + metricH - 2)
+      ctx.fillStyle = 'rgba(255,255,255,0.2)'
+      ctx.fillRect(currentX1, y, currentW, metricH)
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)'
+      ctx.strokeRect(currentX1, y, currentW, metricH)
+    })
+
     const totalSec = data.nEpochs * data.epochSec
     const tickEvery = Math.max(1, Math.ceil(70 / Math.max(1, plotW / data.nEpochs)))
-    const timeY = plotY + plotH
+    const timeY = metricTop + metricBlockH + 4
     ctx.fillStyle = '#e5e7eb'
     ctx.fillRect(plotX, timeY, plotW, axisH)
     ctx.strokeStyle = '#111827'
@@ -945,9 +1183,9 @@ function DSAHeatmap({
     }
 
     ctx.fillStyle = '#64748b'
-    ctx.font = '11px monospace'
+    ctx.font = expanded ? '13px monospace' : '11px monospace'
     ctx.fillText(`${data.channelName} · ${Math.round(totalSec / 60)} min`, plotX + 6, height - 4)
-  }, [artifactEnabled, currentEndSec, currentStartSec, data, error, loading, selectedViewerAnnotationId, viewerAnnotations])
+  }, [artifactEnabled, currentEndSec, currentStartSec, data, error, expanded, loading, selectedViewerAnnotationId, viewerAnnotations])
 
   useEffect(() => {
     redraw()
@@ -1004,12 +1242,34 @@ function DSAHeatmap({
       ref={wrapRef}
       style={{
         flexShrink: 0,
-        height: 178,
+        height: expanded ? 480 : 230,
         background: '#ffffff',
-        borderTop: '1px solid #e2e8f0',
-        padding: '0.35rem 0.5rem 0.4rem 0.5rem',
+        borderTop: expanded ? 'none' : '1px solid #e2e8f0',
+        padding: expanded ? '0.7rem 0.8rem 0.8rem 0.8rem' : '0.35rem 0.5rem 0.4rem 0.5rem',
+        position: 'relative',
       }}
     >
+      {onToggleExpand && (
+        <button
+          type="button"
+          onClick={onToggleExpand}
+          style={{
+            position: 'absolute',
+            top: expanded ? 10 : 8,
+            right: expanded ? 12 : 8,
+            zIndex: 2,
+            border: '1px solid #cbd5e1',
+            background: 'rgba(255,255,255,0.92)',
+            color: '#0f172a',
+            borderRadius: 6,
+            padding: expanded ? '0.35rem 0.55rem' : '0.2rem 0.45rem',
+            fontSize: expanded ? '0.8rem' : '0.72rem',
+            cursor: 'pointer',
+          }}
+        >
+          {expanded ? 'Cerrar DSA' : 'Ampliar DSA'}
+        </button>
+      )}
       <canvas
         ref={canvasRef}
         onClick={handleClick}
@@ -1568,10 +1828,16 @@ function TriggerAverageModal({
   triggerRectify,
   rectifyAverage,
   excludeArtifactEvents,
+  useN2ContextGate,
   artifactEventsAvailable,
   artifactMaskLoading,
+  n2ContextLoading,
   artifactStatuses,
   artifactEpochSec,
+  n2ContextEnabled,
+  n2ContextStatuses,
+  n2ContextScores,
+  n2ContextEpochSec,
   eventSampleIndexes,
   previewEventCount,
   viewerAnnotationsCount,
@@ -1597,6 +1863,7 @@ function TriggerAverageModal({
   onTriggerRectifyChange,
   onRectifyAverageChange,
   onExcludeArtifactEventsChange,
+  onUseN2ContextGateChange,
   onAverageScopeChange,
   onThresholdChange,
   onThresholdNudge,
@@ -1642,10 +1909,16 @@ function TriggerAverageModal({
   triggerRectify: boolean
   rectifyAverage: boolean
   excludeArtifactEvents: boolean
+  useN2ContextGate: boolean
   artifactEventsAvailable: boolean
   artifactMaskLoading: boolean
+  n2ContextLoading: boolean
   artifactStatuses?: number[]
   artifactEpochSec?: number
+  n2ContextEnabled: boolean
+  n2ContextStatuses?: boolean[]
+  n2ContextScores?: number[]
+  n2ContextEpochSec?: number
   eventSampleIndexes: number[]
   previewEventCount: number
   viewerAnnotationsCount: number
@@ -1671,6 +1944,7 @@ function TriggerAverageModal({
   onTriggerRectifyChange: () => void
   onRectifyAverageChange: () => void
   onExcludeArtifactEventsChange: () => void
+  onUseN2ContextGateChange: () => void
   onAverageScopeChange: (value: 'page' | 'record') => void
   onThresholdChange: (value: number) => void
   onThresholdNudge: (delta: number) => void
@@ -1696,6 +1970,7 @@ function TriggerAverageModal({
   const preSamples = result?.preSamples ?? 0
   const eventCount = result?.events.length ?? 0
   const rawEventCount = result?.rawEventCount ?? 0
+  const excludedContextCount = result?.excludedContextCount ?? 0
   const excludedArtifactCount = result?.excludedArtifactCount ?? 0
   const cleanArtifactCount = result?.cleanArtifactCount ?? 0
   const suspectArtifactCount = result?.suspectArtifactCount ?? 0
@@ -1727,6 +2002,36 @@ function TriggerAverageModal({
       states,
     }
   }, [artifactEpochSec, artifactStatuses, currentEndSec, currentStartSec])
+  const pageN2Summary = useMemo(() => {
+    if (!n2ContextEnabled || !n2ContextStatuses?.length || !n2ContextEpochSec || n2ContextEpochSec <= 0) return null
+    const startEpochIndex = Math.max(0, Math.floor(currentStartSec / n2ContextEpochSec))
+    const endEpochIndex = Math.min(
+      n2ContextStatuses.length - 1,
+      Math.max(startEpochIndex, Math.floor(Math.max(currentStartSec, currentEndSec - 1e-9) / n2ContextEpochSec)),
+    )
+    let accepted = 0
+    let rejected = 0
+    const states: string[] = []
+    const scores: number[] = []
+    for (let epochIndex = startEpochIndex; epochIndex <= endEpochIndex; epochIndex++) {
+      const ok = !!n2ContextStatuses[epochIndex]
+      const score = n2ContextScores?.[epochIndex] ?? 0
+      if (ok) accepted += 1
+      else rejected += 1
+      scores.push(score)
+      states.push(`${epochIndex}:${ok ? 1 : 0}@${score.toFixed(2)}`)
+    }
+    return { startEpochIndex, endEpochIndex, accepted, rejected, states, scoreSummary: summarizeScores(scores) }
+  }, [currentEndSec, currentStartSec, n2ContextEnabled, n2ContextEpochSec, n2ContextStatuses, n2ContextScores])
+  const totalN2Accepted = useMemo(
+    () => (n2ContextStatuses ?? []).filter(Boolean).length,
+    [n2ContextStatuses],
+  )
+  const totalN2Rejected = Math.max(0, (n2ContextStatuses?.length ?? 0) - totalN2Accepted)
+  const totalN2ScoreSummary = useMemo(
+    () => summarizeScores(n2ContextScores ?? []),
+    [n2ContextScores],
+  )
   const { scales } = useMemo(
     () => averagedEpoch ? computeScales(averagedEpoch, averageGainMult, false, {}) : { scales: [] as { p2: number; p98: number }[], refRange: 1 },
     [averageGainMult, averagedEpoch],
@@ -2054,16 +2359,41 @@ function TriggerAverageModal({
             Trigger: {triggerChannelName || 'sin canal'} · {averageScope === 'record' ? `Página: ${previewEventCount} eventos · Promedio registro: N=${eventCount}` : `Promedio página: N=${eventCount}`} · Rectif trigger: {triggerRectify ? 'sí' : 'no'} · Rectif promedio: {rectifyAverage ? 'sí' : 'no'}
           </div>
           <div style={{ color: '#64748b', fontSize: '0.76rem' }}>
-            Detectados: {rawEventCount} · Excluidos por artefacto: {excludedArtifactCount} · Usados: {eventCount}
+            Detectados: {rawEventCount} · Excluidos por contexto: {excludedContextCount} · Excluidos por artefacto: {excludedArtifactCount} · Usados: {eventCount}
           </div>
           <div style={{ color: '#64748b', fontSize: '0.74rem' }}>
             Limpios: {cleanArtifactCount} · Suspect: {suspectArtifactCount} · Rejected: {rejectedArtifactCount}
           </div>
+          {n2ContextEnabled && (
+            <div style={{ color: '#64748b', fontSize: '0.74rem' }}>
+              Contexto N2 {pageN2Summary
+                ? `· página ctx ${pageN2Summary.startEpochIndex}-${pageN2Summary.endEpochIndex} · N2 ${pageN2Summary.accepted} · fuera ${pageN2Summary.rejected} · registro N2 ${totalN2Accepted} · fuera ${totalN2Rejected}`
+                : n2ContextLoading
+                  ? '· calculando…'
+                  : '· sin máscara disponible'}
+            </div>
+          )}
+          {n2ContextEnabled && (
+            <div style={{ color: '#64748b', fontSize: '0.74rem' }}>
+              Score N2 {pageN2Summary?.scoreSummary
+                ? `· pág mean ${pageN2Summary.scoreSummary.mean.toFixed(2)} · min ${pageN2Summary.scoreSummary.min.toFixed(2)} · max ${pageN2Summary.scoreSummary.max.toFixed(2)}`
+                : n2ContextLoading
+                  ? '· calculando…'
+                  : '· —'}{totalN2ScoreSummary
+                ? ` · reg mean ${totalN2ScoreSummary.mean.toFixed(2)} · min ${totalN2ScoreSummary.min.toFixed(2)} · max ${totalN2ScoreSummary.max.toFixed(2)}`
+                : ''}
+            </div>
+          )}
           <div style={{ color: '#64748b', fontSize: '0.74rem' }}>
             Página {fmtTimeGrid(Math.max(0, currentStartSec))}-{fmtTimeGrid(Math.max(0, currentEndSec))} · {pageArtifactSummary
               ? `ép ${pageArtifactSummary.startEpochIndex}-${pageArtifactSummary.endEpochIndex} · limpias ${pageArtifactSummary.clean} · suspect ${pageArtifactSummary.suspect} · rejected ${pageArtifactSummary.rejected}`
               : 'sin máscara de artefactos disponible'}
           </div>
+          {n2ContextEnabled && pageN2Summary && (
+            <div style={{ color: '#94a3b8', fontSize: '0.71rem', fontFamily: 'monospace' }}>
+              ctx {pageN2Summary.states.join(' ')}
+            </div>
+          )}
           {pageArtifactSummary && (
             <div style={{ color: '#94a3b8', fontSize: '0.71rem', fontFamily: 'monospace' }}>
               {pageArtifactSummary.states.join(' ')}
@@ -2284,9 +2614,20 @@ function TriggerAverageModal({
                 <input type="checkbox" checked={excludeArtifactEvents} onChange={onExcludeArtifactEventsChange} disabled={!artifactEventsAvailable} />
                 Excluir eventos en artefacto
               </label>
+              {(triggerDetectionMode === 'spindle' || triggerDetectionMode === 'slow') && (
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem' }}>
+                  <input type="checkbox" checked={useN2ContextGate} onChange={onUseN2ContextGateChange} />
+                  Requerir contexto N2
+                </label>
+              )}
               {artifactMaskLoading && (
                 <div style={{ color: '#92400e', fontSize: '0.73rem' }}>
                   Preparando máscara de artefactos…
+                </div>
+              )}
+              {n2ContextLoading && (triggerDetectionMode === 'spindle' || triggerDetectionMode === 'slow') && useN2ContextGate && (
+                <div style={{ color: '#1d4ed8', fontSize: '0.73rem' }}>
+                  Calculando contexto N2…
                 </div>
               )}
             </div>
@@ -2677,7 +3018,7 @@ export default function EEGViewer() {
   const [selectedCursorTimeSec, setSelectedCursorTimeSec] = useState<number | null>(null)
   const [recordDurationSec, setRecordDurationSec] = useState(1)
   const [totalSeconds, setTotalSeconds] = useState(0)
-  const [meta,         setMeta]         = useState<{ recordingDate: string } | null>(null)
+  const [meta,         setMeta]         = useState<{ recordingDate: string; channelLabels: string[] } | null>(null)
   const [edfAnnotations, setEdfAnnotations] = useState<EmbeddedAnnotation[]>([])
   const [annotationsOpen, setAnnotationsOpen] = useState(false)
   const [caseHoverMeta, setCaseHoverMeta] = useState<{ blobHash?: string; cacheKey?: string; ageRange?: string; sizeBytes?: number; storedKeyAvailable?: boolean; encryptionMode?: string; label?: string } | null>(null)
@@ -2698,11 +3039,15 @@ export default function EEGViewer() {
   const [extrasMenuPos, setExtrasMenuPos] = useState<{ top: number; left: number } | null>(null)
   const [dsaChannel,      setDsaChannel]      = useState('off')
   const [artifactReject,  setArtifactReject]  = useState(false)
+  const [artifactReviewOverlay, setArtifactReviewOverlay] = useState(false)
   const [artifactMaskData, setArtifactMaskData] = useState<ArtifactMaskData | null>(null)
   const [artifactMaskLoading, setArtifactMaskLoading] = useState(false)
+  const [sleepSketchData, setSleepSketchData] = useState<SleepSketchTimelineData | null>(null)
+  const [sleepSketchLoading, setSleepSketchLoading] = useState(false)
   const [dsaData,         setDsaData]         = useState<DSAData | null>(null)
   const [dsaLoading,      setDsaLoading]      = useState(false)
   const [dsaError,        setDsaError]        = useState('')
+  const [dsaExpanded,     setDsaExpanded]     = useState(false)
   const [compactToolbar,  setCompactToolbar]  = useState(false)
   const [mobileControlsOpen, setMobileControlsOpen] = useState(false)
   const [localPickerError, setLocalPickerError] = useState('')
@@ -2733,6 +3078,7 @@ export default function EEGViewer() {
   const [averageGainMult, setAverageGainMult] = useState(1)
   const [triggerRectifyAverage, setTriggerRectifyAverage] = useState(false)
   const [excludeArtifactEvents, setExcludeArtifactEvents] = useState(true)
+  const [useN2ContextGate, setUseN2ContextGate] = useState(false)
   const [triggerThresholdStep, setTriggerThresholdStep] = useState(Math.round((TRIGGER_THRESHOLD_POSITIONS - 1) * 0.7))
   const [triggerAverageScope, setTriggerAverageScope] = useState<'page' | 'record'>('page')
   const [triggerPreSec, setTriggerPreSec] = useState(1)
@@ -2743,6 +3089,8 @@ export default function EEGViewer() {
   const [fullRecordTriggerAverageResult, setFullRecordTriggerAverageResult] = useState<TriggeredAverageResult | null>(null)
   const [fullRecordTriggerAverageLoading, setFullRecordTriggerAverageLoading] = useState(false)
   const [fullRecordTriggerAverageError, setFullRecordTriggerAverageError] = useState('')
+  const [n2ContextData, setN2ContextData] = useState<N2ContextData | null>(null)
+  const [n2ContextLoading, setN2ContextLoading] = useState(false)
   const [viewerAnnotations, setViewerAnnotations] = useState<ViewerAnnotation[]>([])
   const [selectedViewerAnnotationId, setSelectedViewerAnnotationId] = useState<string | null>(null)
   const [triggerAvgPresets, setTriggerAvgPresets] = useState<TriggerAveragePresetMap>({})
@@ -2758,6 +3106,8 @@ export default function EEGViewer() {
   const currentEdfPathRef = useRef<string | null>(null)
   const dsaCacheRef = useRef<Map<string, DSAData>>(new Map())
   const artifactMaskCacheRef = useRef<ArtifactMaskData | null>(null)
+  const sleepSketchCacheRef = useRef<SleepSketchTimelineData | null>(null)
+  const n2ContextCacheRef = useRef<Map<string, N2ContextData>>(new Map())
   const avgRefButtonRef = useRef<HTMLButtonElement>(null)
   const avgRefMenuRef = useRef<HTMLDivElement>(null)
   const extrasButtonRef = useRef<HTMLButtonElement>(null)
@@ -2824,6 +3174,7 @@ export default function EEGViewer() {
     averageGainMult,
     triggerRectifyAverage,
     excludeArtifactEvents,
+    useN2ContextGate,
     triggerThresholdStep,
     triggerAverageScope,
     triggerPreSec,
@@ -2853,6 +3204,7 @@ export default function EEGViewer() {
     averageGainMult,
     triggerRectifyAverage,
     excludeArtifactEvents,
+    useN2ContextGate,
     triggerThresholdStep,
     triggerAverageScope,
     triggerPreSec,
@@ -3028,6 +3380,7 @@ export default function EEGViewer() {
     setAverageGainMult(Number.isFinite(settings.averageGainMult) && settings.averageGainMult > 0 ? settings.averageGainMult : 1)
     setTriggerRectifyAverage(settings.triggerRectifyAverage)
     setExcludeArtifactEvents(settings.excludeArtifactEvents)
+    setUseN2ContextGate(!!settings.useN2ContextGate)
     setTriggerThresholdStep(Math.max(0, Math.min(TRIGGER_THRESHOLD_POSITIONS - 1, Math.round(settings.triggerThresholdStep))))
     setTriggerAverageScope(settings.triggerAverageScope)
     setTriggerPreSec(Math.max(0, settings.triggerPreSec))
@@ -3217,10 +3570,17 @@ export default function EEGViewer() {
     ? lockedRecordSpindleAdaptiveThreshold
     : previewSpindleAdaptiveThreshold
 
+  const triggerN2ContextEligible = useN2ContextGate
+    && (triggerDetectionMode === 'spindle' || triggerDetectionMode === 'slow')
   const triggerAverageWaitingForArtifacts = triggerAvgOpen && excludeArtifactEvents && artifactMaskLoading
+  const triggerAverageWaitingForN2Context = triggerAvgOpen && triggerN2ContextEligible && n2ContextLoading
+  const triggerAverageWaitingForPrerequisites = triggerAverageWaitingForArtifacts || triggerAverageWaitingForN2Context
+  const effectiveN2ContextGate = triggerN2ContextEligible
+    && !!n2ContextData?.statuses.length
+    && !!n2ContextData?.contextEpochSec
 
   const triggerAverageResult = useMemo(() => {
-    if (!triggerAvgOpen || !processedEpoch || !triggerChannelName || triggerAverageWaitingForArtifacts) return null
+    if (!triggerAvgOpen || !processedEpoch || !triggerChannelName || triggerAverageWaitingForPrerequisites) return null
     return computeTriggeredAverage(processedEpoch, {
       triggerChannelName,
       threshold: effectiveTriggerThresholdValue,
@@ -3250,6 +3610,9 @@ export default function EEGViewer() {
       excludeArtifactEvents,
       artifactStatuses: artifactMaskData?.artifactStatuses,
       artifactEpochSec: artifactMaskData?.artifactEpochSec,
+      useN2ContextGate: effectiveN2ContextGate,
+      n2ContextStatuses: n2ContextData?.statuses,
+      n2ContextEpochSec: n2ContextData?.contextEpochSec,
       recordStartSec: recordOffset,
     })
   }, [
@@ -3282,12 +3645,14 @@ export default function EEGViewer() {
     effectiveSpindleAdaptiveThreshold,
     excludeArtifactEvents,
     artifactMaskData,
+    effectiveN2ContextGate,
+    n2ContextData,
     recordOffset,
-    triggerAverageWaitingForArtifacts,
+    triggerAverageWaitingForPrerequisites,
   ])
 
   const scopeAlignedPageTriggerAverageResult = useMemo(() => {
-    if (!triggerAvgOpen || !processedEpoch || !triggerChannelName || triggerAverageWaitingForArtifacts) return null
+    if (!triggerAvgOpen || !processedEpoch || !triggerChannelName || triggerAverageWaitingForPrerequisites) return null
     return computeTriggeredAverage(processedEpoch, {
       triggerChannelName,
       threshold: effectiveTriggerThresholdValue,
@@ -3317,6 +3682,9 @@ export default function EEGViewer() {
       excludeArtifactEvents,
       artifactStatuses: artifactMaskData?.artifactStatuses,
       artifactEpochSec: artifactMaskData?.artifactEpochSec,
+      useN2ContextGate: effectiveN2ContextGate,
+      n2ContextStatuses: n2ContextData?.statuses,
+      n2ContextEpochSec: n2ContextData?.contextEpochSec,
       recordStartSec: recordOffset,
     })
   }, [
@@ -3349,8 +3717,10 @@ export default function EEGViewer() {
     effectiveSpindleAdaptiveThreshold,
     excludeArtifactEvents,
     artifactMaskData,
+    effectiveN2ContextGate,
+    n2ContextData,
     recordOffset,
-    triggerAverageWaitingForArtifacts,
+    triggerAverageWaitingForPrerequisites,
   ])
 
   useEffect(() => {
@@ -3364,6 +3734,12 @@ export default function EEGViewer() {
     if (triggerAverageWaitingForArtifacts) {
       setFullRecordTriggerAverageLoading(true)
       setFullRecordTriggerAverageError('Preparando máscara de artefactos…')
+      setFullRecordTriggerAverageResult(null)
+      return
+    }
+    if (triggerAverageWaitingForN2Context) {
+      setFullRecordTriggerAverageLoading(true)
+      setFullRecordTriggerAverageError('Calculando contexto N2…')
       setFullRecordTriggerAverageResult(null)
       return
     }
@@ -3423,6 +3799,9 @@ export default function EEGViewer() {
           excludeArtifactEvents,
           artifactStatuses: artifactMaskData?.artifactStatuses,
           artifactEpochSec: artifactMaskData?.artifactEpochSec,
+          useN2ContextGate: effectiveN2ContextGate,
+          n2ContextStatuses: n2ContextData?.statuses,
+          n2ContextEpochSec: n2ContextData?.contextEpochSec,
           recordStartSec: 0,
         })
 
@@ -3475,7 +3854,10 @@ export default function EEGViewer() {
     effectiveSpindleAdaptiveThreshold,
     excludeArtifactEvents,
     artifactMaskData,
+    effectiveN2ContextGate,
+    n2ContextData,
     triggerAverageWaitingForArtifacts,
+    triggerAverageWaitingForN2Context,
   ])
 
   const activeTriggerAverageResult = triggerAverageScope === 'record'
@@ -3618,6 +4000,8 @@ export default function EEGViewer() {
     setDsaData(null)
     setDsaLoading(false)
     setDsaError('')
+    setSleepSketchData(null)
+    setSleepSketchLoading(false)
   }, [sourceId, sourceKind])
 
   useEffect(() => {
@@ -3773,6 +4157,9 @@ export default function EEGViewer() {
       selectedViewerAnnotationId,
       selectedChannelName,
       triggerOverlay,
+      artifactMaskData?.artifactStatuses,
+      artifactMaskData?.artifactEpochSec,
+      artifactReviewOverlay,
     )
     const { sbMuV, sbPxH } = computeSBSize(chanH, canvas.height)
 
@@ -3784,7 +4171,7 @@ export default function EEGViewer() {
     }
     refreshOverlay()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [processedEpoch, scales, refRange, gainMult, recordOffset, pageDuration, refreshOverlay, edfAnnotations, viewerAnnotations, selectedViewerAnnotationId, selectedChannelName, triggerOverlay])
+  }, [processedEpoch, scales, refRange, gainMult, recordOffset, pageDuration, refreshOverlay, edfAnnotations, viewerAnnotations, selectedViewerAnnotationId, selectedChannelName, triggerOverlay, artifactMaskData, artifactReviewOverlay])
 
   // ── Draw effect ───────────────────────────────────────────────────────────────
 
@@ -3959,7 +4346,7 @@ export default function EEGViewer() {
         return
       }
       const script = document.createElement('script')
-      script.src = '/wasm/kappa_wasm.js'
+      script.src = '/wasm/kappa_wasm.js?v=2026-05-06-sleep-sketch-timeline'
       script.onload = () => {
         const poll = setInterval(() => {
           if (window.KappaModule) {
@@ -4137,12 +4524,18 @@ export default function EEGViewer() {
       kappaRef.current = kappa
       sbPosRef.current = null
       dsaCacheRef.current.clear()
+      sleepSketchCacheRef.current = null
+      n2ContextCacheRef.current.clear()
       setDsaChannel('off')
       setArtifactReject(false)
       setDsaData(null)
       setDsaLoading(false)
       setDsaError('')
-      setMeta({ recordingDate: info.recordingDate })
+      setSleepSketchData(null)
+      setSleepSketchLoading(false)
+      setN2ContextData(null)
+      setN2ContextLoading(false)
+      setMeta({ recordingDate: info.recordingDate, channelLabels: info.channelLabels })
       const totalDurationSec = info.numSamples / info.sampleRate
       setTotalSeconds(totalDurationSec)
       const probeEpoch = kappa.readEpoch(0, 1)
@@ -4509,6 +4902,8 @@ export default function EEGViewer() {
     setDsaData(null)
     setDsaLoading(false)
     setDsaError('')
+    setN2ContextData(null)
+    setN2ContextLoading(false)
     setMobileControlsOpen(false)
     setSelectedChannelName(null)
     setChannelGainOverrides({})
@@ -4523,12 +4918,15 @@ export default function EEGViewer() {
     setTriggerRectify(false)
     setTriggerBurstRearmFraction(0.1)
     setTriggerRectifyAverage(false)
+    setUseN2ContextGate(false)
     setTriggerThresholdStep(Math.round((TRIGGER_THRESHOLD_POSITIONS - 1) * 0.7))
     setTriggerPreSec(0.5)
     setTriggerPostSec(0.5)
     setTriggerRefractorySec(0.25)
     dsaCacheRef.current.clear()
     artifactMaskCacheRef.current = null
+    n2ContextCacheRef.current.clear()
+    sleepSketchCacheRef.current = null
   }, [recordDurationSec, totalSeconds])
 
   useEffect(() => {
@@ -4568,6 +4966,124 @@ export default function EEGViewer() {
       window.clearTimeout(timer)
     }
   }, [phase])
+
+  useEffect(() => {
+    if (phase !== 'viewing') {
+      setSleepSketchData(null)
+      setSleepSketchLoading(false)
+      return
+    }
+
+    if (sleepSketchCacheRef.current) {
+      setSleepSketchData(sleepSketchCacheRef.current)
+      setSleepSketchLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setSleepSketchData(null)
+    setSleepSketchLoading(true)
+
+    const timer = window.setTimeout(() => {
+      try {
+        const result = kappaRef.current?.computeSleepSketchTimeline()
+        if (cancelled) return
+        if (!result) throw new Error('No se pudo calcular el timeline de sueño')
+        sleepSketchCacheRef.current = result
+        setSleepSketchData(result)
+        setSleepSketchLoading(false)
+      } catch {
+        if (cancelled) return
+        setSleepSketchData(null)
+        setSleepSketchLoading(false)
+      }
+    }, 0)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [phase])
+
+  const triggerSourceChannelIndex = useMemo(
+    () => resolveTriggerSourceChannelIndex(triggerChannelName, meta?.channelLabels ?? []),
+    [meta?.channelLabels, triggerChannelName],
+  )
+
+  useEffect(() => {
+    if (phase !== 'viewing' || !triggerAvgOpen || !triggerN2ContextEligible) {
+      setN2ContextData(null)
+      setN2ContextLoading(false)
+      return
+    }
+
+    const kappa = kappaRef.current
+    if (!kappa || triggerSourceChannelIndex < 0 || !Number.isFinite(recordDurationSec) || recordDurationSec <= 0 || totalSeconds <= 0) {
+      setN2ContextData(null)
+      setN2ContextLoading(false)
+      return
+    }
+
+    const recordsPerWindow = Math.max(1, Math.ceil(N2_CONTEXT_WINDOW_SEC / recordDurationSec))
+    const contextEpochSec = recordsPerWindow * recordDurationSec
+    const totalRecords = Math.max(1, Math.ceil(Math.max(totalSeconds, contextEpochSec) / recordDurationSec))
+    const cacheKey = `${triggerSourceChannelIndex}|${recordsPerWindow}|${totalRecords}`
+    const cached = n2ContextCacheRef.current.get(cacheKey)
+    if (cached) {
+      setN2ContextData(cached)
+      setN2ContextLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setN2ContextData(null)
+    setN2ContextLoading(true)
+
+    const timer = window.setTimeout(() => {
+      try {
+        const statuses: boolean[] = []
+        const scores: number[] = []
+        let channelName = meta?.channelLabels[triggerSourceChannelIndex] ?? triggerChannelName
+        for (let offset = 0; offset < totalRecords; offset += recordsPerWindow) {
+          const nRecords = Math.min(recordsPerWindow, totalRecords - offset)
+          const result = kappa.computeSpindleContextForChannel(triggerSourceChannelIndex, offset, nRecords)
+          if (!result) throw new Error('No se pudo calcular el contexto N2')
+          channelName = result.channelName || channelName
+          statuses.push(!!result.isNremLike)
+          scores.push(Number.isFinite(result.score) ? result.score : 0)
+        }
+        if (cancelled) return
+        const nextData: N2ContextData = {
+          contextEpochSec,
+          channelIndex: triggerSourceChannelIndex,
+          channelName,
+          statuses,
+          scores,
+        }
+        n2ContextCacheRef.current.set(cacheKey, nextData)
+        setN2ContextData(nextData)
+        setN2ContextLoading(false)
+      } catch {
+        if (cancelled) return
+        setN2ContextData(null)
+        setN2ContextLoading(false)
+      }
+    }, 0)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [
+    phase,
+    triggerAvgOpen,
+    triggerN2ContextEligible,
+    triggerSourceChannelIndex,
+    recordDurationSec,
+    totalSeconds,
+    meta?.channelLabels,
+    triggerChannelName,
+  ])
 
   useEffect(() => {
     if (phase !== 'viewing' || dsaChannel === 'off') {
@@ -4677,6 +5193,11 @@ export default function EEGViewer() {
   useEffect(() => {
     if (phase !== 'viewing') return
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault()
+        setArtifactReviewOverlay((current) => !current)
+        return
+      }
       if (triggerAvgOpen && triggerChannelName && e.key === 'ArrowUp' && !e.shiftKey) {
         e.preventDefault()
         nudgeTriggerThreshold(1)
@@ -5209,6 +5730,22 @@ export default function EEGViewer() {
                 </button>
               </label>
             )}
+            {artifactReviewOverlay && (
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                padding: '0.16rem 0.45rem',
+                background: '#eff6ff',
+                border: '1px solid #93c5fd',
+                borderRadius: 4,
+                color: '#1d4ed8',
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                whiteSpace: 'nowrap',
+              }}>
+                Rev Artef · R
+              </div>
+            )}
 
             <ToolbarSelect label="Ganancia" value={effectiveGainMult} onChange={handleGainChange}>
               {GAIN_OPTIONS.map((o) => <option key={o.value} value={o.value}>{`Gan ${o.label}`}</option>)}
@@ -5409,6 +5946,22 @@ export default function EEGViewer() {
                 {artifactReject ? 'Artef ✓' : 'Artef Off'}
               </button>
             </label>
+          )}
+          {artifactReviewOverlay && (
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              padding: '0.16rem 0.45rem',
+              background: '#eff6ff',
+              border: '1px solid #93c5fd',
+              borderRadius: 4,
+              color: '#1d4ed8',
+              fontSize: '0.75rem',
+              fontWeight: 700,
+              whiteSpace: 'nowrap',
+            }}>
+              Rev Artef · R
+            </div>
           )}
 
           {showAvgRefControl && (
@@ -5711,13 +6264,16 @@ export default function EEGViewer() {
       {dsaChannel !== 'off' ? (
         <DSAHeatmap
           data={dsaData}
+          sleepSketchData={sleepSketchData}
+          loading={dsaLoading || sleepSketchLoading}
+          expanded={false}
           artifactEnabled={artifactReject}
-          loading={dsaLoading}
           error={dsaError}
           currentStartSec={tStart}
           currentEndSec={tStart + pageDuration}
           viewerAnnotations={viewerAnnotations}
           selectedViewerAnnotationId={selectedViewerAnnotationId}
+          onToggleExpand={() => setDsaExpanded(true)}
           onEpochClick={(epochIndex) => {
             if (!dsaData) return
             goToDSAEpoch(epochIndex, dsaData.epochSec)
@@ -5741,6 +6297,55 @@ export default function EEGViewer() {
           onViewerAnnotationSelect={(annotationId) => jumpToViewerAnnotation(annotationId)}
           onSeek={(targetSec) => goToSecondPosition(targetSec, true)}
         />
+      )}
+      {dsaExpanded && dsaChannel !== 'off' && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1200,
+            background: 'rgba(15,23,42,0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1.25rem',
+          }}
+          onClick={() => setDsaExpanded(false)}
+        >
+          <div
+            style={{
+              width: 'min(96vw, 1600px)',
+              background: '#ffffff',
+              borderRadius: 14,
+              boxShadow: '0 30px 80px rgba(15,23,42,0.35)',
+              overflow: 'hidden',
+            }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <DSAHeatmap
+              data={dsaData}
+              sleepSketchData={sleepSketchData}
+              loading={dsaLoading || sleepSketchLoading}
+              expanded
+              artifactEnabled={artifactReject}
+              error={dsaError}
+              currentStartSec={tStart}
+              currentEndSec={tStart + pageDuration}
+              viewerAnnotations={viewerAnnotations}
+              selectedViewerAnnotationId={selectedViewerAnnotationId}
+              onToggleExpand={() => setDsaExpanded(false)}
+              onEpochClick={(epochIndex) => {
+                if (!dsaData) return
+                goToDSAEpoch(epochIndex, dsaData.epochSec)
+              }}
+              onArtifactEpochClick={(epochIndex) => {
+                if (!dsaData) return
+                goToDSAEpoch(epochIndex, dsaData.artifactEpochSec)
+              }}
+              onViewerAnnotationSelect={(annotationId) => jumpToViewerAnnotation(annotationId)}
+            />
+          </div>
+        </div>
       )}
       {triggerAvgModalOpen && triggerAvgOpen && (
         <TriggerAverageModal
@@ -5775,10 +6380,16 @@ export default function EEGViewer() {
           triggerRectify={triggerRectify}
           rectifyAverage={triggerRectifyAverage}
           excludeArtifactEvents={excludeArtifactEvents}
+          useN2ContextGate={useN2ContextGate}
           artifactEventsAvailable={!!artifactMaskData?.artifactStatuses?.length && !!artifactMaskData?.artifactEpochSec}
           artifactMaskLoading={artifactMaskLoading}
+          n2ContextLoading={n2ContextLoading}
           artifactStatuses={artifactMaskData?.artifactStatuses}
           artifactEpochSec={artifactMaskData?.artifactEpochSec}
+          n2ContextEnabled={useN2ContextGate}
+          n2ContextStatuses={n2ContextData?.statuses}
+          n2ContextScores={n2ContextData?.scores}
+          n2ContextEpochSec={n2ContextData?.contextEpochSec}
           eventSampleIndexes={scopeAlignedPageTriggerAverageResult?.rawEvents.map((event) => event.sampleIndex) ?? []}
           previewEventCount={scopeAlignedPageTriggerAverageResult?.rawEvents.length ?? 0}
           viewerAnnotationsCount={viewerAnnotations.length}
@@ -5790,6 +6401,7 @@ export default function EEGViewer() {
           }}
           onStepViewerAnnotation={stepViewerAnnotation}
           onExcludeArtifactEventsChange={() => setExcludeArtifactEvents((value) => !value)}
+          onUseN2ContextGateChange={() => setUseN2ContextGate((value) => !value)}
           onTriggerChannelChange={setTriggerChannelName}
           onTriggerDetectionModeChange={setTriggerDetectionMode}
           onTriggerHpChange={setTriggerHp}

@@ -98,6 +98,9 @@ export interface TriggerAverageOptions {
   excludeArtifactEvents?: boolean
   artifactStatuses?: number[]
   artifactEpochSec?: number
+  useN2ContextGate?: boolean
+  n2ContextStatuses?: boolean[]
+  n2ContextEpochSec?: number
   recordStartSec?: number
 }
 
@@ -112,6 +115,7 @@ export interface TriggeredAverageResult {
   rawEvents: TriggerEvent[]
   events: TriggerEvent[]
   rawEventCount: number
+  excludedContextCount: number
   excludedArtifactCount: number
   cleanArtifactCount: number
   suspectArtifactCount: number
@@ -772,7 +776,7 @@ export function computeTriggeredAverage(
 
   const filteredTrigger = computeTriggerPreviewSignal(epoch.data[triggerIndex], epoch.sfreq, options)
   const threshold = options.rectifyTrigger ? Math.abs(options.threshold) : options.threshold
-  const rawEvents = options.detectionMode === 'spindle'
+  const detectedEvents = options.detectionMode === 'spindle'
     ? (() => {
         const spindleSignals = computeSpindleSignals(epoch.data[triggerIndex], epoch.sfreq, options)
         return detectSpindleEvents(
@@ -807,6 +811,17 @@ export function computeTriggeredAverage(
   const preSamples = Math.max(0, Math.round(Math.max(0, options.preSec) * epoch.sfreq))
   const postSamples = Math.max(1, Math.round(Math.max(0, options.postSec) * epoch.sfreq))
   const windowSamples = preSamples + postSamples + 1
+  let excludedContextCount = 0
+  const rawEvents = detectedEvents.filter((event) => {
+    if (!options.useN2ContextGate || !options.n2ContextStatuses || !options.n2ContextEpochSec || options.n2ContextEpochSec <= 0) {
+      return true
+    }
+    const absoluteOnsetSec = (options.recordStartSec ?? 0) + event.onsetSec
+    const contextIndex = Math.floor(absoluteOnsetSec / options.n2ContextEpochSec)
+    const isNremLike = options.n2ContextStatuses[contextIndex] ?? false
+    if (!isNremLike) excludedContextCount += 1
+    return isNremLike
+  })
   let excludedArtifactCount = 0
   let cleanArtifactCount = 0
   let suspectArtifactCount = 0
@@ -834,6 +849,7 @@ export function computeTriggeredAverage(
       rawEvents,
       events: [],
       rawEventCount: rawEvents.length,
+      excludedContextCount,
       excludedArtifactCount,
       cleanArtifactCount,
       suspectArtifactCount,
@@ -890,6 +906,7 @@ export function computeTriggeredAverage(
     rawEvents,
     events: validEvents,
     rawEventCount: rawEvents.length,
+    excludedContextCount,
     excludedArtifactCount,
     cleanArtifactCount,
     suspectArtifactCount,

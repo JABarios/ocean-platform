@@ -72,6 +72,20 @@ export default function Login() {
           <span>¿No tienes cuenta? </span>
           <Link to="/register">Regístrate</Link>
         </div>
+        <div className="auth-quick-links">
+          <div className="auth-quick-row">
+            <span>¿Solo quieres anonimizar y compartir un EEG?</span>
+            <Link to="/share" className="auth-quick-link">
+              Ir a Share
+            </Link>
+          </div>
+          <div className="auth-quick-row">
+            <span>¿Solo quieres ver un EEG local en tu navegador?</span>
+            <Link to="/open" className="auth-quick-link">
+              Ir a Open
+            </Link>
+          </div>
+        </div>
       </div>
     </div>
   )

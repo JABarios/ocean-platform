@@ -52,6 +52,48 @@
   color: var(--text-secondary);
 }
 
+.auth-quick-links {
+  margin-top: 1.3rem;
+  padding: 0.95rem 1.05rem;
+  border-radius: 14px;
+  border: 1px solid rgba(15, 91, 216, 0.16);
+  background: linear-gradient(180deg, rgba(15, 91, 216, 0.05), rgba(15, 91, 216, 0.02));
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.auth-quick-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.auth-quick-row span {
+  font-size: 0.84rem;
+  color: var(--text-secondary);
+}
+
+.auth-quick-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  min-height: 34px;
+  padding: 0.45rem 0.8rem;
+  border-radius: 10px;
+  background: rgba(15, 91, 216, 0.1);
+  color: var(--primary);
+  font-weight: 700;
+  border: 1px solid rgba(15, 91, 216, 0.16);
+}
+
+.auth-quick-link:hover {
+  background: rgba(15, 91, 216, 0.16);
+  color: var(--primary-hover);
+}
+
 .auth-error {
   color: var(--danger);
   font-size: 0.85rem;
@@ -72,5 +114,10 @@
 
   .auth-card {
     padding: 1.2rem;
+  }
+
+  .auth-quick-row {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }

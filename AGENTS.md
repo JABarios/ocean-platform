@@ -11,6 +11,7 @@
 - **No** es un repositorio masivo de EEGs.
 - **No** es una red social médica.
 - Incluye **visor de EEG en navegador** (`/cases/:id/eeg`) que desencripta y renderiza la señal vía módulo WebAssembly.
+- Incluye también un flujo **efímero de compartición por enlace** (`/share`, `/shared/new`, `/v/:sharedId`) orientado a interconsulta rápida sin login en el receptor.
 - La unidad central del sistema es la **petición de revisión de un caso**.
 
 La estructura del repositorio es:
@@ -110,6 +111,7 @@ frontend/
 │   │   ├── CaseDetail.tsx    # Detalle, comentarios y recuperación de clave EEG
 │   │   ├── CaseOperations.tsx # Bandeja operativa de casos
 │   │   ├── EEGViewer.tsx     # Visor EEG completo (ver §EEG Viewer)
+│   │   ├── SharedLinkNew.tsx # Microweb pública para generar enlaces efímeros cifrados
 │   │   ├── EegRecords.tsx    # Inventario de EEGs reutilizables
 │   │   ├── Galleries.tsx     # Listado de galerías
 │   │   ├── GalleryDetail.tsx # Detalle de galería
@@ -118,7 +120,7 @@ frontend/
 │   │   ├── AdminHome.tsx
 │   │   ├── UserAdmin.tsx
 │   │   └── CleanupAdmin.tsx
-│   └── test/                 # 54 tests en 7 suites (Vitest + RTL)
+│   └── test/                 # 63 tests en 8 suites (Vitest + RTL)
 ├── public/
 │   └── wasm/                 # kappa_wasm.js + kappa_wasm.wasm (módulo Emscripten)
 └── package.json
@@ -212,6 +214,7 @@ sudo bash ocean-platform/scripts/install-new-machine.sh
 - **User:** roles (`Clinician`, `Reviewer`, `Curator`, `Admin`)
 - **Case:** estados clínicos `Draft → Requested → InReview → Resolved → Archived` (máquina de estados en backend)
 - **CasePackage:** blob cifrado (IV + ciphertext AES-GCM), hash SHA-256 y referencia a `EegRecord`
+- **SharedLinkBlob:** blob cifrado efímero para enlaces públicos de interconsulta (`/v/:sharedId`), con expiración automática y revocación opcional
 - **EegRecord:** registro EEG reutilizable y deduplicado por hash
 - **Gallery / GalleryRecord:** colecciones de EEGs anónimos o públicos
 - **Group / GroupMember:** grupos clínicos y membresía
@@ -232,6 +235,13 @@ sudo bash ocean-platform/scripts/install-new-machine.sh
 4. `requireRole` protege endpoints sensibles (validación docente).
 5. Respuesta 401 → limpia token y recarga página.
 
+### Excepción: microweb `share`
+
+- `POST /shared-links/upload` es público y no requiere login.
+- La pantalla `'/share'` / `'/shared/new'` anonimiza y cifra el EDF en cliente antes de subirlo.
+- El receptor abre `'/v/:sharedId#clave'` sin autenticarse; la clave viaja solo en el fragmento `#`.
+- Si el frontend se sirve desde un host que empiece por `share.`, la ruta raíz `/` abre directamente la pantalla pública de compartir.
+
 ---
 
 ## 8. Testing
@@ -244,13 +254,13 @@ cd backend && npm test
 
 Suites: auth, cases, requests, teaching, packages, comments, galleries, groups, cleanup, viewer-state y audit.
 
-### Frontend — 54 tests (Vitest + React Testing Library)
+### Frontend — 89 tests (Vitest + React Testing Library)
 
 ```bash
 cd frontend && npm test
 ```
 
-Suites: Login, Dashboard, CaseNew, CaseDetail, api.client, EEGViewer.utils y edfAnonymization.
+Suites: Login, Dashboard, CaseNew, CaseDetail, api.client, EEGViewer.utils, edfAnonymization y edfAnnotations. La suite `EEGViewer.utils` cubre ya la lógica del promediador desencadenado (`Trigger Avg`), incluyendo detección `event`/`burst`/`spindle`, borde de ventana, artefactos y estabilidad básica del flujo.
 
 ### EEG Viewer
 
@@ -271,6 +281,20 @@ Suites: Login, Dashboard, CaseNew, CaseDetail, api.client, EEGViewer.utils y edf
 - El visor incluye selector DSA bajo demanda por canal EEG. Al activarlo, `Artefactos` se enciende por defecto, aunque luego puede desactivarse.
 - El panel DSA permite click para saltar a la época correspondiente; la barra de artefactos encima del DSA también permite navegar a épocas marcadas.
 - El visor lee anotaciones EDF+ embebidas (`extractEdfAnnotations`) y puede mostrarlas en un panel lateral, además de marcarlas con ticks en la barra temporal inferior.
+- Las anotaciones EDF+ visibles pueden dibujarse también sobre la traza como marcas verticales rojas con texto rojo pequeño.
+- El visor incluye un modal de **promedio desencadenado** (`Trigger Avg`) integrado en `EEGViewer.tsx`.
+- `Trigger Avg` soporta tres modos de detector:
+  - `event`: cruce ascendente + refractario fijo.
+  - `burst`: cruce ascendente + rearme al volver por debajo del umbral.
+  - `spindle`: detector heurístico de husos basado en RMS sigma, duración y fusión de microcortes.
+- En modo `spindle`, la señal verde del preview corresponde a la **RMS móvil** de la banda sigma. El umbral rojo actúa sobre esa señal y existe un botón `Auto` que coloca el umbral en un percentil alto de la página visible.
+- La banda sigma por defecto del modo `spindle` es `11–16 Hz` y la banda broad por defecto es `1–30 Hz`.
+- `Trigger Avg` puede calcular sobre la página actual o sobre **todo el registro**. En modo global, el umbral efectivo del detector se congela al entrar en ese modo para evitar que cambie solo por navegar entre páginas.
+- El preview del trigger puede superponer el **canal contralateral** en rojo (`Mostrar contra`).
+- El panel del promedio permite además una vista opcional de **canales superpuestos** (`Superponer canales`) para inspección visual rápida.
+- `Trigger Avg` puede crear **marcas locales del visor** a partir de los eventos detectados (`Marcar eventos`). Estas marcas no modifican el EDF.
+- La exclusión de artefactos del promediador usa la máscara del visor/WASM y excluye eventos que caen en épocas `rejected`.
+- El visor soporta un **cursor temporal azul fijable con clic**. El doble clic recentra la vista en ese instante. Si se cambia el barrido/ventana con un cursor fijado, la nueva época se recalcula para centrar ese momento y luego la marca desaparece.
 - La subida web anonimiza cabeceras EDF antes del cifrado.
 - Parte de la lógica pura del visor vive en `frontend/src/pages/eegViewerUtils.ts` y está cubierta con tests unitarios (montajes, colores, tiempo real, hover de metadata, regla DSA→Artefactos).
 - Si se cambia `src/wasm/kappa_wasm.cpp` en `kappa`, hay que recompilar con `./build_wasm.sh` y refrescar los binarios de `frontend/public/wasm/`.
@@ -326,6 +350,16 @@ Página fullscreen sin Layout ni ProtectedRoute. Valida el token internamente al
 7. getMeta() → setFilters(hp, lp, notch) → `readEpoch(0, windowSecs)` usando semántica de **segundos reales** para offset y duración
 8. Render canvas
 ```
+
+### Shared links efímeros
+
+- `SharedLinkNew.tsx` permite generar un enlace sin login del tipo `https://<host>/v/<id>#<clave>`.
+- El blob compartido se anonimiza y cifra completamente en el navegador antes de subirse.
+- `POST /shared-links/upload` almacena solo el blob cifrado, `ivBase64`, metadatos mínimos y `expiresAt`.
+- `GET /shared-links/:id` devuelve metadata pública no sensible.
+- `GET /shared-links/:id/download` sirve el blob cifrado.
+- `POST /shared-links/:id/revoke` sigue requiriendo autenticación del creador cuando el enlace fue creado desde sesión autenticada.
+- Si se define `VITE_SHARED_LINK_ORIGIN`, los enlaces generados usan ese origen; esto permite servir la microweb en `share.ocean-eeg.org` y el OCEAN completo en `app.ocean-eeg.org`.
 
 ### Módulo WASM (`public/wasm/kappa_wasm.js`)
 

@@ -1172,4 +1172,106 @@ describe('EEG viewer utils', () => {
     expect(accepted?.events[0]?.sampleIndex).toBeGreaterThanOrEqual(120)
     expect(accepted?.events[0]?.sampleIndex).toBeLessThan(220)
   })
+
+  it('en modo lentas detecta una onda lenta sintética por su pico negativo', () => {
+    const sampleRate = 100
+    const durationSec = 4
+    const signal = new Array(durationSec * sampleRate).fill(0).map((_, i) => (
+      70 * Math.sin((2 * Math.PI * 1.25 * i) / sampleRate)
+    ))
+    const epoch = makeEpoch({
+      Trigger: signal,
+      C3: signal,
+    })
+    epoch.sfreq = sampleRate
+
+    const preview = computeTriggerPreviewSignal(epoch.data[0], sampleRate, {
+      detectionMode: 'slow',
+      hp: 0,
+      lp: 0,
+      notch: 0,
+      rectifyTrigger: false,
+      triggerSmoothPoints: 3,
+      triggerDerivativeAfterSmooth: false,
+      spindleSigmaLow: 11,
+      spindleSigmaHigh: 16,
+      spindleBroadLow: 1,
+      spindleBroadHigh: 30,
+    })
+
+    expect(Math.max(...Array.from(preview))).toBeGreaterThan(40)
+
+    const result = computeTriggeredAverage(epoch, {
+      triggerChannelName: 'Trigger',
+      threshold: 40,
+      preSec: 0.2,
+      postSec: 0.2,
+      detectionMode: 'slow',
+      hp: 0,
+      lp: 0,
+      notch: 0,
+      triggerSmoothPoints: 3,
+      triggerDerivativeAfterSmooth: false,
+      averageHp: 0,
+      averageLp: 0,
+      averageNotch: 0,
+      rectifyTrigger: false,
+      rectifyAverage: false,
+      refractorySec: 0.02,
+      burstRearmFraction: 0.1,
+      spindleSigmaLow: 11,
+      spindleSigmaHigh: 16,
+      spindleBroadLow: 1,
+      spindleBroadHigh: 30,
+      spindleAmplitudeStdMultiplier: 1,
+      spindleMinSec: 0.5,
+      spindleMaxSec: 2,
+    })
+
+    expect(result?.events.length).toBeGreaterThanOrEqual(1)
+    expect(result?.events[0]?.sampleIndex).toBeGreaterThan(40)
+  })
+
+  it('en modo lentas rechaza oscilaciones demasiado rápidas para una onda lenta estándar', () => {
+    const sampleRate = 100
+    const durationSec = 4
+    const signal = new Array(durationSec * sampleRate).fill(0).map((_, i) => (
+      80 * Math.sin((2 * Math.PI * 4 * i) / sampleRate)
+    ))
+    const epoch = makeEpoch({
+      Trigger: signal,
+      C3: signal,
+    })
+    epoch.sfreq = sampleRate
+
+    const result = computeTriggeredAverage(epoch, {
+      triggerChannelName: 'Trigger',
+      threshold: 40,
+      preSec: 0.2,
+      postSec: 0.2,
+      detectionMode: 'slow',
+      hp: 0,
+      lp: 0,
+      notch: 0,
+      triggerSmoothPoints: 3,
+      triggerDerivativeAfterSmooth: false,
+      averageHp: 0,
+      averageLp: 0,
+      averageNotch: 0,
+      rectifyTrigger: false,
+      rectifyAverage: false,
+      refractorySec: 0.02,
+      burstRearmFraction: 0.1,
+      spindleSigmaLow: 11,
+      spindleSigmaHigh: 16,
+      spindleBroadLow: 1,
+      spindleBroadHigh: 30,
+      spindleAmplitudeStdMultiplier: 1,
+      spindleMinSec: 0.5,
+      spindleMaxSec: 2,
+    })
+
+    expect(result?.rawEventCount).toBe(0)
+    expect(result?.events.length).toBe(0)
+  })
 })

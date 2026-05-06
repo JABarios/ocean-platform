@@ -74,7 +74,7 @@ export interface TriggerAverageOptions {
   threshold: number
   preSec: number
   postSec: number
-  detectionMode: 'event' | 'burst' | 'spindle'
+  detectionMode: 'event' | 'burst' | 'spindle' | 'slow'
   hp: number
   lp: number
   notch: number
@@ -108,6 +108,7 @@ export interface TriggerEvent {
 
 export interface TriggeredAverageResult {
   averagedEpoch: EpochData | null
+  rawAveragedEpoch: EpochData | null
   rawEvents: TriggerEvent[]
   events: TriggerEvent[]
   rawEventCount: number
@@ -500,6 +501,82 @@ function computeSpindleSignals(
   }
 }
 
+const SLOW_WAVE_HP_HZ = 0.5
+const SLOW_WAVE_LP_HZ = 2
+const SLOW_WAVE_MIN_ZERO_CROSS_SEC = 0.3
+const SLOW_WAVE_MAX_ZERO_CROSS_SEC = 1
+const SLOW_WAVE_P2P_MULTIPLIER = 1.5
+
+function computeSlowWaveSignals(
+  signal: Float32Array,
+  sampleRate: number,
+  options: Pick<TriggerAverageOptions, 'notch' | 'triggerSmoothPoints'>,
+): { filteredSignal: Float32Array; previewSignal: Float32Array } {
+  const filteredSignal = filterSignalWithBand(
+    signal,
+    sampleRate,
+    SLOW_WAVE_HP_HZ,
+    SLOW_WAVE_LP_HZ,
+    options.notch,
+  )
+  const negativeHalfWave = new Float32Array(filteredSignal.length)
+  for (let i = 0; i < filteredSignal.length; i++) {
+    negativeHalfWave[i] = Math.max(0, -(filteredSignal[i] ?? 0))
+  }
+  return {
+    filteredSignal,
+    previewSignal: smoothSignal(negativeHalfWave, Math.max(1, Math.round(options.triggerSmoothPoints || 1))),
+  }
+}
+
+function detectSlowWaveEvents(
+  slowSignal: Float32Array,
+  sampleRate: number,
+  negativePeakThreshold: number,
+): TriggerEvent[] {
+  if (slowSignal.length < 3 || sampleRate <= 0) return []
+  const minSamples = Math.max(1, Math.round(SLOW_WAVE_MIN_ZERO_CROSS_SEC * sampleRate))
+  const maxSamples = Math.max(minSamples, Math.round(SLOW_WAVE_MAX_ZERO_CROSS_SEC * sampleRate))
+  const amplitudeThreshold = Math.max(0, negativePeakThreshold)
+  const crossings: number[] = []
+  for (let i = 1; i < slowSignal.length; i++) {
+    const prev = slowSignal[i - 1] ?? 0
+    const curr = slowSignal[i] ?? 0
+    if (prev < 0 && curr >= 0) crossings.push(i)
+  }
+
+  const events: TriggerEvent[] = []
+  for (let i = 0; i < crossings.length - 1; i++) {
+    const start = crossings[i] ?? 0
+    const end = crossings[i + 1] ?? 0
+    const span = end - start
+    if (span < minSamples || span > maxSamples) continue
+
+    let troughValue = Number.POSITIVE_INFINITY
+    let troughIndex = -1
+    let peakValue = Number.NEGATIVE_INFINITY
+    for (let j = start; j < end; j++) {
+      const value = slowSignal[j] ?? 0
+      if (value < troughValue) {
+        troughValue = value
+        troughIndex = j
+      }
+      if (value > peakValue) peakValue = value
+    }
+
+    const negativePeakAmplitude = Math.max(0, -troughValue)
+    const peakToPeakAmplitude = peakValue - troughValue
+    if (
+      troughIndex >= 0 &&
+      negativePeakAmplitude >= amplitudeThreshold &&
+      peakToPeakAmplitude >= SLOW_WAVE_P2P_MULTIPLIER * amplitudeThreshold
+    ) {
+      events.push({ sampleIndex: troughIndex, onsetSec: troughIndex / sampleRate })
+    }
+  }
+  return events
+}
+
 export function filterSignalForTrigger(
   signal: Float32Array,
   sampleRate: number,
@@ -680,6 +757,9 @@ export function computeTriggerPreviewSignal(
   if (options.detectionMode === 'spindle') {
     return computeSpindleSignals(signal, sampleRate, options).rmsSignal
   }
+  if (options.detectionMode === 'slow') {
+    return computeSlowWaveSignals(signal, sampleRate, options).previewSignal
+  }
   return filterSignalForTrigger(signal, sampleRate, options)
 }
 
@@ -706,6 +786,15 @@ export function computeTriggeredAverage(
           options.spindleAdaptiveThresholdOverride,
         )
       })()
+    : options.detectionMode === 'slow'
+      ? (() => {
+          const slowSignals = computeSlowWaveSignals(epoch.data[triggerIndex], epoch.sfreq, options)
+          return detectSlowWaveEvents(
+            slowSignals.filteredSignal,
+            epoch.sfreq,
+            Math.abs(threshold),
+          )
+        })()
     : detectThresholdCrossings(
         filteredTrigger,
         epoch.sfreq,
@@ -741,6 +830,7 @@ export function computeTriggeredAverage(
   if (validEvents.length === 0) {
     return {
       averagedEpoch: null,
+      rawAveragedEpoch: null,
       rawEvents,
       events: [],
       rawEventCount: rawEvents.length,
@@ -757,10 +847,18 @@ export function computeTriggeredAverage(
   const averageSourceData = epoch.data.map((channelData) =>
     filterSignalForAverage(channelData, epoch.sfreq, options),
   )
+  const rawAveragedData = epoch.data.map(() => new Float32Array(windowSamples))
   const averagedData = averageSourceData.map(() => new Float32Array(windowSamples))
   validEvents.forEach((event) => {
     const start = event.sampleIndex - preSamples
     const end = event.sampleIndex + postSamples + 1
+    epoch.data.forEach((channelData, channelIndex) => {
+      for (let i = start; i < end; i++) {
+        const localIndex = i - start
+        const sample = channelData[i] ?? 0
+        rawAveragedData[channelIndex][localIndex] += sample
+      }
+    })
     averageSourceData.forEach((channelData, channelIndex) => {
       for (let i = start; i < end; i++) {
         const localIndex = i - start
@@ -769,6 +867,10 @@ export function computeTriggeredAverage(
       }
     })
   })
+
+  for (const channel of rawAveragedData) {
+    for (let i = 0; i < channel.length; i++) channel[i] /= validEvents.length
+  }
 
   for (const channel of averagedData) {
     for (let i = 0; i < channel.length; i++) channel[i] /= validEvents.length
@@ -779,6 +881,11 @@ export function computeTriggeredAverage(
       ...epoch,
       nSamples: windowSamples,
       data: averagedData,
+    },
+    rawAveragedEpoch: {
+      ...epoch,
+      nSamples: windowSamples,
+      data: rawAveragedData,
     },
     rawEvents,
     events: validEvents,

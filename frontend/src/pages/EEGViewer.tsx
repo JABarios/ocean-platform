@@ -27,7 +27,7 @@ import {
 } from './eegViewerUtils'
 import type { EpochData, MontageName, PersistedViewerState, TriggeredAverageResult } from './eegViewerUtils'
 import type { CaseItem, SharedLinkBlobInfo } from '../types'
-import { getEncryptedPackageFromCache, saveEncryptedPackageToCache } from './encryptedPackageCache'
+import { getEncryptedPackageFromCache, getEncryptedPackageSummaryFromCache, saveEncryptedPackageToCache } from './encryptedPackageCache'
 import { extractEdfAnnotations } from '../utils/edfAnnotations'
 import { clearLocalEegSession, createLocalEegSession, getLocalEegSession, replaceLocalEegSession } from './localEegSession'
 import './EEGViewer.css'
@@ -201,7 +201,7 @@ interface ArtifactMaskData {
 interface PersistedTriggerAverageSettings {
   triggerChannelName: string
   showTriggerContralateralOverlay: boolean
-  triggerDetectionMode: 'event' | 'burst' | 'spindle'
+  triggerDetectionMode: 'event' | 'burst' | 'spindle' | 'slow'
   triggerHp: number
   triggerLp: number
   triggerNotch: number
@@ -1625,7 +1625,7 @@ function TriggerAverageModal({
   triggerOverlaySignal: Float32Array | null
   triggerThreshold: number
   triggerThresholdStep: number
-  triggerDetectionMode: 'event' | 'burst' | 'spindle'
+  triggerDetectionMode: 'event' | 'burst' | 'spindle' | 'slow'
   triggerHp: number
   triggerLp: number
   triggerNotch: number
@@ -1654,7 +1654,7 @@ function TriggerAverageModal({
   onClearViewerAnnotations: () => void
   onStepViewerAnnotation: (direction: -1 | 1) => void
   onTriggerChannelChange: (value: string) => void
-  onTriggerDetectionModeChange: (value: 'event' | 'burst' | 'spindle') => void
+  onTriggerDetectionModeChange: (value: 'event' | 'burst' | 'spindle' | 'slow') => void
   onTriggerHpChange: (value: number) => void
   onTriggerLpChange: (value: number) => void
   onTriggerNotchChange: (value: number) => void
@@ -1688,8 +1688,11 @@ function TriggerAverageModal({
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [overlayAverageChannels, setOverlayAverageChannels] = useState(false)
+  const [overlayCompareChannelA, setOverlayCompareChannelA] = useState('')
+  const [overlayCompareChannelB, setOverlayCompareChannelB] = useState('')
 
   const averagedEpoch = result?.averagedEpoch ?? null
+  const rawAveragedEpoch = result?.rawAveragedEpoch ?? null
   const preSamples = result?.preSamples ?? 0
   const eventCount = result?.events.length ?? 0
   const rawEventCount = result?.rawEventCount ?? 0
@@ -1728,6 +1731,24 @@ function TriggerAverageModal({
     () => averagedEpoch ? computeScales(averagedEpoch, averageGainMult, false, {}) : { scales: [] as { p2: number; p98: number }[], refRange: 1 },
     [averageGainMult, averagedEpoch],
   )
+  const overlayCompareOptions = useMemo(
+    () => averagedEpoch
+      ? averagedEpoch.channelNames.filter((name) => name !== triggerChannelName)
+      : [],
+    [averagedEpoch, triggerChannelName],
+  )
+
+  useEffect(() => {
+    setOverlayCompareChannelA((current) => (
+      current && overlayCompareOptions.includes(current)
+        ? current
+        : overlayCompareOptions[0] ?? ''
+    ))
+    setOverlayCompareChannelB((current) => {
+      if (current && overlayCompareOptions.includes(current) && current !== (overlayCompareOptions[0] ?? '')) return current
+      return overlayCompareOptions.find((name) => name !== (overlayCompareOptions[0] ?? '')) ?? ''
+    })
+  }, [overlayCompareOptions])
 
   const redraw = useCallback(() => {
     const wrap = wrapRef.current
@@ -1756,6 +1777,41 @@ function TriggerAverageModal({
     ctx.fillRect(0, 0, canvas.width, canvas.height)
 
     const waveW = canvas.width - LABEL_WIDTH
+    const gridColor = 'rgba(148, 163, 184, 0.14)'
+    const zeroX = LABEL_WIDTH + (preSamples / Math.max(averagedEpoch.nSamples - 1, 1)) * waveW
+    const drawGrid = (top: number, sectionHeight: number) => {
+      const horizontalDivisions = 6
+      ctx.save()
+      const totalDurationSec = averagedEpoch.nSamples / Math.max(averagedEpoch.sfreq, 1)
+      const startSec = -preSamples / Math.max(averagedEpoch.sfreq, 1)
+      const endSec = startSec + totalDurationSec
+      const firstWholeSecond = Math.ceil(startSec)
+      const lastWholeSecond = Math.floor(endSec)
+      ctx.strokeStyle = gridColor
+      ctx.lineWidth = 1
+      for (let second = firstWholeSecond; second <= lastWholeSecond; second++) {
+        const sampleIndex = Math.round((second - startSec) * averagedEpoch.sfreq)
+        const x = LABEL_WIDTH + (sampleIndex / Math.max(averagedEpoch.nSamples - 1, 1)) * waveW
+        ctx.beginPath()
+        ctx.moveTo(x, top)
+        ctx.lineTo(x, top + sectionHeight)
+        ctx.stroke()
+      }
+      for (let i = 0; i <= horizontalDivisions; i++) {
+        const y = top + (i / horizontalDivisions) * sectionHeight
+        ctx.beginPath()
+        ctx.moveTo(LABEL_WIDTH, y)
+        ctx.lineTo(canvas.width, y)
+        ctx.stroke()
+      }
+      ctx.strokeStyle = 'rgba(220, 38, 38, 0.78)'
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      ctx.moveTo(zeroX, top)
+      ctx.lineTo(zeroX, top + sectionHeight)
+      ctx.stroke()
+      ctx.restore()
+    }
     const rowInfo: Array<{ y0: number; name: string; type: string; data: Float32Array; p2: number; p98: number; color: string }> = []
 
     for (let c = 0; c < averagedEpoch.nChannels; c++) {
@@ -1777,9 +1833,7 @@ function TriggerAverageModal({
       ctx.fillStyle = color
       ctx.font = `bold ${Math.max(8, Math.min(11, Math.floor(chanH * 0.28)))}px monospace`
       ctx.textAlign = 'left'
-      if (overlayAverageChannels) {
-        ctx.fillText(name.slice(0, 9), 4, 16 + c * 12)
-      } else {
+      if (!overlayAverageChannels) {
         ctx.fillText(name.slice(0, 9), 4, y0 + chanH * 0.35)
         ctx.strokeStyle = 'rgba(0,0,0,0.08)'
         ctx.lineWidth = 1
@@ -1790,33 +1844,145 @@ function TriggerAverageModal({
       }
     }
 
-    const zeroX = LABEL_WIDTH + (preSamples / Math.max(averagedEpoch.nSamples - 1, 1)) * waveW
-    ctx.save()
-    ctx.strokeStyle = 'rgba(220,38,38,0.75)'
-    ctx.lineWidth = 2
-    ctx.beginPath()
-    ctx.moveTo(zeroX, 0)
-    ctx.lineTo(zeroX, overlayAverageChannels ? plotHeight : chanH * averagedEpoch.nChannels)
-    ctx.stroke()
-    ctx.restore()
-
-    for (const row of rowInfo) {
-      const range = row.p98 - row.p2 || 1
-      const margin = (overlayAverageChannels ? plotHeight : chanH) * 0.08
-      const drawH = (overlayAverageChannels ? plotHeight : chanH) - margin * 2
+    const drawTrace = (
+      data: Float32Array,
+      p2: number,
+      p98: number,
+      sectionTop: number,
+      sectionHeight: number,
+      color: string,
+      lineWidth: number,
+      alpha = 1,
+    ) => {
+      const range = p98 - p2 || 1
+      const margin = sectionHeight * 0.08
+      const drawH = sectionHeight - margin * 2
       ctx.beginPath()
-      ctx.strokeStyle = row.color
-      ctx.lineWidth = overlayAverageChannels ? 1.25 : 1
-      ctx.globalAlpha = overlayAverageChannels ? 0.92 : 1
-      for (let i = 0; i < row.data.length; i++) {
-        const x = LABEL_WIDTH + (i / Math.max(row.data.length - 1, 1)) * waveW
-        const norm = (row.data[i] - row.p2) / range
-        const y = row.y0 + margin + drawH * (1 - norm)
+      ctx.strokeStyle = color
+      ctx.lineWidth = lineWidth
+      ctx.globalAlpha = alpha
+      for (let i = 0; i < data.length; i++) {
+        const x = LABEL_WIDTH + (i / Math.max(data.length - 1, 1)) * waveW
+        const norm = ((data[i] ?? 0) - p2) / range
+        const y = sectionTop + margin + drawH * (1 - norm)
         if (i === 0) ctx.moveTo(x, y)
         else ctx.lineTo(x, y)
       }
       ctx.stroke()
       ctx.globalAlpha = 1
+    }
+
+    if (overlayAverageChannels) {
+      const plotGap = 18
+      const topSectionHeight = Math.max(84, Math.round(plotHeight * 0.34))
+      const bottomSectionTop = topSectionHeight + plotGap
+      const bottomSectionHeight = Math.max(84, plotHeight - bottomSectionTop)
+      const triggerRow = rowInfo.find((row) => row.name === triggerChannelName) ?? rowInfo[0]
+      const rawTriggerIndex = rawAveragedEpoch?.channelNames.findIndex((name) => name === triggerChannelName) ?? -1
+      const rawTriggerData = rawTriggerIndex >= 0 && rawAveragedEpoch
+        ? rawAveragedEpoch.data[rawTriggerIndex]
+        : triggerRow?.data ?? null
+      const rawTriggerScale = rawTriggerData
+        ? computeScales({
+            ...(rawAveragedEpoch ?? averagedEpoch),
+            nChannels: 1,
+            channelNames: [triggerChannelName || 'Trigger'],
+            channelTypes: ['EEG'],
+            data: [rawTriggerData],
+          }, averageGainMult, false, {}).scales[0] ?? { p2: 0, p98: 1 }
+        : { p2: 0, p98: 1 }
+      const getRawOverlayChannel = (channelName: string) => {
+        if (!channelName || !rawAveragedEpoch) return null
+        const channelIndex = rawAveragedEpoch.channelNames.findIndex((name) => name === channelName)
+        if (channelIndex < 0) return null
+        const channelData = rawAveragedEpoch.data[channelIndex]
+        const channelScale = computeScales({
+          ...rawAveragedEpoch,
+          nChannels: 1,
+          channelNames: [channelName],
+          channelTypes: ['EEG'],
+          data: [channelData],
+        }, averageGainMult, false, {}).scales[0] ?? { p2: 0, p98: 1 }
+        return { channelData, channelScale }
+      }
+      const overlayChannelARaw = getRawOverlayChannel(overlayCompareChannelA)
+      const overlayChannelBRaw = getRawOverlayChannel(overlayCompareChannelB)
+      const topSignals = [rawTriggerData, overlayChannelARaw?.channelData ?? null, overlayChannelBRaw?.channelData ?? null]
+        .filter((signal): signal is Float32Array => !!signal)
+      let commonTopScale = rawTriggerScale
+      if (topSignals.length > 0) {
+        const combined = new Float32Array(topSignals.reduce((sum, signal) => sum + signal.length, 0))
+        let offset = 0
+        for (const signal of topSignals) {
+          combined.set(signal, offset)
+          offset += signal.length
+        }
+        const combinedRange = computeTriggerThresholdRange(combined, 0.02, 0.98, 0.98, 0)
+        if (combinedRange) {
+          commonTopScale = { p2: combinedRange.min, p98: combinedRange.max }
+        }
+      }
+      const grandAverage = new Float32Array(averagedEpoch.nSamples)
+      for (const row of rowInfo) {
+        for (let i = 0; i < averagedEpoch.nSamples; i++) grandAverage[i] += row.data[i] ?? 0
+      }
+      for (let i = 0; i < averagedEpoch.nSamples; i++) grandAverage[i] /= Math.max(rowInfo.length, 1)
+      const grandScale = computeScales({
+        ...averagedEpoch,
+        nChannels: 1,
+        channelNames: ['AVG'],
+        channelTypes: ['EEG'],
+        data: [grandAverage],
+      }, averageGainMult, false, {}).scales[0] ?? { p2: 0, p98: 1 }
+
+      ctx.fillStyle = '#f8edd0'
+      ctx.fillRect(0, 0, LABEL_WIDTH, plotHeight)
+      ctx.fillStyle = '#fffdf6'
+      ctx.fillRect(LABEL_WIDTH, 0, waveW, topSectionHeight)
+      ctx.fillStyle = '#fffaf0'
+      ctx.fillRect(LABEL_WIDTH, bottomSectionTop, waveW, bottomSectionHeight)
+      drawGrid(0, topSectionHeight)
+      drawGrid(bottomSectionTop, bottomSectionHeight)
+      ctx.strokeStyle = 'rgba(148,163,184,0.45)'
+      ctx.lineWidth = 1
+      ctx.beginPath()
+      ctx.moveTo(0, topSectionHeight + plotGap / 2)
+      ctx.lineTo(canvas.width, topSectionHeight + plotGap / 2)
+      ctx.stroke()
+
+      ctx.fillStyle = '#0f172a'
+      ctx.font = 'bold 11px monospace'
+      ctx.textAlign = 'left'
+      ctx.fillText(`Trigger ${triggerRow?.name ?? ''}`.trim(), 4, 16)
+      if (overlayCompareChannelA) {
+        ctx.fillStyle = '#2563eb'
+        ctx.fillText(overlayCompareChannelA.slice(0, 11), 4, 32)
+      }
+      if (overlayCompareChannelB) {
+        ctx.fillStyle = '#059669'
+        ctx.fillText(overlayCompareChannelB.slice(0, 11), 4, 48)
+      }
+      ctx.fillStyle = '#dc2626'
+      ctx.fillText('AVG todos', 4, bottomSectionTop + 16)
+
+      if (rawTriggerData) {
+        drawTrace(rawTriggerData, commonTopScale.p2, commonTopScale.p98, 0, topSectionHeight, '#dc2626', 2.4, 1)
+      }
+      if (overlayChannelARaw) {
+        drawTrace(overlayChannelARaw.channelData, commonTopScale.p2, commonTopScale.p98, 0, topSectionHeight, '#2563eb', 1.5, 0.95)
+      }
+      if (overlayChannelBRaw) {
+        drawTrace(overlayChannelBRaw.channelData, commonTopScale.p2, commonTopScale.p98, 0, topSectionHeight, '#059669', 1.5, 0.95)
+      }
+      for (const row of rowInfo) {
+        drawTrace(row.data, row.p2, row.p98, bottomSectionTop, bottomSectionHeight, 'rgba(100, 116, 139, 0.48)', 1, 0.85)
+      }
+      drawTrace(grandAverage, grandScale.p2, grandScale.p98, bottomSectionTop, bottomSectionHeight, '#dc2626', 2.8, 1)
+    } else {
+      for (const row of rowInfo) {
+        drawGrid(row.y0, chanH)
+        drawTrace(row.data, row.p2, row.p98, row.y0, chanH, row.color, 1, 1)
+      }
     }
 
     const axisY = overlayAverageChannels ? plotHeight : chanH * averagedEpoch.nChannels
@@ -1841,7 +2007,7 @@ function TriggerAverageModal({
       ctx.stroke()
       ctx.fillText(`${relSec >= 0 ? '+' : ''}${relSec.toFixed(2)}s`, Math.min(x + 2, canvas.width - 48), axisY + 16)
     }
-  }, [averagedEpoch, overlayAverageChannels, preSamples, scales])
+  }, [averageGainMult, averagedEpoch, overlayAverageChannels, overlayCompareChannelA, overlayCompareChannelB, preSamples, rawAveragedEpoch, scales, triggerChannelName])
 
   useEffect(() => {
     redraw()
@@ -2052,12 +2218,13 @@ function TriggerAverageModal({
             <ToolbarSelect
               label="Modo detector"
               value={triggerDetectionMode}
-              onChange={(value) => onTriggerDetectionModeChange(value as 'event' | 'burst' | 'spindle')}
+              onChange={(value) => onTriggerDetectionModeChange(value as 'event' | 'burst' | 'spindle' | 'slow')}
               width={148}
             >
               <option value="event">Evento</option>
               <option value="burst">Burst</option>
               <option value="spindle">Husos</option>
+              <option value="slow">Lentas</option>
             </ToolbarSelect>
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
               {triggerDetectionMode === 'burst' ? (
@@ -2161,6 +2328,32 @@ function TriggerAverageModal({
                 />
                 Superponer canales
               </label>
+              {overlayAverageChannels && (
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <ToolbarSelect
+                    label="Compara A"
+                    value={overlayCompareChannelA}
+                    onChange={setOverlayCompareChannelA}
+                    width={132}
+                  >
+                    <option value="">Ninguno</option>
+                    {overlayCompareOptions.map((channelName) => (
+                      <option key={`overlay-a-${channelName}`} value={channelName}>{channelName}</option>
+                    ))}
+                  </ToolbarSelect>
+                  <ToolbarSelect
+                    label="Compara B"
+                    value={overlayCompareChannelB}
+                    onChange={setOverlayCompareChannelB}
+                    width={132}
+                  >
+                    <option value="">Ninguno</option>
+                    {overlayCompareOptions.map((channelName) => (
+                      <option key={`overlay-b-${channelName}`} value={channelName}>{channelName}</option>
+                    ))}
+                  </ToolbarSelect>
+                </div>
+              )}
             </div>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#166534', fontSize: '0.72rem' }}>
               Umbral
@@ -2464,11 +2657,11 @@ function TriggerAverageModal({
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function EEGViewer() {
-  const { id, recordId, sharedId, localId } = useParams<{ id?: string; recordId?: string; sharedId?: string; localId?: string }>()
+  const { id, recordId, sharedId, localId, cacheId } = useParams<{ id?: string; recordId?: string; sharedId?: string; localId?: string; cacheId?: string }>()
   const location = useLocation()
   const navigate = useNavigate()
-  const sourceKind: 'case' | 'gallery' | 'shared' | 'local' = localId ? 'local' : sharedId ? 'shared' : recordId ? 'gallery' : 'case'
-  const sourceId = localId || sharedId || recordId || id || ''
+  const sourceKind: 'case' | 'gallery' | 'shared' | 'local' | 'cached' = cacheId ? 'cached' : localId ? 'local' : sharedId ? 'shared' : recordId ? 'gallery' : 'case'
+  const sourceId = cacheId || localId || sharedId || recordId || id || ''
   const token           = useAuthStore((s) => s.token)
   const { decryptFile } = useCrypto()
 
@@ -2519,7 +2712,7 @@ export default function EEGViewer() {
   const [triggerAvgModalOpen, setTriggerAvgModalOpen] = useState(false)
   const [triggerChannelName, setTriggerChannelName] = useState('')
   const [showTriggerContralateralOverlay, setShowTriggerContralateralOverlay] = useState(true)
-  const [triggerDetectionMode, setTriggerDetectionMode] = useState<'event' | 'burst' | 'spindle'>('event')
+  const [triggerDetectionMode, setTriggerDetectionMode] = useState<'event' | 'burst' | 'spindle' | 'slow'>('event')
   const [triggerHp, setTriggerHp] = useState(0)
   const [triggerLp, setTriggerLp] = useState(45)
   const [triggerNotch, setTriggerNotch] = useState(0)
@@ -3472,6 +3665,20 @@ export default function EEGViewer() {
               label: session.filename,
             }
           })
+      : sourceKind === 'cached'
+        ? Promise.resolve().then(async () => {
+            const cached = await getEncryptedPackageSummaryFromCache(sourceId)
+            if (!cached) throw new Error('El EEG cacheado ya no está disponible en este navegador.')
+            return {
+              blobHash: cached.blobHash,
+              cacheKey: cached.blobHash,
+              ageRange: undefined,
+              sizeBytes: cached.sizeBytes,
+              storedKeyAvailable: false,
+              encryptionMode: 'AES256-GCM',
+              label: cached.label || cached.caseId || `Cache ${sourceId}`,
+            }
+          })
       : api.get<any>(`/galleries/records/${sourceId}`).then((record) => ({
           blobHash: record.eegRecord?.blobHash,
           cacheKey: record.eegRecord?.blobHash,
@@ -3489,7 +3696,7 @@ export default function EEGViewer() {
       })
       .catch((err) => {
         if (cancelled) return
-        if (sourceKind === 'shared' || sourceKind === 'local') {
+        if (sourceKind === 'shared' || sourceKind === 'local' || sourceKind === 'cached') {
           setErrorMsg(err instanceof Error ? err.message : 'No se pudo abrir el shared link')
           setPhase('error')
           return
@@ -3783,8 +3990,8 @@ export default function EEGViewer() {
         window.clearTimeout(persistTimerRef.current)
         persistTimerRef.current = null
       }
-      let packageMeta = sourceKind === 'shared' || sourceKind === 'local' ? null : caseHoverMeta
-      if (sourceKind === 'shared' || sourceKind === 'local' || !packageMeta?.blobHash) {
+      let packageMeta = sourceKind === 'shared' || sourceKind === 'local' || sourceKind === 'cached' ? null : caseHoverMeta
+      if (sourceKind === 'shared' || sourceKind === 'local' || sourceKind === 'cached' || !packageMeta?.blobHash) {
         try {
           if (sourceKind === 'case') {
             packageMeta = await api.get<CaseItem>(`/cases/${sourceId}`).then((caseItem) => ({
@@ -3817,6 +4024,17 @@ export default function EEGViewer() {
               encryptionMode: sharedLink.encryptionMode,
               label: sharedLink.label || sharedLink.originalFilename || `Shared link ${sourceId}`,
             }))
+          } else if (sourceKind === 'cached') {
+            const cached = await getEncryptedPackageSummaryFromCache(sourceId)
+            if (!cached) throw new Error('El EEG cacheado ya no está disponible en este navegador.')
+            packageMeta = {
+              blobHash: cached.blobHash,
+              cacheKey: cached.blobHash,
+              ageRange: undefined,
+              sizeBytes: cached.sizeBytes,
+              encryptionMode: 'AES256-GCM',
+              label: cached.label || cached.caseId || `Cache ${sourceId}`,
+            }
           } else {
             const session = getLocalEegSession(sourceId)
             if (!session) throw new Error('El archivo local ya no está disponible. Vuelve a /open y selecciónalo de nuevo.')
@@ -3847,6 +4065,8 @@ export default function EEGViewer() {
           const session = getLocalEegSession(sourceId)
           if (!session) throw new Error('El archivo local ya no está disponible. Vuelve a /open y selecciónalo de nuevo.')
           encryptedBuffer = session.buffer.slice(0)
+        } else if (sourceKind === 'cached') {
+          throw new Error('El EEG cacheado ya no está disponible en este navegador.')
         } else {
           setPhase('downloading')
           const downloadPath = sourceKind === 'case'
@@ -3867,6 +4087,7 @@ export default function EEGViewer() {
               blobHash: encryptedCacheKey,
               caseId: `${sourceKind}:${sourceId}`,
               sizeBytes: packageMeta?.sizeBytes,
+              label: packageMeta?.label,
               payload: encryptedBuffer,
             }).catch((err) => {
               console.warn('[OCEAN EEG] No se pudo guardar el paquete cifrado en caché local', err)
@@ -3929,7 +4150,7 @@ export default function EEGViewer() {
       const detectedRecordDurationSec = probeEpoch.nSamples / probeEpoch.sfreq
       setRecordDurationSec(detectedRecordDurationSec)
       let persistedState: PersistedViewerState | null = null
-      if (sourceKind !== 'shared' && sourceKind !== 'local') {
+      if (sourceKind !== 'shared' && sourceKind !== 'local' && sourceKind !== 'cached') {
         try {
           const viewerStatePath = sourceKind === 'case'
             ? `/viewer-state/${sourceId}`
@@ -4000,6 +4221,14 @@ export default function EEGViewer() {
     if (!sourceId || phase !== 'key-input') return
     if (sourceKind === 'local') {
       startViewer('')
+      return
+    }
+    if (sourceKind === 'cached') {
+      const saved = sessionStorage.getItem(`ocean_eeg_key_${sourceKind}_${sourceId}`)
+      if (saved) {
+        setKeyInput(saved)
+        startViewer(saved)
+      }
       return
     }
     if (sourceKind === 'gallery' && caseHoverMeta?.encryptionMode === 'NONE') {
@@ -4392,7 +4621,7 @@ export default function EEGViewer() {
   }, [phase, dsaChannel, hp, lp, notch, artifactReject])
 
   useEffect(() => {
-    if (!sourceId || sourceKind === 'shared' || sourceKind === 'local' || phase !== 'viewing' || restoreInFlightRef.current || !viewerStateReadyRef.current) return
+    if (!sourceId || sourceKind === 'shared' || sourceKind === 'local' || sourceKind === 'cached' || phase !== 'viewing' || restoreInFlightRef.current || !viewerStateReadyRef.current) return
 
     const payload: PersistedViewerState = {
       positionSec: Math.max(0, Math.round(recordOffset)),

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  computeTriggerPreviewSignal,
   computeTriggerThresholdRange,
   computeTriggeredAverage,
   detectThresholdCrossings,
@@ -36,6 +37,22 @@ function makeEpoch(signals: Record<string, number[]>, types?: Record<string, str
 
 function asArray(signal: Float32Array): number[] {
   return Array.from(signal)
+}
+
+function addSineBurst(
+  target: number[],
+  sampleRate: number,
+  startIndex: number,
+  durationSec: number,
+  frequencyHz: number,
+  amplitude: number,
+) {
+  const samples = Math.round(durationSec * sampleRate)
+  for (let i = 0; i < samples; i++) {
+    const idx = startIndex + i
+    if (idx < 0 || idx >= target.length) continue
+    target[idx] += amplitude * Math.sin((2 * Math.PI * frequencyHz * i) / sampleRate)
+  }
 }
 
 describe('EEG viewer utils', () => {
@@ -676,5 +693,483 @@ describe('EEG viewer utils', () => {
     })
 
     expect(asArray(result!.averagedEpoch.data[1])).toEqual([1, 4, 3])
+  })
+
+  it('devuelve contabilidad útil aunque todos los eventos caigan en épocas rejected', () => {
+    const epoch = makeEpoch({
+      Trigger: [0, 0, 6, 0, 0, 0, 7, 0, 0],
+      C3: [1, 2, 3, 4, 5, 6, 7, 8, 9],
+    })
+
+    const result = computeTriggeredAverage(epoch, {
+      triggerChannelName: 'Trigger',
+      threshold: 5,
+      preSec: 0.01,
+      postSec: 0.01,
+      detectionMode: 'event',
+      hp: 0,
+      lp: 0,
+      notch: 0,
+      triggerSmoothPoints: 1,
+      triggerDerivativeAfterSmooth: false,
+      averageHp: 0,
+      averageLp: 0,
+      averageNotch: 0,
+      rectifyTrigger: false,
+      rectifyAverage: false,
+      refractorySec: 0.02,
+      burstRearmFraction: 0.1,
+      excludeArtifactEvents: true,
+      artifactStatuses: [2],
+      artifactEpochSec: 1,
+      recordStartSec: 0,
+    })
+
+    expect(result).not.toBeNull()
+    expect(result?.rawEventCount).toBe(2)
+    expect(result?.excludedArtifactCount).toBe(2)
+    expect(result?.cleanArtifactCount).toBe(0)
+    expect(result?.suspectArtifactCount).toBe(0)
+    expect(result?.rejectedArtifactCount).toBe(2)
+    expect(result?.events).toEqual([])
+    expect(result?.averagedEpoch).toBeNull()
+  })
+
+  it('solo excluye épocas rejected y conserva clean y suspect', () => {
+    const epoch = makeEpoch({
+      Trigger: [0, 0, 6, 0, 0, 0, 7, 0, 0, 0, 8, 0, 0],
+      C3: [1, 1, 2, 3, 3, 4, 5, 5, 6, 7, 8, 8, 9],
+    })
+
+    const result = computeTriggeredAverage(epoch, {
+      triggerChannelName: 'Trigger',
+      threshold: 5,
+      preSec: 0.01,
+      postSec: 0.01,
+      detectionMode: 'event',
+      hp: 0,
+      lp: 0,
+      notch: 0,
+      triggerSmoothPoints: 1,
+      triggerDerivativeAfterSmooth: false,
+      averageHp: 0,
+      averageLp: 0,
+      averageNotch: 0,
+      rectifyTrigger: false,
+      rectifyAverage: false,
+      refractorySec: 0.02,
+      burstRearmFraction: 0.1,
+      excludeArtifactEvents: true,
+      artifactStatuses: [0, 1, 2],
+      artifactEpochSec: 0.04,
+      recordStartSec: 0,
+    })
+
+    expect(result?.rawEventCount).toBe(3)
+    expect(result?.cleanArtifactCount).toBe(1)
+    expect(result?.suspectArtifactCount).toBe(1)
+    expect(result?.rejectedArtifactCount).toBe(1)
+    expect(result?.excludedArtifactCount).toBe(1)
+    expect(result?.events.map((event) => event.sampleIndex)).toEqual([2, 6])
+    expect(asArray(result!.averagedEpoch!.data[1])).toEqual([2.5, 3.5, 4])
+  })
+
+  it('mapea los artefactos usando recordStartSec para no desplazar la máscara al cambiar de página', () => {
+    const epoch = makeEpoch({
+      Trigger: [0, 0, 6, 0, 0, 0, 7, 0, 0],
+      C3: [1, 2, 3, 4, 5, 6, 7, 8, 9],
+    })
+
+    const withoutOffset = computeTriggeredAverage(epoch, {
+      triggerChannelName: 'Trigger',
+      threshold: 5,
+      preSec: 0.01,
+      postSec: 0.01,
+      detectionMode: 'event',
+      hp: 0,
+      lp: 0,
+      notch: 0,
+      triggerSmoothPoints: 1,
+      triggerDerivativeAfterSmooth: false,
+      averageHp: 0,
+      averageLp: 0,
+      averageNotch: 0,
+      rectifyTrigger: false,
+      rectifyAverage: false,
+      refractorySec: 0.02,
+      burstRearmFraction: 0.1,
+      excludeArtifactEvents: true,
+      artifactStatuses: [2, 0],
+      artifactEpochSec: 0.05,
+      recordStartSec: 0,
+    })
+
+    const withOffset = computeTriggeredAverage(epoch, {
+      triggerChannelName: 'Trigger',
+      threshold: 5,
+      preSec: 0.01,
+      postSec: 0.01,
+      detectionMode: 'event',
+      hp: 0,
+      lp: 0,
+      notch: 0,
+      triggerSmoothPoints: 1,
+      triggerDerivativeAfterSmooth: false,
+      averageHp: 0,
+      averageLp: 0,
+      averageNotch: 0,
+      rectifyTrigger: false,
+      rectifyAverage: false,
+      refractorySec: 0.02,
+      burstRearmFraction: 0.1,
+      excludeArtifactEvents: true,
+      artifactStatuses: [2, 0, 0],
+      artifactEpochSec: 0.05,
+      recordStartSec: 0.05,
+    })
+
+    expect(withoutOffset?.events.map((event) => event.sampleIndex)).toEqual([6])
+    expect(withoutOffset?.excludedArtifactCount).toBe(1)
+    expect(withOffset?.events.map((event) => event.sampleIndex)).toEqual([2, 6])
+    expect(withOffset?.excludedArtifactCount).toBe(0)
+  })
+
+  it('descarta eventos por borde sin contarlos como artefactos', () => {
+    const epoch = makeEpoch({
+      Trigger: [0, 6, 0, 0, 0, 0, 7, 0, 0],
+      C3: [1, 2, 3, 4, 5, 6, 7, 8, 9],
+    })
+
+    const result = computeTriggeredAverage(epoch, {
+      triggerChannelName: 'Trigger',
+      threshold: 5,
+      preSec: 0.02,
+      postSec: 0.02,
+      detectionMode: 'event',
+      hp: 0,
+      lp: 0,
+      notch: 0,
+      triggerSmoothPoints: 1,
+      triggerDerivativeAfterSmooth: false,
+      averageHp: 0,
+      averageLp: 0,
+      averageNotch: 0,
+      rectifyTrigger: false,
+      rectifyAverage: false,
+      refractorySec: 0.02,
+      burstRearmFraction: 0.1,
+      excludeArtifactEvents: true,
+      artifactStatuses: [0],
+      artifactEpochSec: 1,
+      recordStartSec: 0,
+    })
+
+    expect(result?.rawEventCount).toBe(2)
+    expect(result?.events.map((event) => event.sampleIndex)).toEqual([6])
+    expect(result?.excludedArtifactCount).toBe(0)
+    expect(result?.cleanArtifactCount).toBe(1)
+    expect(result?.suspectArtifactCount).toBe(0)
+    expect(result?.rejectedArtifactCount).toBe(0)
+  })
+
+  it('ignora la máscara de artefactos cuando excludeArtifactEvents está apagado', () => {
+    const epoch = makeEpoch({
+      Trigger: [0, 0, 6, 0, 0, 0, 7, 0, 0],
+      C3: [1, 2, 3, 4, 5, 6, 7, 8, 9],
+    })
+
+    const result = computeTriggeredAverage(epoch, {
+      triggerChannelName: 'Trigger',
+      threshold: 5,
+      preSec: 0.01,
+      postSec: 0.01,
+      detectionMode: 'event',
+      hp: 0,
+      lp: 0,
+      notch: 0,
+      triggerSmoothPoints: 1,
+      triggerDerivativeAfterSmooth: false,
+      averageHp: 0,
+      averageLp: 0,
+      averageNotch: 0,
+      rectifyTrigger: false,
+      rectifyAverage: false,
+      refractorySec: 0.02,
+      burstRearmFraction: 0.1,
+      excludeArtifactEvents: false,
+      artifactStatuses: [2],
+      artifactEpochSec: 1,
+      recordStartSec: 0,
+    })
+
+    expect(result?.rawEventCount).toBe(2)
+    expect(result?.excludedArtifactCount).toBe(0)
+    expect(result?.events.map((event) => event.sampleIndex)).toEqual([2, 6])
+  })
+
+  it('en modo evento aplica refractario fijo aunque la señal siga por encima del umbral', () => {
+    const signal = Float32Array.from([0, 6, 7, 6, 7, 0, 0, 6, 7])
+    const events = detectThresholdCrossings(signal, 100, 5, 0.05, 'event', 0.1)
+    expect(events.map((event) => event.sampleIndex)).toEqual([1, 7])
+  })
+
+  it('en modo burst puede rearmarse antes o después según el margen configurado', () => {
+    const signal = Float32Array.from([0, 6, 8, 7, 6, 4.9, 4.1, 6.1, 7, 4.8, 2, 6.5])
+    const permissive = detectThresholdCrossings(signal, 100, 5, 0.25, 'burst', 0.05)
+    const strict = detectThresholdCrossings(signal, 100, 5, 0.25, 'burst', 0.25)
+    expect(permissive.map((event) => event.sampleIndex)).toEqual([1, 7, 11])
+    expect(strict.map((event) => event.sampleIndex)).toEqual([1, 11])
+  })
+
+  it('usa el umbral rectificado en valor absoluto cuando rectifyTrigger está activo', () => {
+    const epoch = makeEpoch({
+      Trigger: [0, -6, 0, 0, -7, 0, 0],
+      C3: [1, 2, 3, 4, 5, 6, 7],
+    })
+
+    const result = computeTriggeredAverage(epoch, {
+      triggerChannelName: 'Trigger',
+      threshold: -5,
+      preSec: 0.01,
+      postSec: 0.01,
+      detectionMode: 'event',
+      hp: 0,
+      lp: 0,
+      notch: 0,
+      triggerSmoothPoints: 1,
+      triggerDerivativeAfterSmooth: false,
+      averageHp: 0,
+      averageLp: 0,
+      averageNotch: 0,
+      rectifyTrigger: true,
+      rectifyAverage: false,
+      refractorySec: 0.02,
+      burstRearmFraction: 0.1,
+    })
+
+    expect(result?.events.map((event) => event.sampleIndex)).toEqual([1, 4])
+  })
+
+  it('mantiene el número de eventos y el promedio si solo cambias recordStartSec sin máscara de artefactos', () => {
+    const epoch = makeEpoch({
+      Trigger: [0, 0, 6, 0, 0, 0, 7, 0, 0],
+      C3: [1, 2, 3, 4, 5, 6, 7, 8, 9],
+    })
+
+    const base = computeTriggeredAverage(epoch, {
+      triggerChannelName: 'Trigger',
+      threshold: 5,
+      preSec: 0.01,
+      postSec: 0.01,
+      detectionMode: 'event',
+      hp: 0,
+      lp: 0,
+      notch: 0,
+      triggerSmoothPoints: 1,
+      triggerDerivativeAfterSmooth: false,
+      averageHp: 0,
+      averageLp: 0,
+      averageNotch: 0,
+      rectifyTrigger: false,
+      rectifyAverage: false,
+      refractorySec: 0.02,
+      burstRearmFraction: 0.1,
+      recordStartSec: 0,
+    })
+
+    const shifted = computeTriggeredAverage(epoch, {
+      triggerChannelName: 'Trigger',
+      threshold: 5,
+      preSec: 0.01,
+      postSec: 0.01,
+      detectionMode: 'event',
+      hp: 0,
+      lp: 0,
+      notch: 0,
+      triggerSmoothPoints: 1,
+      triggerDerivativeAfterSmooth: false,
+      averageHp: 0,
+      averageLp: 0,
+      averageNotch: 0,
+      rectifyTrigger: false,
+      rectifyAverage: false,
+      refractorySec: 0.02,
+      burstRearmFraction: 0.1,
+      recordStartSec: 120,
+    })
+
+    expect(shifted?.events.map((event) => event.sampleIndex)).toEqual(base?.events.map((event) => event.sampleIndex))
+    expect(asArray(shifted!.averagedEpoch!.data[1])).toEqual(asArray(base!.averagedEpoch!.data[1]))
+  })
+
+  it('en modo husos usa una señal de score y detecta un huso sintético válido', () => {
+    const sampleRate = 100
+    const base = new Array(300).fill(0).map((_, i) => 0.15 * Math.sin((2 * Math.PI * 5 * i) / sampleRate))
+    addSineBurst(base, sampleRate, 80, 0.8, 13, 2.5)
+    const epoch = makeEpoch({
+      Trigger: base,
+      C3: base.map((value, index) => value + index * 0.01),
+    })
+    epoch.sfreq = sampleRate
+
+    const preview = computeTriggerPreviewSignal(epoch.data[0], sampleRate, {
+      detectionMode: 'spindle',
+      hp: 0,
+      lp: 0,
+      notch: 0,
+      rectifyTrigger: false,
+      triggerSmoothPoints: 5,
+      triggerDerivativeAfterSmooth: false,
+      spindleSigmaLow: 11,
+      spindleSigmaHigh: 16,
+      spindleBroadLow: 10,
+      spindleBroadHigh: 30,
+    })
+
+    expect(Math.max(...Array.from(preview))).toBeGreaterThan(0.8)
+
+    const result = computeTriggeredAverage(epoch, {
+      triggerChannelName: 'Trigger',
+      threshold: 0.8,
+      preSec: 0.2,
+      postSec: 0.2,
+      detectionMode: 'spindle',
+      hp: 0,
+      lp: 0,
+      notch: 0,
+      triggerSmoothPoints: 5,
+      triggerDerivativeAfterSmooth: false,
+      averageHp: 0,
+      averageLp: 0,
+      averageNotch: 0,
+      rectifyTrigger: false,
+      rectifyAverage: false,
+      refractorySec: 0.02,
+      burstRearmFraction: 0.1,
+      spindleSigmaLow: 11,
+      spindleSigmaHigh: 16,
+      spindleBroadLow: 10,
+      spindleBroadHigh: 30,
+      spindleAmplitudeStdMultiplier: 0.8,
+      spindleMinSec: 0.5,
+      spindleMaxSec: 2,
+    })
+
+    expect(result?.events.length).toBe(1)
+    expect(result?.events[0]?.sampleIndex).toBeGreaterThanOrEqual(80)
+    expect(result?.events[0]?.sampleIndex).toBeLessThan(160)
+  })
+
+  it('en modo husos descarta segmentos por debajo de la duración mínima', () => {
+    const sampleRate = 100
+    const base = new Array(300).fill(0)
+    addSineBurst(base, sampleRate, 40, 0.05, 13, 3)
+    const epoch = makeEpoch({
+      Trigger: base,
+      C3: base,
+    })
+    epoch.sfreq = sampleRate
+
+    const result = computeTriggeredAverage(epoch, {
+      triggerChannelName: 'Trigger',
+      threshold: 0.75,
+      preSec: 0.1,
+      postSec: 0.1,
+      detectionMode: 'spindle',
+      hp: 0,
+      lp: 0,
+      notch: 0,
+      triggerSmoothPoints: 5,
+      triggerDerivativeAfterSmooth: false,
+      averageHp: 0,
+      averageLp: 0,
+      averageNotch: 0,
+      rectifyTrigger: false,
+      rectifyAverage: false,
+      refractorySec: 0.02,
+      burstRearmFraction: 0.1,
+      spindleSigmaLow: 11,
+      spindleSigmaHigh: 16,
+      spindleBroadLow: 10,
+      spindleBroadHigh: 30,
+      spindleAmplitudeStdMultiplier: 0.5,
+      spindleMinSec: 0.5,
+      spindleMaxSec: 2,
+    })
+
+    expect(result?.rawEventCount).toBe(0)
+    expect(result?.events.length).toBe(0)
+  })
+
+  it('en modo husos respeta la duración máxima configurada para el mismo burst', () => {
+    const sampleRate = 100
+    const base = new Array(400).fill(0)
+    addSineBurst(base, sampleRate, 120, 0.9, 13, 3)
+    const epoch = makeEpoch({
+      Trigger: base,
+      C3: base,
+    })
+    epoch.sfreq = sampleRate
+
+    const rejectedByMax = computeTriggeredAverage(epoch, {
+      triggerChannelName: 'Trigger',
+      threshold: 0.75,
+      preSec: 0.1,
+      postSec: 0.1,
+      detectionMode: 'spindle',
+      hp: 0,
+      lp: 0,
+      notch: 0,
+      triggerSmoothPoints: 5,
+      triggerDerivativeAfterSmooth: false,
+      averageHp: 0,
+      averageLp: 0,
+      averageNotch: 0,
+      rectifyTrigger: false,
+      rectifyAverage: false,
+      refractorySec: 0.02,
+      burstRearmFraction: 0.1,
+      spindleSigmaLow: 11,
+      spindleSigmaHigh: 16,
+      spindleBroadLow: 10,
+      spindleBroadHigh: 30,
+      spindleAmplitudeStdMultiplier: 0.5,
+      spindleMinSec: 0.5,
+      spindleMaxSec: 0.7,
+    })
+
+    const accepted = computeTriggeredAverage(epoch, {
+      triggerChannelName: 'Trigger',
+      threshold: 0.75,
+      preSec: 0.1,
+      postSec: 0.1,
+      detectionMode: 'spindle',
+      hp: 0,
+      lp: 0,
+      notch: 0,
+      triggerSmoothPoints: 5,
+      triggerDerivativeAfterSmooth: false,
+      averageHp: 0,
+      averageLp: 0,
+      averageNotch: 0,
+      rectifyTrigger: false,
+      rectifyAverage: false,
+      refractorySec: 0.02,
+      burstRearmFraction: 0.1,
+      spindleSigmaLow: 11,
+      spindleSigmaHigh: 16,
+      spindleBroadLow: 10,
+      spindleBroadHigh: 30,
+      spindleAmplitudeStdMultiplier: 0.5,
+      spindleMinSec: 0.5,
+      spindleMaxSec: 2,
+    })
+
+    expect(rejectedByMax?.rawEventCount).toBe(0)
+    expect(rejectedByMax?.events.length).toBe(0)
+    expect(accepted?.rawEventCount).toBe(1)
+    expect(accepted?.events.length).toBe(1)
+    expect(accepted?.events[0]?.sampleIndex).toBeGreaterThanOrEqual(120)
+    expect(accepted?.events[0]?.sampleIndex).toBeLessThan(220)
   })
 })

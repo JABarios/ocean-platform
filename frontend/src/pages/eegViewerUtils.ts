@@ -74,7 +74,7 @@ export interface TriggerAverageOptions {
   threshold: number
   preSec: number
   postSec: number
-  detectionMode: 'event' | 'burst'
+  detectionMode: 'event' | 'burst' | 'spindle'
   hp: number
   lp: number
   notch: number
@@ -87,6 +87,14 @@ export interface TriggerAverageOptions {
   rectifyAverage: boolean
   refractorySec: number
   burstRearmFraction: number
+  spindleSigmaLow: number
+  spindleSigmaHigh: number
+  spindleBroadLow: number
+  spindleBroadHigh: number
+  spindleAmplitudeStdMultiplier: number
+  spindleMinSec: number
+  spindleMaxSec: number
+  spindleAdaptiveThresholdOverride?: number
   excludeArtifactEvents?: boolean
   artifactStatuses?: number[]
   artifactEpochSec?: number
@@ -100,6 +108,7 @@ export interface TriggerEvent {
 
 export interface TriggeredAverageResult {
   averagedEpoch: EpochData | null
+  rawEvents: TriggerEvent[]
   events: TriggerEvent[]
   rawEventCount: number
   excludedArtifactCount: number
@@ -362,21 +371,141 @@ function createNotchCoefficients(centerHz: number, sampleRate: number): BiquadCo
   }
 }
 
+function filterSignalWithBand(
+  signal: Float32Array,
+  sampleRate: number,
+  hp: number,
+  lp: number,
+  notch: number,
+): Float32Array {
+  let filtered = Float32Array.from(signal) as Float32Array
+
+  const hpCoeffs = createHighpassCoefficients(hp, sampleRate)
+  if (hpCoeffs) filtered = applyZeroPhaseBiquad(filtered, hpCoeffs) as Float32Array
+
+  const lpCoeffs = createLowpassCoefficients(lp, sampleRate)
+  if (lpCoeffs) filtered = applyZeroPhaseBiquad(filtered, lpCoeffs) as Float32Array
+
+  const notchCoeffs = createNotchCoefficients(notch, sampleRate)
+  if (notchCoeffs) filtered = applyBiquad(filtered, notchCoeffs) as Float32Array
+
+  return filtered
+}
+
+function smoothSignal(signal: Float32Array, smoothPoints: number): Float32Array {
+  const points = Math.max(1, Math.round(smoothPoints || 1))
+  if (points <= 1) return signal
+  const smoothed = new Float32Array(signal.length)
+  let running = 0
+  for (let i = 0; i < signal.length; i++) {
+    running += signal[i] ?? 0
+    if (i >= points) running -= signal[i - points] ?? 0
+    const denom = Math.min(i + 1, points)
+    smoothed[i] = running / Math.max(denom, 1)
+  }
+  return smoothed
+}
+
+function deriveSignal(signal: Float32Array): Float32Array {
+  const derived = new Float32Array(signal.length)
+  if (signal.length > 0) derived[0] = 0
+  for (let i = 1; i < signal.length; i++) {
+    derived[i] = (signal[i] ?? 0) - (signal[i - 1] ?? 0)
+  }
+  return derived
+}
+
+function computeSignalStd(signal: Float32Array): number {
+  if (signal.length === 0) return 0
+  let mean = 0
+  for (let i = 0; i < signal.length; i++) mean += signal[i] ?? 0
+  mean /= signal.length
+  let variance = 0
+  for (let i = 0; i < signal.length; i++) {
+    const delta = (signal[i] ?? 0) - mean
+    variance += delta * delta
+  }
+  variance /= signal.length
+  return Math.sqrt(Math.max(variance, 0))
+}
+
+export function computeAdaptiveStdThreshold(signal: Float32Array, multiplier: number): number {
+  if (signal.length === 0) return 0
+  return Math.max(0, multiplier) * computeSignalStd(signal)
+}
+
+function movingMeanSquare(signal: Float32Array, windowSamples: number): Float32Array {
+  const width = Math.max(1, Math.round(windowSamples))
+  const out = new Float32Array(signal.length)
+  let running = 0
+  for (let i = 0; i < signal.length; i++) {
+    const current = signal[i] ?? 0
+    running += current * current
+    if (i >= width) {
+      const previous = signal[i - width] ?? 0
+      running -= previous * previous
+    }
+    const denom = Math.min(i + 1, width)
+    out[i] = running / Math.max(denom, 1)
+  }
+  return out
+}
+
+function computeSpindleSignals(
+  signal: Float32Array,
+  sampleRate: number,
+  options: Pick<
+    TriggerAverageOptions,
+    | 'spindleSigmaLow'
+    | 'spindleSigmaHigh'
+    | 'spindleBroadLow'
+    | 'spindleBroadHigh'
+    | 'notch'
+    | 'triggerSmoothPoints'
+  >,
+): { scoreSignal: Float32Array; rmsSignal: Float32Array; relPowerSignal: Float32Array } {
+  const sigmaSignal = filterSignalWithBand(
+    signal,
+    sampleRate,
+    options.spindleSigmaLow,
+    options.spindleSigmaHigh,
+    options.notch,
+  )
+  const broadSignal = filterSignalWithBand(
+    signal,
+    sampleRate,
+    options.spindleBroadLow,
+    options.spindleBroadHigh,
+    options.notch,
+  )
+  const rmsWindowSamples = Math.max(1, Math.round(sampleRate * 0.3))
+  const powerWindowSamples = Math.max(1, Math.round(sampleRate * 1))
+  const sigmaMeanSquare = movingMeanSquare(sigmaSignal, rmsWindowSamples)
+  const rmsSignal = Float32Array.from(sigmaMeanSquare, (value) => Math.sqrt(Math.max(value, 0)))
+  const sigmaPower = movingMeanSquare(sigmaSignal, powerWindowSamples)
+  const broadPower = movingMeanSquare(broadSignal, powerWindowSamples)
+  const relPowerSignal = new Float32Array(signal.length)
+  const scoreSignal = new Float32Array(signal.length)
+  for (let i = 0; i < signal.length; i++) {
+    const sigmaPowerValue = sigmaPower[i] ?? 0
+    const broadPowerValue = broadPower[i] ?? 0
+    const relPower = sigmaPowerValue / Math.max(broadPowerValue, 1e-6)
+    relPowerSignal[i] = relPower
+    scoreSignal[i] = relPower
+  }
+  return {
+    scoreSignal: smoothSignal(scoreSignal, Math.max(1, Math.round(options.triggerSmoothPoints || 1))),
+    rmsSignal: smoothSignal(rmsSignal, Math.max(1, Math.round(options.triggerSmoothPoints || 1))),
+    relPowerSignal: smoothSignal(relPowerSignal, Math.max(1, Math.round(options.triggerSmoothPoints || 1))),
+  }
+}
+
 export function filterSignalForTrigger(
   signal: Float32Array,
   sampleRate: number,
   options: Pick<TriggerAverageOptions, 'hp' | 'lp' | 'notch' | 'rectifyTrigger' | 'triggerSmoothPoints' | 'triggerDerivativeAfterSmooth'>,
 ): Float32Array {
-  let filtered = Float32Array.from(signal) as Float32Array
-
-  const hpCoeffs = createHighpassCoefficients(options.hp, sampleRate)
-  if (hpCoeffs) filtered = applyZeroPhaseBiquad(filtered, hpCoeffs) as Float32Array
-
-  const lpCoeffs = createLowpassCoefficients(options.lp, sampleRate)
-  if (lpCoeffs) filtered = applyZeroPhaseBiquad(filtered, lpCoeffs) as Float32Array
-
-  const notchCoeffs = createNotchCoefficients(options.notch, sampleRate)
-  if (notchCoeffs) filtered = applyBiquad(filtered, notchCoeffs) as Float32Array
+  let filtered = filterSignalWithBand(signal, sampleRate, options.hp, options.lp, options.notch)
 
   if (options.rectifyTrigger) {
     const rectified = new Float32Array(filtered.length)
@@ -384,27 +513,8 @@ export function filterSignalForTrigger(
     filtered = rectified
   }
 
-  const smoothPoints = Math.max(1, Math.round(options.triggerSmoothPoints || 1))
-  if (smoothPoints > 1) {
-    const smoothed = new Float32Array(filtered.length)
-    let running = 0
-    for (let i = 0; i < filtered.length; i++) {
-      running += filtered[i] ?? 0
-      if (i >= smoothPoints) running -= filtered[i - smoothPoints] ?? 0
-      const denom = Math.min(i + 1, smoothPoints)
-      smoothed[i] = running / Math.max(denom, 1)
-    }
-    filtered = smoothed
-  }
-
-  if (options.triggerDerivativeAfterSmooth) {
-    const derived = new Float32Array(filtered.length)
-    if (filtered.length > 0) derived[0] = 0
-    for (let i = 1; i < filtered.length; i++) {
-      derived[i] = (filtered[i] ?? 0) - (filtered[i - 1] ?? 0)
-    }
-    filtered = derived
-  }
+  filtered = smoothSignal(filtered, options.triggerSmoothPoints)
+  if (options.triggerDerivativeAfterSmooth) filtered = deriveSignal(filtered)
 
   return filtered
 }
@@ -480,6 +590,99 @@ export function detectThresholdCrossings(
   return events
 }
 
+function detectSpindleEvents(
+  rmsSignal: Float32Array,
+  relPowerSignal: Float32Array,
+  sampleRate: number,
+  manualRmsThreshold: number,
+  amplitudeStdMultiplier: number,
+  minSec: number,
+  maxSec: number,
+  adaptiveThresholdOverride?: number,
+): TriggerEvent[] {
+  if (rmsSignal.length < 2 || relPowerSignal.length !== rmsSignal.length || sampleRate <= 0) return []
+  const rmsThreshold = Math.max(0, manualRmsThreshold)
+  const minSamples = Math.max(1, Math.round(Math.max(0, minSec) * sampleRate))
+  const maxSamples = Math.max(minSamples, Math.round(Math.max(minSec, maxSec) * sampleRate))
+  const maxGapSamples = Math.max(1, Math.round(sampleRate * 0.5))
+  const events: TriggerEvent[] = []
+  const adaptiveRmsThreshold = adaptiveThresholdOverride ?? computeAdaptiveStdThreshold(rmsSignal, amplitudeStdMultiplier)
+  const segmentPeakThreshold = Math.min(
+    Math.max(rmsThreshold, 0),
+    Math.max(adaptiveRmsThreshold, 0),
+  )
+
+  let segmentStart = -1
+  let lastActiveIndex = -1
+  for (let i = 0; i < rmsSignal.length; i++) {
+    const active = (rmsSignal[i] ?? 0) >= rmsThreshold
+    if (active && segmentStart < 0) {
+      segmentStart = i
+      lastActiveIndex = i
+      continue
+    }
+    if (active) {
+      lastActiveIndex = i
+      continue
+    }
+    if (!active && segmentStart >= 0 && i - lastActiveIndex > maxGapSamples) {
+      const segmentLength = lastActiveIndex - segmentStart + 1
+      let peakRms = 0
+      for (let j = segmentStart; j <= lastActiveIndex; j++) {
+        peakRms = Math.max(peakRms, rmsSignal[j] ?? 0)
+      }
+      if (
+        segmentLength >= minSamples &&
+        segmentLength <= maxSamples &&
+        peakRms >= segmentPeakThreshold
+      ) {
+        events.push({ sampleIndex: segmentStart, onsetSec: segmentStart / sampleRate })
+      }
+      segmentStart = -1
+      lastActiveIndex = -1
+    }
+  }
+  if (segmentStart >= 0 && lastActiveIndex >= segmentStart) {
+    const segmentLength = lastActiveIndex - segmentStart + 1
+    let peakRms = 0
+    for (let j = segmentStart; j <= lastActiveIndex; j++) {
+      peakRms = Math.max(peakRms, rmsSignal[j] ?? 0)
+    }
+    if (
+      segmentLength >= minSamples &&
+      segmentLength <= maxSamples &&
+      peakRms >= segmentPeakThreshold
+    ) {
+      events.push({ sampleIndex: segmentStart, onsetSec: segmentStart / sampleRate })
+    }
+  }
+  return events
+}
+
+export function computeTriggerPreviewSignal(
+  signal: Float32Array,
+  sampleRate: number,
+  options: Pick<
+    TriggerAverageOptions,
+    | 'detectionMode'
+    | 'hp'
+    | 'lp'
+    | 'notch'
+    | 'rectifyTrigger'
+    | 'triggerSmoothPoints'
+    | 'triggerDerivativeAfterSmooth'
+    | 'spindleSigmaLow'
+    | 'spindleSigmaHigh'
+    | 'spindleBroadLow'
+    | 'spindleBroadHigh'
+  >,
+): Float32Array {
+  if (options.detectionMode === 'spindle') {
+    return computeSpindleSignals(signal, sampleRate, options).rmsSignal
+  }
+  return filterSignalForTrigger(signal, sampleRate, options)
+}
+
 export function computeTriggeredAverage(
   epoch: EpochData,
   options: TriggerAverageOptions,
@@ -487,16 +690,30 @@ export function computeTriggeredAverage(
   const triggerIndex = epoch.channelNames.findIndex((name) => name === options.triggerChannelName)
   if (triggerIndex < 0 || epoch.nSamples <= 1 || epoch.sfreq <= 0) return null
 
-  const filteredTrigger = filterSignalForTrigger(epoch.data[triggerIndex], epoch.sfreq, options)
+  const filteredTrigger = computeTriggerPreviewSignal(epoch.data[triggerIndex], epoch.sfreq, options)
   const threshold = options.rectifyTrigger ? Math.abs(options.threshold) : options.threshold
-  const rawEvents = detectThresholdCrossings(
-    filteredTrigger,
-    epoch.sfreq,
-    threshold,
-    options.refractorySec,
-    options.detectionMode,
-    options.burstRearmFraction,
-  )
+  const rawEvents = options.detectionMode === 'spindle'
+    ? (() => {
+        const spindleSignals = computeSpindleSignals(epoch.data[triggerIndex], epoch.sfreq, options)
+        return detectSpindleEvents(
+          spindleSignals.rmsSignal,
+          spindleSignals.relPowerSignal,
+          epoch.sfreq,
+          threshold,
+          options.spindleAmplitudeStdMultiplier,
+          options.spindleMinSec,
+          options.spindleMaxSec,
+          options.spindleAdaptiveThresholdOverride,
+        )
+      })()
+    : detectThresholdCrossings(
+        filteredTrigger,
+        epoch.sfreq,
+        threshold,
+        options.refractorySec,
+        options.detectionMode,
+        options.burstRearmFraction,
+      )
 
   const preSamples = Math.max(0, Math.round(Math.max(0, options.preSec) * epoch.sfreq))
   const postSamples = Math.max(1, Math.round(Math.max(0, options.postSec) * epoch.sfreq))
@@ -524,6 +741,7 @@ export function computeTriggeredAverage(
   if (validEvents.length === 0) {
     return {
       averagedEpoch: null,
+      rawEvents,
       events: [],
       rawEventCount: rawEvents.length,
       excludedArtifactCount,
@@ -562,6 +780,7 @@ export function computeTriggeredAverage(
       nSamples: windowSamples,
       data: averagedData,
     },
+    rawEvents,
     events: validEvents,
     rawEventCount: rawEvents.length,
     excludedArtifactCount,

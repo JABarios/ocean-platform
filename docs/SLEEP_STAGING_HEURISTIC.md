@@ -435,7 +435,7 @@ Ganadora actual:
 - modelo:
   - **regresión logística multinomial regularizada**
 - validación:
-  - **leave-one-subject-out** sobre `5` sujetos `Sleep-EDF ST`
+  - **leave-one-subject-out** sobre `15` sujetos `Sleep-EDF ST`
 - clases:
   - `Wake`
   - `N1/REM-like`
@@ -458,29 +458,31 @@ Subset de features vencedor:
 - `frontCentralDelta`
 - `hjorthMobility`
 - `hjorthComplexity`
+- `permutationEntropy`
+- `spindleEventCount`
 
 Métricas de esta versión vencedora:
 
-- `accuracy = 66.97%`
-- `kappa = 0.553`
+- `accuracy = 70.17%`
+- `kappa = 0.596`
 
 Comparación de subsets con logística:
 
-- `spectral_plus_hjorth`:
-  - `accuracy = 66.97%`
-  - `kappa = 0.553`
+- `spectral_plus_hjorth_plus_perm_spindlecount`:
+  - `accuracy = 70.17%`
+  - `kappa = 0.596`
+- `spectral_plus_hjorth_plus_perm`:
+  - `accuracy = 70.02%`
+  - `kappa = 0.595`
 - `all`:
-  - `accuracy = 65.69%`
-  - `kappa = 0.536`
-- `compact_best_guess`:
-  - `accuracy = 65.56%`
-  - `kappa = 0.535`
-- `fast_vs_slow`:
-  - `accuracy = 65.43%`
-  - `kappa = 0.534`
-- `spectral_core`:
-  - `accuracy = 64.28%`
-  - `kappa = 0.517`
+  - `accuracy = 69.64%`
+  - `kappa = 0.590`
+- `spectral_plus_hjorth_plus_perm_spindle`:
+  - `accuracy = 69.54%`
+  - `kappa = 0.589`
+- `spectral_plus_hjorth`:
+  - `accuracy = 68.52%`
+  - `kappa = 0.576`
 
 Lectura práctica:
 
@@ -489,6 +491,10 @@ Lectura práctica:
   decidir estadio
 - `Hjorth Complexity` sí aporta valor real al combinarse con el núcleo
   espectral
+- `Permutation Entropy` añade señal independiente y empuja con claridad por
+  encima del mejor subset previo solo con espectro + Hjorth
+- `spindleEventCount` mejora `N2` de forma modesta pero consistente cuando se
+  añade a `spectral_plus_hjorth_plus_perm`
 - `fmd4to12` sola no domina el problema de 4 clases, pero sigue ayudando en
   combinación
 
@@ -496,11 +502,12 @@ Ranking univariante orientativo con logística:
 
 1. `relBeta`
 2. `hjorthComplexity`
-3. `relTheta`
-4. `relDelta`
-5. `frontCentralDelta`
-6. `relSigma`
-7. `hjorthMobility`
+3. `permutationEntropy`
+4. `relTheta`
+5. `relDelta`
+6. `frontCentralDelta`
+7. `relSigma`
+8. `hjorthMobility`
 
 ## Qué Significa Y Qué No
 
@@ -522,12 +529,20 @@ No significa:
 
 Límites actuales del benchmark:
 
-- solo `5` sujetos `Sleep-EDF ST`
+- solo `15` sujetos `Sleep-EDF ST`
 - sin ajuste fino de hiperparámetros más allá de regularización básica
 - sin selección automática de features
 - sin búsqueda de interacciones no lineales
 - sin calibración probabilística posterior
 - sin validación en otras cohortes o poblaciones clínicas
+
+Nota de integración:
+
+- el **benchmark ganador actual** ya usa `permutationEntropy` y
+  `spindleEventCount`
+- el modelo fijo embebido para salida logística/WASM puede actualizarse a esta
+  nueva variante, pero el benchmark y la integración embebida deben entenderse
+  como pasos separados
 
 En otras palabras:
 

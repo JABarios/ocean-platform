@@ -8,7 +8,16 @@ interface CachedEncryptedPackageRecord {
   caseId: string
   sizeBytes: number
   savedAt: number
+  label?: string
   payload: Blob | ArrayBuffer
+}
+
+export interface CachedEncryptedPackageSummary {
+  blobHash: string
+  caseId: string
+  sizeBytes: number
+  savedAt: number
+  label?: string
 }
 
 function supportsEncryptedPackageCache(): boolean {
@@ -87,6 +96,40 @@ async function deleteEncryptedPackage(blobHash: string): Promise<void> {
   })
 }
 
+export async function listEncryptedPackagesFromCache(): Promise<CachedEncryptedPackageSummary[]> {
+  const records = await listCachedRecords()
+  return records
+    .map((record) => ({
+      blobHash: record.blobHash,
+      caseId: record.caseId,
+      sizeBytes: record.sizeBytes,
+      savedAt: record.savedAt,
+      label: record.label,
+    }))
+    .sort((a, b) => b.savedAt - a.savedAt)
+}
+
+export async function getEncryptedPackageSummaryFromCache(blobHash: string): Promise<CachedEncryptedPackageSummary | null> {
+  if (!blobHash) return null
+  const record = await withStore<CachedEncryptedPackageRecord | null>('readonly', (store, done, fail) => {
+    const request = store.get(blobHash)
+    request.onsuccess = () => done((request.result as CachedEncryptedPackageRecord | undefined) ?? null)
+    request.onerror = () => fail(request.error)
+  })
+  if (!record) return null
+  return {
+    blobHash: record.blobHash,
+    caseId: record.caseId,
+    sizeBytes: record.sizeBytes,
+    savedAt: record.savedAt,
+    label: record.label,
+  }
+}
+
+export async function deleteEncryptedPackageFromCache(blobHash: string): Promise<void> {
+  await deleteEncryptedPackage(blobHash)
+}
+
 async function pruneEncryptedPackageCache(): Promise<void> {
   const records = await listCachedRecords()
   let totalBytes = records.reduce((sum, record) => sum + (record.sizeBytes || 0), 0)
@@ -104,9 +147,10 @@ export async function saveEncryptedPackageToCache(params: {
   blobHash: string
   caseId: string
   sizeBytes?: number
+  label?: string
   payload: ArrayBuffer
 }): Promise<void> {
-  const { blobHash, caseId, sizeBytes, payload } = params
+  const { blobHash, caseId, sizeBytes, label, payload } = params
   if (!blobHash || payload.byteLength === 0) return
 
   await withStore<void>('readwrite', (store, done, fail) => {
@@ -115,6 +159,7 @@ export async function saveEncryptedPackageToCache(params: {
       caseId,
       sizeBytes: sizeBytes ?? payload.byteLength,
       savedAt: Date.now(),
+      label,
       payload: new Blob([payload], { type: 'application/octet-stream' }),
     }
     const request = store.put(record)

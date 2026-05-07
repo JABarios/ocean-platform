@@ -261,6 +261,7 @@ cd frontend && npm test
 ```
 
 Suites: Login, Dashboard, CaseNew, CaseDetail, api.client, EEGViewer.utils, edfAnonymization y edfAnnotations. La suite `EEGViewer.utils` cubre ya la lógica del promediador desencadenado (`Trigger Avg`), incluyendo detección `event`/`burst`/`spindle`, borde de ventana, artefactos y estabilidad básica del flujo.
+En `kappa`, además existen tests sintéticos compartidos para validar el staging heurístico por `FMD`, la distinción entre sigma continua y husos discretos, y una noche sintética completa reestadiada de extremo a extremo.
 
 ### EEG Viewer
 
@@ -283,6 +284,7 @@ Suites: Login, Dashboard, CaseNew, CaseDetail, api.client, EEGViewer.utils, edfA
 - El DSA incluye un modo ampliado y barras debug derivadas de `SleepSketch` (`δ/θ/α/σ/β`, `F4-12`, `Valid`, `Spn`, `Arou`, `Conf`, `Hyp`) para inspección heurística del sueño.
 - `Hyp` ya no usa solo el staging bruto del DSA: cuando hay `SleepSketch`, el visor usa la heurística basada en `fmd_4_12` expuesta por WASM y remuestrea sus etiquetas a la rejilla del DSA si ambas longitudes no coinciden exactamente.
 - La heurística de sueño toma como referencia la mediana limpia de `fmd_4_12` del propio registro (`N2`), con cortes relativos para `N1`, `Wake` y `N3`; la especificación viva está en `docs/SLEEP_STAGING_HEURISTIC.md`.
+- `spindleSupportFraction` ya no depende de sigma sostenida a nivel de época: usa elevaciones locales `sigma/broadband RMS` por bloques limpios de `2 s`, para que el apoyo a `N2` responda mejor a husos discretos que a un simple tono sigma continuo.
 - El panel DSA incluye un botón `Hipnograma` que abre una ventana emergente con la banda `Hyp` aislada y recuentos explícitos `W / N1 / N2 / N3 / ?`.
 - El visor permite una revisión visual rápida de la máscara de artefactos sobre la propia traza con la tecla `R`: `suspect` en amarillo y `rejected` en rojo, solo sobre canales EEG.
 - El visor lee anotaciones EDF+ embebidas (`extractEdfAnnotations`) y puede mostrarlas en un panel lateral, además de marcarlas con ticks en la barra temporal inferior.

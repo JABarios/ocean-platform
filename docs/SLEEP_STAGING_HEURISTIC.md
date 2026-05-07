@@ -130,6 +130,31 @@ El resto quedan como apoyo:
 - `arousalFraction`: dato a favor de `N1 / Activated`
 - `peakHz`: auxiliar de debug, no criterio principal
 
+## Soporte De Husos
+
+`spindleSupportFraction` ya no intenta inferir husos a partir de una sigma
+sostenida a lo largo de toda la época.
+
+Ahora trabaja por bloques limpios de `2 s` y busca **elevaciones locales**
+compatibles con ráfagas discretas:
+
+- se calcula un `sigmaRmsRatio` por bloque
+- `sigmaRmsRatio = RMS(sigma 11–16 Hz) / RMS(banda 1–30 Hz)`
+- un bloque cuenta como spindle-like si rompe al alza la mediana de ese ratio
+  dentro de la propia época, y además mantiene:
+  - `relBeta` baja
+  - `fmd_4_12` no rápida
+
+Esto evita confundir:
+
+- `sigma` continua o tónica
+- con husos reales, breves y waxing-waning
+
+En el staging, `spindleSupportFraction` no manda sobre `fmd_4_12`, pero sí:
+
+- puede empujar casos fronterizos `N1 ↔ N2` hacia `N2-like`
+- y aumenta la confianza de `N2-like` cuando hay husos discretos compatibles
+
 ## Motivo de diseño
 
 Esta heurística está pensada para:
@@ -156,3 +181,17 @@ El visor muestra:
 
 con los labels ya remuestreados a la rejilla del DSA cuando el número de
 épocas no coincide exactamente.
+
+## Validación Sintética
+
+La heurística ya no está validada solo a ojo en el visor.
+
+En `kappa/tests/` existen ahora:
+
+- tests sintéticos por fase aislada (`Wake`, `N1`, `N2`, `N3`)
+- tests de sigma continua frente a husos discretos
+- una noche sintética larga con reestadiaje completo
+
+La noche sintética canónica comprueba que el sistema puede reconstruir una
+secuencia completa `Wake → N1 → N2 → N3 → N2 → N1 → Wake` con alta
+consistencia, usando el mismo pipeline real de `SleepSketch`.

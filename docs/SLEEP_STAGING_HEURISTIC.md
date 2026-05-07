@@ -14,6 +14,11 @@ La salida actual del visor usa cinco clases:
 - `N3-like`
 - `Unreliable`
 
+Limitación actual importante:
+
+- Con el montaje y pipeline actuales para este hipnograma heurístico (`EEG` central, sin `EOG` ni `EMG`), **no se intenta separar `REM` como clase propia**.
+- Los tramos tipo `REM` deben caer, como mucho, en la zona **`N1 / Activated`** o en **`Unreliable`**, pero no contaminar `N2-like`.
+
 ## Principio central
 
 La referencia del registro es la **mediana limpia de `fmd_4_12`**.
@@ -110,6 +115,7 @@ Features exportadas por época:
 - `suspectFraction`
 - `rejectedFraction`
 - `spindleSupportFraction`
+- `slowWaveFraction`
 - `arousalFraction`
 - `confidence`
 
@@ -125,10 +131,43 @@ Una época pasa a `Unreliable` si:
 El resto quedan como apoyo:
 
 - `relDelta`, `frontCentralDelta`: sostienen `N3-like`
+- `slowWaveFraction`: cuantifica cuántos subbloques limpios de `2 s` están
+  dominados por lentitud compatible con sueño profundo
 - `relBeta`, `posteriorAlpha`: ayudan a distinguir activación rápida
 - `spindleSupportFraction`: dato a favor de `N2-like`
 - `arousalFraction`: dato a favor de `N1 / Activated`
 - `peakHz`: auxiliar de debug, no criterio principal
+
+## Carga Lenta Y Separación N2/N3
+
+`N2` y `N3` no se separan por una regla simplista de “hay husos / no hay
+husos”.
+
+En sueño real:
+
+- `N2` puede contener complejos `K` y lentitud ocasional
+- `N3` puede seguir conteniendo husos débiles u ocasionales
+
+Por eso la implementación actual introduce `slowWaveFraction`:
+
+- fracción de bloques limpios de `2 s`
+- con `relDelta` claramente alta
+- y `relBeta` baja
+
+La idea fisiológica es:
+
+- `N2-like`: lentitud presente pero no dominante en la mayor parte de la época
+- `N3-like`: lentitud dominante en una fracción sustancial de la época
+
+En la heurística actual:
+
+- `N3-like` exige no solo `fmd` baja y delta frontal/central alta
+- también una `slowWaveFraction` suficiente
+
+Esto permite:
+
+- que `N2` tolere complejos `K`
+- que `N3` siga siendo `N3` aunque conserve husos ocasionales
 
 ## Soporte De Husos
 
@@ -191,6 +230,11 @@ En `kappa/tests/` existen ahora:
 - tests sintéticos por fase aislada (`Wake`, `N1`, `N2`, `N3`)
 - tests de sigma continua frente a husos discretos
 - una noche sintética larga con reestadiaje completo
+- una noche sintética de `70` épocas con artefactos musculares y de
+  movimiento inyectados a propósito
+- tests específicos donde:
+  - `N2` conserva su clase pese a lentitud ocasional tipo complejo `K`
+  - `N3` conserva su clase pese a husos débiles u ocasionales
 
 La noche sintética canónica comprueba que el sistema puede reconstruir una
 secuencia completa `Wake → N1 → N2 → N3 → N2 → N1 → Wake` con alta

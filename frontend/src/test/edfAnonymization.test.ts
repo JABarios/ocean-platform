@@ -46,10 +46,18 @@ describe('EDF anonymization', () => {
     const { anonymizedFile, report } = await anonymizeEdfFile(source)
 
     expect(report.format).toBe('EDF+')
+    expect(report.originalFilename).toBe('sample.edf')
+    expect(report.anonymizedFilename).toMatch(/^ocean_local_deid_\d{14}\.edf$/)
+    expect(anonymizedFile.name).toBe(report.anonymizedFilename)
     expect(report.patientFieldChanged).toBe(true)
     expect(report.recordingFieldChanged).toBe(true)
     expect(report.startDateChanged).toBe(true)
     expect(report.startTimeChanged).toBe(true)
+    expect(report.reviewedFields).toHaveLength(4)
+    expect(report.annotationReview.totalAnnotations).toBe(0)
+    expect(report.certificate.uploadedFilename).toBe(report.anonymizedFilename)
+    expect(report.certificate.notes[0]).toMatch(/archivo original no se sube/i)
+    expect(report.anonymizedSha256).toMatch(/^[0-9a-f]{64}$/)
 
     await expect(readTextSlice(anonymizedFile, 8, 80)).resolves.toContain('X X X X')
     await expect(readTextSlice(anonymizedFile, 88, 80)).resolves.toContain('Startdate X X X X')
@@ -73,5 +81,26 @@ describe('EDF anonymization', () => {
     writeFixedAscii(brokenBuffer, 252, 4, '20')
     const inconsistent = new File([brokenBuffer], 'broken.edf', { type: 'application/octet-stream' })
     await expect(anonymizeEdfFile(inconsistent)).rejects.toThrow(/Cabecera EDF incoherente/)
+  })
+
+  it('elimina las anotaciones EDF+ por defecto en la política de desidentificación', async () => {
+    const source = buildFakeEdf({ numSignals: 2 })
+    const { report } = await anonymizeEdfFile(source)
+
+    expect(report.annotationReview.modeApplied).toBe('remove')
+    expect(report.annotationReview.preservedCount).toBe(0)
+    expect(report.annotationReview.requiresManualReview).toBe(false)
+    expect(report.certificate.notes.join(' ')).toMatch(/anotaciones edf\+ se eliminan/i)
+  })
+
+  it('puede informar del modo clínico filtrado para anotaciones EDF+', async () => {
+    const source = buildFakeEdf({ numSignals: 2 })
+    const { report } = await anonymizeEdfFile(source, { annotationMode: 'clinical' })
+
+    expect(report.annotationReview.modeApplied).toBe('clinical')
+    expect(report.annotationReview.totalAnnotations).toBe(0)
+    expect(report.annotationReview.preservedCount).toBe(0)
+    expect(report.annotationReview.removedCount).toBe(0)
+    expect(report.certificate.notes.join(' ')).toMatch(/lista blanca local/i)
   })
 })

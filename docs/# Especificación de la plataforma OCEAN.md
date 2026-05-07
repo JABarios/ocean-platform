@@ -13,7 +13,12 @@
 Este texto nació como borrador temprano. Hoy conviene leerlo junto a este resumen del estado real de la plataforma:
 
 - OCEAN ya dispone de **visor EEG web**.
-- La subida web **anonimiza la cabecera EDF antes del cifrado**.
+- La subida web realiza **desidentificación local verificable** antes del cifrado:
+  - reescribe campos directos de cabecera EDF,
+  - nunca sube el archivo original,
+  - permite tratar anotaciones EDF+ en local (`eliminar`, `sustituir`, o `conservar solo etiquetas clínicas conocidas`),
+  - y genera un **certificado JSON** con hash y trazabilidad básica del proceso.
+- Tras esa desidentificación, OCEAN **cifra la copia local antes de subirla**; el servidor almacena solo el blob cifrado y no el EDF legible.
 - El visor guarda su estado por usuario y EEG, y reutiliza **caché local del paquete cifrado**.
 - Existe **custodia de la clave EEG en OCEAN**, recuperable con contraseña del usuario; el propietario puede volver a revelarla.
 - Los EEGs ya no viven solo pegados a un caso: existe una entidad **`EegRecord` reutilizable** con deduplicación por hash.
@@ -30,6 +35,25 @@ Este documento define las especificaciones de la plataforma **OCEAN**, entendida
 KAPPA será la estación de trabajo local: abrir, revisar, filtrar, cuantificar, anonimizar y preparar casos.
 
 OCEAN será la capa de coordinación y colaboración: identidad, permisos, peticiones de revisión, entrega de casos, discusión, recomendaciones y curación docente.
+
+### 1.1 Nota de alcance sobre anonimización
+
+La implementación actual de OCEAN debe presentarse como **desidentificación local verificable**, no como anonimización absoluta garantizada.
+
+En concreto:
+
+- el archivo EDF original **no sale del navegador**;
+- OCEAN genera una **copia desidentificada local** antes del cifrado y de la subida;
+- esa copia se **cifra en el navegador** antes de enviarse a OCEAN;
+- la interfaz muestra al usuario qué campos de cabecera se han reescrito y cómo se han tratado las anotaciones EDF+;
+- el proceso genera un certificado local con versión, fecha, campos revisados y `SHA-256` de la copia resultante.
+
+Estas dos capas cumplen funciones distintas y complementarias:
+
+- la **desidentificación** reduce el riesgo de reidentificación si el contenido llegara a verse;
+- el **cifrado cliente** reduce el riesgo de acceso no autorizado durante almacenamiento, transporte y compartición del blob.
+
+Esto reduce de forma importante el riesgo de reidentificación, pero **no elimina todo riesgo residual**. La valoración final sobre si un EEG concreto puede considerarse suficientemente anónimo depende del contexto, del contenido clínico residual y del marco de uso.
 
 La idea central no es crear un repositorio masivo indiscriminado de EEG, sino un **sistema de peticiones de revisión de casos**, con trazabilidad y una capa superior de conocimiento compartido. Sobre esa base, la implementación actual añade visor web, EEGs reutilizables y galerías curadas.
 

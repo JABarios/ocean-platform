@@ -238,7 +238,15 @@ sudo bash ocean-platform/scripts/install-new-machine.sh
 ### Excepción: microweb `share`
 
 - `POST /shared-links/upload` es público y no requiere login.
-- La pantalla `'/share'` / `'/shared/new'` anonimiza y cifra el EDF en cliente antes de subirlo.
+- La pantalla `'/share'` / `'/shared/new'` realiza **desidentificación local verificable** y cifra el EDF en cliente antes de subirlo.
+- El archivo original **no se sube**: solo se cifra y se envía la copia desidentificada local.
+- El cifrado cliente es una segunda capa distinta de la desidentificación: protege la confidencialidad del blob en tránsito y almacenamiento, mientras la desidentificación reduce el riesgo de reidentificación del contenido.
+- La desidentificación local actual:
+  - reescribe campos directos de cabecera EDF,
+  - permite tratar anotaciones EDF+ con tres políticas: `remove`, `replace`, `clinical`,
+  - y genera un certificado JSON descargable con `SHA-256`, campos revisados y modo aplicado.
+- La política `clinical` conserva solo anotaciones cortas de una lista blanca local de etiquetas clínicas conocidas (`HV`, `HPV`, `ELI`, `EO`, `EC`, `photic`, `spindle`, `crisis`, etc.) y elimina el resto.
+- No debe describirse esto como “anonimización garantizada”, sino como reducción del riesgo de reidentificación con **riesgo residual dependiente del contexto**.
 - El receptor abre `'/v/:sharedId#clave'` sin autenticarse; la clave viaja solo en el fragmento `#`.
 - Si el frontend se sirve desde un host que empiece por `share.`, la ruta raíz `/` abre directamente la pantalla pública de compartir.
 
@@ -305,7 +313,7 @@ En `kappa`, además existen tests sintéticos compartidos para validar el stagin
 - `Trigger Avg` puede crear **marcas locales del visor** a partir de los eventos detectados (`Marcar eventos`). Estas marcas no modifican el EDF.
 - La exclusión de artefactos del promediador usa la máscara del visor/WASM y excluye eventos que caen en épocas `rejected`.
 - El visor soporta un **cursor temporal azul fijable con clic**. El doble clic recentra la vista en ese instante. Si se cambia el barrido/ventana con un cursor fijado, la nueva época se recalcula para centrar ese momento y luego la marca desaparece.
-- La subida web anonimiza cabeceras EDF antes del cifrado.
+- La subida web reescribe cabeceras EDF antes del cifrado y puede además eliminar, sustituir o filtrar anotaciones EDF+ en local según la política elegida por el usuario.
 - Parte de la lógica pura del visor vive en `frontend/src/pages/eegViewerUtils.ts` y está cubierta con tests unitarios (montajes, colores, tiempo real, hover de metadata, regla DSA→Artefactos).
 - Si se cambia `src/wasm/kappa_wasm.cpp` en `kappa`, hay que recompilar con `./build_wasm.sh` y refrescar los binarios de `frontend/public/wasm/`.
 

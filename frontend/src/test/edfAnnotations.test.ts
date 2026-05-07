@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractEdfAnnotations } from '../utils/edfAnnotations'
+import { extractEdfAnnotations, rewriteEdfAnnotations } from '../utils/edfAnnotations'
 
 function writeFixedAscii(target: Uint8Array, offset: number, length: number, value: string) {
   const normalized = value.slice(0, length).padEnd(length, ' ')
@@ -112,5 +112,43 @@ describe('EDF annotations', () => {
   it('rechaza EDF truncados en la zona de datarecords', () => {
     const truncated = buildFakeEdfWithAnnotations().slice(0, -10)
     expect(() => extractEdfAnnotations(truncated)).toThrow(/EDF truncado/)
+  })
+
+  it('puede eliminar el texto de las anotaciones EDF+ preservando la estructura', () => {
+    const bytes = buildFakeEdfWithAnnotations()
+    const rewritten = rewriteEdfAnnotations(bytes, 'remove')
+
+    expect(rewritten.annotationsFound).toBe(2)
+    expect(rewritten.removedEntries).toBe(2)
+    expect(rewritten.preservedEntries).toBe(0)
+    expect(extractEdfAnnotations(rewritten.bytes)).toEqual([])
+  })
+
+  it('puede sustituir el texto de las anotaciones EDF+ por una marca neutra', () => {
+    const bytes = buildFakeEdfWithAnnotations()
+    const rewritten = rewriteEdfAnnotations(bytes, 'replace', 'ANNOTATION REDACTED')
+
+    expect(extractEdfAnnotations(rewritten.bytes)).toEqual([
+      { onsetSec: 0.5, durationSec: -1, text: 'ANNOTATION REDACTED' },
+      { onsetSec: 1.25, durationSec: 0.75, text: 'ANNOTATION REDACTED' },
+    ])
+  })
+
+  it('puede conservar solo etiquetas clínicas conocidas y eliminar el resto', () => {
+    const bytes = buildFakeEdfWithAnnotations()
+    const original = extractEdfAnnotations(bytes)
+    expect(original).toEqual([
+      { onsetSec: 0.5, durationSec: -1, text: 'Evento alfa' },
+      { onsetSec: 1.25, durationSec: 0.75, text: 'Crisis' },
+    ])
+
+    const rewritten = rewriteEdfAnnotations(bytes, 'clinical')
+
+    expect(rewritten.annotationsFound).toBe(2)
+    expect(rewritten.preservedEntries).toBe(1)
+    expect(rewritten.removedEntries).toBe(1)
+    expect(extractEdfAnnotations(rewritten.bytes)).toEqual([
+      { onsetSec: 1.25, durationSec: 0.75, text: 'Crisis' },
+    ])
   })
 })

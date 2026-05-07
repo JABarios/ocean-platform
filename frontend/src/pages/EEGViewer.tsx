@@ -100,8 +100,12 @@ interface KappaInstance {
     rejectedFraction: Float32Array
     spindleSupportFraction: Float32Array
     arousalFraction: Float32Array
+    hjorthMobility: Float32Array
+    hjorthComplexity: Float32Array
     labels: number[]
     confidence: Float32Array
+    logisticLabels: number[]
+    logisticConfidence: Float32Array
   } | null
 }
 
@@ -258,8 +262,12 @@ interface SleepSketchTimelineData {
   rejectedFraction: Float32Array
   spindleSupportFraction: Float32Array
   arousalFraction: Float32Array
+  hjorthMobility?: Float32Array
+  hjorthComplexity?: Float32Array
   labels: number[]
   confidence: Float32Array
+  logisticLabels?: number[]
+  logisticConfidence?: Float32Array
 }
 
 interface PersistedTriggerAverageSettings {
@@ -348,6 +356,16 @@ function canonicalizeRawChannelLabel(name: string): string {
     P8: 'T6',
   }
   return aliases[canonical.toUpperCase()] ?? canonical
+}
+
+function getSleepSketchStageLabels(data?: SleepSketchTimelineData | null): number[] {
+  if (data?.logisticLabels?.length) return data.logisticLabels
+  return data?.labels?.length ? data.labels : []
+}
+
+function getSleepSketchConfidence(data?: SleepSketchTimelineData | null): Float32Array | undefined {
+  if (data?.logisticConfidence?.length) return data.logisticConfidence
+  return data?.confidence?.length ? data.confidence : undefined
 }
 
 function resolveTriggerSourceChannelIndex(triggerChannelName: string, channelLabels: string[]): number {
@@ -1036,8 +1054,9 @@ function DSAHeatmap({
       ctx.fillText('Artef.', 2, triggerAnnH + artifactH - 3)
     }
 
-    const stageSource = sleepSketchData?.labels?.length
-      ? remapEpochValues(sleepSketchData.labels, data.nEpochs)
+    const sleepSketchLabels = getSleepSketchStageLabels(sleepSketchData)
+    const stageSource = sleepSketchLabels.length
+      ? remapEpochValues(sleepSketchLabels, data.nEpochs)
       : data.stages
     const stageCounts = stageSource.reduce<Record<number, number>>((acc, label) => {
       acc[label] = (acc[label] ?? 0) + 1
@@ -1046,14 +1065,14 @@ function DSAHeatmap({
     for (let ep = 0; ep < data.nEpochs; ep++) {
       const x1 = plotX + Math.floor((ep * plotW) / data.nEpochs)
       const x2 = plotX + Math.floor(((ep + 1) * plotW) / data.nEpochs)
-      ctx.fillStyle = sleepSketchData?.labels?.length
+      ctx.fillStyle = sleepSketchLabels.length
         ? sleepSketchLabelColor(stageSource[ep] ?? 4)
         : stageColor(stageSource[ep] ?? 0)
       ctx.fillRect(x1, triggerAnnH + artifactH, Math.max(1, x2 - x1), stageH)
     }
     ctx.strokeStyle = '#111827'
     ctx.strokeRect(plotX, triggerAnnH + artifactH, plotW, stageH)
-    if (sleepSketchData?.labels?.length) {
+    if (sleepSketchLabels.length) {
       const legendY = triggerAnnH + artifactH + stageH - 3
       ctx.font = expanded ? '10px monospace' : '8px monospace'
       ctx.fillStyle = '#f8fafc'
@@ -1122,7 +1141,7 @@ function DSAHeatmap({
       { label: 'Valid', values: sleepSketchData?.validFraction, stroke: '#0f766e', fill: 'rgba(15,118,110,0.08)', kind: 'trace' as const },
       { label: 'Spn', values: sleepSketchData?.spindleSupportFraction, stroke: '#2563eb', fill: 'rgba(37,99,235,0.08)', kind: 'trace' as const },
       { label: 'Arou', values: sleepSketchData?.arousalFraction, stroke: '#ea580c', fill: 'rgba(234,88,12,0.08)', kind: 'trace' as const },
-      { label: 'Conf', values: sleepSketchData?.confidence, stroke: '#111827', fill: 'rgba(15,23,42,0.06)', kind: 'trace' as const },
+      { label: 'Conf', values: getSleepSketchConfidence(sleepSketchData), stroke: '#111827', fill: 'rgba(15,23,42,0.06)', kind: 'trace' as const },
       { label: 'Hyp', values: stageSource, stroke: '#64748b', fill: 'rgba(100,116,139,0.08)', kind: 'stage' as const },
     ]
 
@@ -1134,7 +1153,7 @@ function DSAHeatmap({
         for (let ep = 0; ep < data.nEpochs; ep++) {
           const x1 = plotX + Math.floor((ep * plotW) / data.nEpochs)
           const x2 = plotX + Math.floor(((ep + 1) * plotW) / data.nEpochs)
-          ctx.fillStyle = sleepSketchData?.labels?.length
+          ctx.fillStyle = sleepSketchLabels.length
             ? sleepSketchLabelColor((metric.values[ep] ?? 4) as number)
             : stageColor((metric.values[ep] ?? 0) as number)
           ctx.fillRect(x1, y, Math.max(1, x2 - x1), metricH)
@@ -1367,8 +1386,9 @@ function HypnogramModal({
     const wrap = wrapRef.current
     if (!canvas || !wrap || !dsaData) return
 
-    const labels = sleepSketchData?.labels?.length
-      ? remapEpochValues(sleepSketchData.labels, dsaData.nEpochs)
+    const sleepSketchLabels = getSleepSketchStageLabels(sleepSketchData)
+    const labels = sleepSketchLabels.length
+      ? remapEpochValues(sleepSketchLabels, dsaData.nEpochs)
       : dsaData.stages
     const width = Math.max(900, wrap.clientWidth || 900)
     const height = 240

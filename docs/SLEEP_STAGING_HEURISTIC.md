@@ -239,3 +239,298 @@ En `kappa/tests/` existen ahora:
 La noche sintética canónica comprueba que el sistema puede reconstruir una
 secuencia completa `Wake → N1 → N2 → N3 → N2 → N1 → Wake` con alta
 consistencia, usando el mismo pipeline real de `SleepSketch`.
+
+## Validación Real En Sleep-EDF ST
+
+Además de la batería sintética, la heurística se ha contrastado contra `5`
+sujetos reales del subconjunto `Sleep-EDF Telemetry (ST)` usando solo el canal
+`EEG Fpz-Cz` y comparando contra el hipnograma experto por épocas de `30 s`.
+
+Importante:
+
+- `REM` no se puntúa como clase propia
+- `N1` no se puntúa como exactitud primaria
+- la comparación agregada principal se hace sobre:
+  - `Wake`
+  - `N2`
+  - `N3`
+
+Resultado agregado actual:
+
+- exactitud global `Wake/N2/N3`: `311 / 551 = 56.4%`
+- `Cohen's kappa`: `0.377`
+
+Desglose por clase:
+
+- `Wake`: `63 / 95`
+- `N2`: `125 / 233`
+- `N3`: `123 / 223`
+
+Kappa por sujeto:
+
+- `ST7012`: `0.299`
+- `ST7021`: `0.279`
+- `ST7022`: `0.288`
+- `ST7041`: `0.594`
+- `ST7051`: `0.373`
+
+Matriz de confusión agregada (`filas = experto`, `columnas = KAPPA`), agrupando
+`N1Activated` y demás salidas no puntuadas como `Other`:
+
+- `Wake (95)`:
+  - `Wake = 63`
+  - `N2 = 6`
+  - `N3 = 7`
+  - `Other = 19`
+- `N2 (233)`:
+  - `Wake = 27`
+  - `N2 = 125`
+  - `N3 = 34`
+  - `Other = 47`
+- `N3 (223)`:
+  - `Wake = 25`
+  - `N2 = 57`
+  - `N3 = 123`
+  - `Other = 18`
+
+Lectura práctica del benchmark real:
+
+- `Wake` ya no falla de forma aleatoria; el error dominante es `Wake -> N1/Other`
+- `N2` sufre sobre todo por fuga a `N1/Other`, y en segundo lugar a `N3`
+- `N3` se confunde principalmente con `N2`
+
+Esto justifica la evolución actual de la heurística:
+
+- `FMD` sigue siendo el eje principal
+- `relTheta`, `relBeta` y `Hjorth Mobility/Complexity` corrigen fronteras
+- `slowWaveFraction` se mantiene como apoyo, pero no como puerta dura, porque en
+  `Sleep-EDF ST` todavía discrimina peor de lo esperado
+
+Evolución medida en `Sleep-EDF ST`:
+
+1. heurística inicial:
+   - `254 / 551`
+   - `46.1%`
+2. heurística multivariable v1:
+   - `310 / 551`
+   - `56.3%`
+3. heurística actual:
+   - `311 / 551`
+   - `56.4%`
+   - `kappa = 0.377`
+
+## Clasificador Supervisado De Referencia
+
+Además del estadiaje heurístico manual, existe ya un benchmark supervisado
+basado en **regresión logística multinomial regularizada** evaluado sobre los
+mismos `5` sujetos `Sleep-EDF ST`.
+
+Importante:
+
+- este modelo nació como benchmark supervisado y ahora puede alimentar el
+  `Hyp` del visor como modo principal experimental
+- sigue actuando como referencia para saber hasta dónde puede llegar un clasificador
+  simple usando exactamente las mismas features por época
+- la validación se hace en modo **leave-one-subject-out**:
+  - se entrena con `4` sujetos
+  - se prueba sobre el quinto
+
+Clases usadas por este benchmark:
+
+- `Wake`
+- `N1/REM-like`
+- `N2`
+- `N3`
+
+El colapso `N1 + REM` en una sola clase es deliberado:
+
+- con `EEG Fpz-Cz` solo
+- y sin `EOG/EMG`
+- no es honesto exigir una separación robusta `N1` vs `REM`
+
+Features usadas por época:
+
+- `relDelta`
+- `relTheta`
+- `relAlpha`
+- `relSigma`
+- `relBeta`
+- `fmd4to12`
+- `thetaAlphaRatio`
+- `deltaAlphaRatio`
+- `posteriorAlpha`
+- `frontCentralDelta`
+- `validFraction`
+- `suspectFraction`
+- `rejectedFraction`
+- `spindleSupportFraction`
+- `slowWaveFraction`
+- `arousalFraction`
+- `hjorthMobility`
+- `hjorthComplexity`
+
+Resultado agregado del clasificador logístico:
+
+- exactitud 4 clases: `65.7%`
+- `Cohen's kappa`: `0.536`
+
+Comparación con otros clasificadores sobrios sobre el mismo protocolo
+`leave-one-subject-out`:
+
+- heurística manual:
+  - `accuracy = 52.4%`
+  - `kappa = 0.366`
+- `Gaussian Naive Bayes`:
+  - `accuracy = 57.9%`
+  - `kappa = 0.419`
+- `kNN (k = 5)`:
+  - `accuracy = 57.0%`
+  - `kappa = 0.407`
+- **regresión logística multinomial**:
+  - `accuracy = 65.7%`
+  - `kappa = 0.536`
+
+Comparación directa contra la heurística actual:
+
+- heurística 4 clases:
+  - `accuracy = 52.4%`
+  - `kappa = 0.366`
+- logística multinomial:
+  - `accuracy = 65.7%`
+  - `kappa = 0.536`
+
+Si se mira solo el scoring clásico `Wake/N2/N3`, el benchmark queda así:
+
+- heurística:
+  - `311 / 551`
+  - `Wake = 63 / 95`
+  - `N2 = 125 / 233`
+  - `N3 = 123 / 223`
+  - `N1REM = 98 / 230`
+- logística:
+  - `375 / 551`
+  - `Wake = 74 / 95`
+  - `N2 = 125 / 233`
+  - `N3 = 176 / 223`
+  - `N1REM = 138 / 230`
+
+Lectura práctica:
+
+- la mejora no viene de un modelo complejo
+- viene ya de un clasificador lineal pequeño, regularizado y supervisado
+- el salto mayor se observa en:
+  - `N3`
+  - `Wake`
+  - y en la clase conjunta `N1/REM-like`
+- `N2` se mantiene aproximadamente igual
+
+## Configuración Ganadora Actual
+
+La mejor configuración probada hasta ahora no es “todas las features”, sino
+una logística multinomial con un subconjunto espectral enriquecido con
+parámetros de Hjorth.
+
+Ganadora actual:
+
+- modelo:
+  - **regresión logística multinomial regularizada**
+- validación:
+  - **leave-one-subject-out** sobre `5` sujetos `Sleep-EDF ST`
+- clases:
+  - `Wake`
+  - `N1/REM-like`
+  - `N2`
+  - `N3`
+- canal:
+  - `EEG Fpz-Cz`
+
+Subset de features vencedor:
+
+- `relDelta`
+- `relTheta`
+- `relAlpha`
+- `relSigma`
+- `relBeta`
+- `fmd4to12`
+- `thetaAlphaRatio`
+- `deltaAlphaRatio`
+- `posteriorAlpha`
+- `frontCentralDelta`
+- `hjorthMobility`
+- `hjorthComplexity`
+
+Métricas de esta versión vencedora:
+
+- `accuracy = 66.97%`
+- `kappa = 0.553`
+
+Comparación de subsets con logística:
+
+- `spectral_plus_hjorth`:
+  - `accuracy = 66.97%`
+  - `kappa = 0.553`
+- `all`:
+  - `accuracy = 65.69%`
+  - `kappa = 0.536`
+- `compact_best_guess`:
+  - `accuracy = 65.56%`
+  - `kappa = 0.535`
+- `fast_vs_slow`:
+  - `accuracy = 65.43%`
+  - `kappa = 0.534`
+- `spectral_core`:
+  - `accuracy = 64.28%`
+  - `kappa = 0.517`
+
+Lectura práctica:
+
+- las features de **calidad pura** (`valid/suspect/rejected`) no ayudan como
+  entradas del clasificador; sirven mejor para gating de confianza que para
+  decidir estadio
+- `Hjorth Complexity` sí aporta valor real al combinarse con el núcleo
+  espectral
+- `fmd4to12` sola no domina el problema de 4 clases, pero sigue ayudando en
+  combinación
+
+Ranking univariante orientativo con logística:
+
+1. `relBeta`
+2. `hjorthComplexity`
+3. `relTheta`
+4. `relDelta`
+5. `frontCentralDelta`
+6. `relSigma`
+7. `hjorthMobility`
+
+## Qué Significa Y Qué No
+
+Este benchmark logístico es, por ahora, una **prueba de viabilidad**, no un
+producto final.
+
+Sí significa:
+
+- que las features actuales contienen bastante más señal discriminativa de la
+  que está explotando la heurística manual
+- que probablemente el siguiente salto real de rendimiento vendrá de
+  clasificadores supervisados y no de seguir añadiendo reglas a mano
+
+No significa:
+
+- que este sea el “mejor logístico posible”
+- que ya tengamos el modelo final listo para integración clínica
+- que debamos considerar cerrada la comparación con otros clasificadores
+
+Límites actuales del benchmark:
+
+- solo `5` sujetos `Sleep-EDF ST`
+- sin ajuste fino de hiperparámetros más allá de regularización básica
+- sin selección automática de features
+- sin búsqueda de interacciones no lineales
+- sin calibración probabilística posterior
+- sin validación en otras cohortes o poblaciones clínicas
+
+En otras palabras:
+
+- es un **primer clasificador muy serio**
+- claramente mejor que la heurística actual
+- pero todavía no es el techo del enfoque supervisado

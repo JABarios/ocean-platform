@@ -280,7 +280,10 @@ Suites: Login, Dashboard, CaseNew, CaseDetail, api.client, EEGViewer.utils, edfA
 - La barra de amplitud usa una escala discreta clínica (`1, 2, 5, 10... µV`) y cambia de tamaño junto con la ganancia visible.
 - El visor incluye selector DSA bajo demanda por canal EEG. Al activarlo, `Artefactos` se enciende por defecto, aunque luego puede desactivarse.
 - El panel DSA permite click para saltar a la época correspondiente; la barra de artefactos encima del DSA también permite navegar a épocas marcadas.
-- El DSA incluye un modo ampliado y barras debug derivadas de `SleepSketch` (`δ/θ/α/σ/β`, `F4-12`, `Hyp`) para inspección heurística del sueño.
+- El DSA incluye un modo ampliado y barras debug derivadas de `SleepSketch` (`δ/θ/α/σ/β`, `F4-12`, `Valid`, `Spn`, `Arou`, `Conf`, `Hyp`) para inspección heurística del sueño.
+- `Hyp` ya no usa solo el staging bruto del DSA: cuando hay `SleepSketch`, el visor usa la heurística basada en `fmd_4_12` expuesta por WASM y remuestrea sus etiquetas a la rejilla del DSA si ambas longitudes no coinciden exactamente.
+- La heurística de sueño toma como referencia la mediana limpia de `fmd_4_12` del propio registro (`N2`), con cortes relativos para `N1`, `Wake` y `N3`; la especificación viva está en `docs/SLEEP_STAGING_HEURISTIC.md`.
+- El panel DSA incluye un botón `Hipnograma` que abre una ventana emergente con la banda `Hyp` aislada y recuentos explícitos `W / N1 / N2 / N3 / ?`.
 - El visor permite una revisión visual rápida de la máscara de artefactos sobre la propia traza con la tecla `R`: `suspect` en amarillo y `rejected` en rojo, solo sobre canales EEG.
 - El visor lee anotaciones EDF+ embebidas (`extractEdfAnnotations`) y puede mostrarlas en un panel lateral, además de marcarlas con ticks en la barra temporal inferior.
 - Las anotaciones EDF+ visibles pueden dibujarse también sobre la traza como marcas verticales rojas con texto rojo pequeño.

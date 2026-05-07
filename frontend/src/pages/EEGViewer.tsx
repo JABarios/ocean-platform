@@ -95,6 +95,11 @@ interface KappaInstance {
     deltaAlphaRatio: Float32Array
     posteriorAlpha: Float32Array
     frontCentralDelta: Float32Array
+    validFraction: Float32Array
+    suspectFraction: Float32Array
+    rejectedFraction: Float32Array
+    spindleSupportFraction: Float32Array
+    arousalFraction: Float32Array
     labels: number[]
     confidence: Float32Array
   } | null
@@ -248,6 +253,11 @@ interface SleepSketchTimelineData {
   deltaAlphaRatio: Float32Array
   posteriorAlpha: Float32Array
   frontCentralDelta: Float32Array
+  validFraction: Float32Array
+  suspectFraction: Float32Array
+  rejectedFraction: Float32Array
+  spindleSupportFraction: Float32Array
+  arousalFraction: Float32Array
   labels: number[]
   confidence: Float32Array
 }
@@ -408,9 +418,9 @@ function artifactColor(status: number): string {
 
 function sleepSketchLabelColor(label: number): string {
   if (label === 3) return '#2563eb' // N3-like
-  if (label === 2) return '#22c55e' // N2-like
+  if (label === 2) return '#15803d' // N2-like
   if (label === 1) return '#f59e0b' // N1-like
-  if (label === 0) return '#ffffff' // Wake-like
+  if (label === 0) return '#f8fafc' // Wake-like
   return '#cbd5e1' // Unknown
 }
 
@@ -420,6 +430,17 @@ function fmdHeatColor(t: number): string {
   const g = Math.round(38 + (99 - 38) * clamped)
   const b = Math.round(38 + (235 - 38) * clamped)
   return `rgb(${r}, ${g}, ${b})`
+}
+
+function remapEpochValues<T>(values: ArrayLike<T> | null | undefined, targetLength: number): T[] {
+  if (!values || targetLength <= 0) return []
+  const sourceLength = values.length ?? 0
+  if (sourceLength <= 0) return []
+  if (sourceLength === targetLength) return Array.from(values)
+  return Array.from({ length: targetLength }, (_, index) => {
+    const sourceIndex = Math.min(sourceLength - 1, Math.floor((index * sourceLength) / targetLength))
+    return values[sourceIndex] as T
+  })
 }
 
 // ─── Canvas helpers ───────────────────────────────────────────────────────────
@@ -927,6 +948,7 @@ function DSAHeatmap({
   onArtifactEpochClick,
   onViewerAnnotationSelect,
   onToggleExpand,
+  onShowHypnogram,
 }: {
   data: DSAData | null
   sleepSketchData?: SleepSketchTimelineData | null
@@ -942,6 +964,7 @@ function DSAHeatmap({
   onArtifactEpochClick: (epochIndex: number) => void
   onViewerAnnotationSelect?: (annotationId: string) => void
   onToggleExpand?: () => void
+  onShowHypnogram?: () => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -952,7 +975,7 @@ function DSAHeatmap({
     if (!canvas || !wrap) return
 
     const width = wrap.clientWidth || 1200
-    const metricRows = 7
+    const metricRows = 11
     const metricH = expanded ? 24 : 15
     const metricGap = expanded ? 5 : 3
     const metricBlockH = metricRows * metricH + (metricRows - 1) * metricGap
@@ -1013,17 +1036,37 @@ function DSAHeatmap({
       ctx.fillText('Artef.', 2, triggerAnnH + artifactH - 3)
     }
 
-    const stageSource = sleepSketchData?.labels?.length === data.nEpochs ? sleepSketchData.labels : data.stages
+    const stageSource = sleepSketchData?.labels?.length
+      ? remapEpochValues(sleepSketchData.labels, data.nEpochs)
+      : data.stages
+    const stageCounts = stageSource.reduce<Record<number, number>>((acc, label) => {
+      acc[label] = (acc[label] ?? 0) + 1
+      return acc
+    }, {})
     for (let ep = 0; ep < data.nEpochs; ep++) {
       const x1 = plotX + Math.floor((ep * plotW) / data.nEpochs)
       const x2 = plotX + Math.floor(((ep + 1) * plotW) / data.nEpochs)
-      ctx.fillStyle = sleepSketchData?.labels?.length === data.nEpochs
+      ctx.fillStyle = sleepSketchData?.labels?.length
         ? sleepSketchLabelColor(stageSource[ep] ?? 4)
         : stageColor(stageSource[ep] ?? 0)
       ctx.fillRect(x1, triggerAnnH + artifactH, Math.max(1, x2 - x1), stageH)
     }
     ctx.strokeStyle = '#111827'
     ctx.strokeRect(plotX, triggerAnnH + artifactH, plotW, stageH)
+    if (sleepSketchData?.labels?.length) {
+      const legendY = triggerAnnH + artifactH + stageH - 3
+      ctx.font = expanded ? '10px monospace' : '8px monospace'
+      ctx.fillStyle = '#f8fafc'
+      ctx.fillText(`W${stageCounts[0] ?? 0}`, plotX + 4, legendY)
+      ctx.fillStyle = '#f59e0b'
+      ctx.fillText(`N1 ${stageCounts[1] ?? 0}`, plotX + 34, legendY)
+      ctx.fillStyle = '#15803d'
+      ctx.fillText(`N2 ${stageCounts[2] ?? 0}`, plotX + 80, legendY)
+      ctx.fillStyle = '#2563eb'
+      ctx.fillText(`N3 ${stageCounts[3] ?? 0}`, plotX + 126, legendY)
+      ctx.fillStyle = '#cbd5e1'
+      ctx.fillText(`? ${stageCounts[4] ?? 0}`, plotX + 172, legendY)
+    }
 
     for (let fi = 0; fi < data.nFreqs; fi++) {
       const f = data.freqMin + fi * data.freqStep
@@ -1076,6 +1119,10 @@ function DSAHeatmap({
       { label: 'σ', values: sleepSketchData?.relSigma, stroke: '#0f766e', fill: 'rgba(15,118,110,0.08)', kind: 'trace' as const },
       { label: 'β', values: sleepSketchData?.relBeta, stroke: '#dc2626', fill: 'rgba(220,38,38,0.08)', kind: 'trace' as const },
       { label: 'F4-12', values: sleepSketchData?.fmd4to12, stroke: '#475569', fill: 'rgba(71,85,105,0.08)', kind: 'heat' as const },
+      { label: 'Valid', values: sleepSketchData?.validFraction, stroke: '#0f766e', fill: 'rgba(15,118,110,0.08)', kind: 'trace' as const },
+      { label: 'Spn', values: sleepSketchData?.spindleSupportFraction, stroke: '#2563eb', fill: 'rgba(37,99,235,0.08)', kind: 'trace' as const },
+      { label: 'Arou', values: sleepSketchData?.arousalFraction, stroke: '#ea580c', fill: 'rgba(234,88,12,0.08)', kind: 'trace' as const },
+      { label: 'Conf', values: sleepSketchData?.confidence, stroke: '#111827', fill: 'rgba(15,23,42,0.06)', kind: 'trace' as const },
       { label: 'Hyp', values: stageSource, stroke: '#64748b', fill: 'rgba(100,116,139,0.08)', kind: 'stage' as const },
     ]
 
@@ -1087,7 +1134,7 @@ function DSAHeatmap({
         for (let ep = 0; ep < data.nEpochs; ep++) {
           const x1 = plotX + Math.floor((ep * plotW) / data.nEpochs)
           const x2 = plotX + Math.floor(((ep + 1) * plotW) / data.nEpochs)
-          ctx.fillStyle = sleepSketchData?.labels?.length === data.nEpochs
+          ctx.fillStyle = sleepSketchData?.labels?.length
             ? sleepSketchLabelColor((metric.values[ep] ?? 4) as number)
             : stageColor((metric.values[ep] ?? 0) as number)
           ctx.fillRect(x1, y, Math.max(1, x2 - x1), metricH)
@@ -1250,31 +1297,250 @@ function DSAHeatmap({
       }}
     >
       {onToggleExpand && (
-        <button
-          type="button"
-          onClick={onToggleExpand}
+        <div
           style={{
             position: 'absolute',
             top: expanded ? 10 : 8,
             right: expanded ? 12 : 8,
             zIndex: 2,
-            border: '1px solid #cbd5e1',
-            background: 'rgba(255,255,255,0.92)',
-            color: '#0f172a',
-            borderRadius: 6,
-            padding: expanded ? '0.35rem 0.55rem' : '0.2rem 0.45rem',
-            fontSize: expanded ? '0.8rem' : '0.72rem',
-            cursor: 'pointer',
+            display: 'flex',
+            gap: 6,
           }}
         >
-          {expanded ? 'Cerrar DSA' : 'Ampliar DSA'}
-        </button>
+          {onShowHypnogram && (
+            <button
+              type="button"
+              onClick={onShowHypnogram}
+              style={{
+                border: '1px solid #cbd5e1',
+                background: 'rgba(255,255,255,0.92)',
+                color: '#0f172a',
+                borderRadius: 6,
+                padding: expanded ? '0.35rem 0.55rem' : '0.2rem 0.45rem',
+                fontSize: expanded ? '0.8rem' : '0.72rem',
+                cursor: 'pointer',
+              }}
+            >
+              Hipnograma
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onToggleExpand}
+            style={{
+              border: '1px solid #cbd5e1',
+              background: 'rgba(255,255,255,0.92)',
+              color: '#0f172a',
+              borderRadius: 6,
+              padding: expanded ? '0.35rem 0.55rem' : '0.2rem 0.45rem',
+              fontSize: expanded ? '0.8rem' : '0.72rem',
+              cursor: 'pointer',
+            }}
+          >
+            {expanded ? 'Cerrar DSA' : 'Ampliar DSA'}
+          </button>
+        </div>
       )}
       <canvas
         ref={canvasRef}
         onClick={handleClick}
         style={{ display: 'block', width: '100%', height: '100%', cursor: data ? 'pointer' : 'default' }}
       />
+    </div>
+  )
+}
+
+function HypnogramModal({
+  dsaData,
+  sleepSketchData,
+  onClose,
+}: {
+  dsaData: DSAData | null
+  sleepSketchData: SleepSketchTimelineData | null
+  onClose: () => void
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  const redraw = useCallback(() => {
+    const canvas = canvasRef.current
+    const wrap = wrapRef.current
+    if (!canvas || !wrap || !dsaData) return
+
+    const labels = sleepSketchData?.labels?.length
+      ? remapEpochValues(sleepSketchData.labels, dsaData.nEpochs)
+      : dsaData.stages
+    const width = Math.max(900, wrap.clientWidth || 900)
+    const height = 240
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    ctx.fillStyle = '#fffdf4'
+    ctx.fillRect(0, 0, width, height)
+
+    const counts = labels.reduce<Record<number, number>>((acc, label) => {
+      acc[label] = (acc[label] ?? 0) + 1
+      return acc
+    }, {})
+
+    const marginLeft = 72
+    const marginRight = 16
+    const top = 56
+    const laneH = 112
+    const plotW = width - marginLeft - marginRight
+    const plotX = marginLeft
+
+    const yForLabel = (label: number) => {
+      if (label === 0) return top + laneH * 0.15
+      if (label === 1) return top + laneH * 0.40
+      if (label === 2) return top + laneH * 0.65
+      if (label === 3) return top + laneH * 0.90
+      return top + laneH * 0.98
+    }
+
+    ctx.strokeStyle = '#cbd5e1'
+    ctx.lineWidth = 1
+    ;[
+      ['W', yForLabel(0)],
+      ['N1', yForLabel(1)],
+      ['N2', yForLabel(2)],
+      ['N3', yForLabel(3)],
+      ['?', yForLabel(4)],
+    ].forEach(([label, y]) => {
+      ctx.beginPath()
+      ctx.moveTo(plotX, y as number)
+      ctx.lineTo(plotX + plotW, y as number)
+      ctx.stroke()
+      ctx.fillStyle = '#334155'
+      ctx.font = '12px monospace'
+      ctx.fillText(label as string, 18, (y as number) + 4)
+    })
+
+    ctx.strokeStyle = '#0f172a'
+    ctx.lineWidth = 2.5
+    ctx.beginPath()
+    labels.forEach((label, epochIndex) => {
+      const x = plotX + ((epochIndex + 0.5) / Math.max(labels.length, 1)) * plotW
+      const y = yForLabel(label ?? 4)
+      if (epochIndex === 0) ctx.moveTo(x, y)
+      else ctx.lineTo(x, y)
+    })
+    ctx.stroke()
+
+    labels.forEach((label, epochIndex) => {
+      const x = plotX + ((epochIndex + 0.5) / Math.max(labels.length, 1)) * plotW
+      const y = yForLabel(label ?? 4)
+      ctx.fillStyle = sleepSketchLabelColor(label ?? 4)
+      ctx.fillRect(x - 5, y - 5, 10, 10)
+      ctx.strokeStyle = '#0f172a'
+      ctx.lineWidth = 0.6
+      ctx.strokeRect(x - 5, y - 5, 10, 10)
+    })
+
+    ctx.fillStyle = '#0f172a'
+    ctx.font = 'bold 14px monospace'
+    ctx.fillText(`${dsaData.channelName} · Hyp`, 16, 24)
+    ctx.font = '12px monospace'
+    ctx.fillText(
+      `W ${counts[0] ?? 0} · N1 ${counts[1] ?? 0} · N2 ${counts[2] ?? 0} · N3 ${counts[3] ?? 0} · ? ${counts[4] ?? 0}`,
+      16,
+      42,
+    )
+
+    const totalSec = dsaData.nEpochs * dsaData.epochSec
+    const tickEvery = Math.max(1, Math.ceil(70 / Math.max(1, plotW / dsaData.nEpochs)))
+    const axisY = top + laneH + 26
+    ctx.strokeStyle = '#111827'
+    ctx.beginPath()
+    ctx.moveTo(plotX, axisY)
+    ctx.lineTo(plotX + plotW, axisY)
+    ctx.stroke()
+    ctx.fillStyle = '#475569'
+    ctx.font = '11px monospace'
+    for (let ep = 0; ep < dsaData.nEpochs; ep += tickEvery) {
+      const x = plotX + Math.floor((ep * plotW) / dsaData.nEpochs)
+      ctx.beginPath()
+      ctx.moveTo(x, axisY)
+      ctx.lineTo(x, axisY + 5)
+      ctx.stroke()
+      const tSec = ep * dsaData.epochSec
+      const minutes = Math.floor(tSec / 60)
+      const seconds = Math.floor(tSec % 60)
+      ctx.fillText(`${minutes}:${pad2(seconds)}`, x + 2, axisY + 16)
+    }
+    ctx.fillStyle = '#64748b'
+    ctx.fillText(`${Math.round(totalSec / 60)} min`, plotX + plotW - 54, height - 10)
+  }, [dsaData, sleepSketchData])
+
+  useEffect(() => {
+    redraw()
+  }, [redraw])
+
+  useEffect(() => {
+    const wrap = wrapRef.current
+    if (!wrap) return
+    const ro = new ResizeObserver(() => redraw())
+    ro.observe(wrap)
+    return () => ro.disconnect()
+  }, [redraw])
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 1300,
+        background: 'rgba(15,23,42,0.45)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '1.25rem',
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          width: 'min(96vw, 1400px)',
+          background: '#ffffff',
+          borderRadius: 14,
+          boxShadow: '0 30px 80px rgba(15,23,42,0.35)',
+          overflow: 'hidden',
+        }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '0.85rem 1rem',
+            borderBottom: '1px solid #e2e8f0',
+            background: '#f8fafc',
+          }}
+        >
+          <div style={{ fontWeight: 700, color: '#0f172a' }}>Hipnograma heurístico</div>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              border: '1px solid #cbd5e1',
+              background: '#ffffff',
+              color: '#0f172a',
+              borderRadius: 6,
+              padding: '0.3rem 0.55rem',
+              fontSize: '0.8rem',
+              cursor: 'pointer',
+            }}
+          >
+            Cerrar
+          </button>
+        </div>
+        <div ref={wrapRef} style={{ padding: '1rem', background: '#fffdf4' }}>
+          <canvas ref={canvasRef} style={{ display: 'block', width: '100%' }} />
+        </div>
+      </div>
     </div>
   )
 }
@@ -3048,6 +3314,7 @@ export default function EEGViewer() {
   const [dsaLoading,      setDsaLoading]      = useState(false)
   const [dsaError,        setDsaError]        = useState('')
   const [dsaExpanded,     setDsaExpanded]     = useState(false)
+  const [hypnogramOpen,   setHypnogramOpen]   = useState(false)
   const [compactToolbar,  setCompactToolbar]  = useState(false)
   const [mobileControlsOpen, setMobileControlsOpen] = useState(false)
   const [localPickerError, setLocalPickerError] = useState('')
@@ -6274,6 +6541,7 @@ export default function EEGViewer() {
           viewerAnnotations={viewerAnnotations}
           selectedViewerAnnotationId={selectedViewerAnnotationId}
           onToggleExpand={() => setDsaExpanded(true)}
+          onShowHypnogram={() => setHypnogramOpen(true)}
           onEpochClick={(epochIndex) => {
             if (!dsaData) return
             goToDSAEpoch(epochIndex, dsaData.epochSec)
@@ -6334,6 +6602,7 @@ export default function EEGViewer() {
               viewerAnnotations={viewerAnnotations}
               selectedViewerAnnotationId={selectedViewerAnnotationId}
               onToggleExpand={() => setDsaExpanded(false)}
+              onShowHypnogram={() => setHypnogramOpen(true)}
               onEpochClick={(epochIndex) => {
                 if (!dsaData) return
                 goToDSAEpoch(epochIndex, dsaData.epochSec)
@@ -6346,6 +6615,13 @@ export default function EEGViewer() {
             />
           </div>
         </div>
+      )}
+      {hypnogramOpen && dsaChannel !== 'off' && (
+        <HypnogramModal
+          dsaData={dsaData}
+          sleepSketchData={sleepSketchData}
+          onClose={() => setHypnogramOpen(false)}
+        />
       )}
       {triggerAvgModalOpen && triggerAvgOpen && (
         <TriggerAverageModal

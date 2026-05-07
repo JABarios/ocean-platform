@@ -90,6 +90,17 @@ export default function Register() {
           <span>¿Ya tienes cuenta? </span>
           <Link to="/login">Inicia sesión</Link>
         </div>
+        <div className="auth-share-box">
+          <div className="auth-share-copy">
+            <strong>¿Solo quieres enviar un EEG?</strong>
+            <span>
+              También puedes usar la versión pública para cargar un EDF y generar un enlace efímero sin montar un caso clínico completo.
+            </span>
+          </div>
+          <Link to="/share" className="auth-share-link">
+            Ir a Shared Link
+          </Link>
+        </div>
       </div>
     </div>
   )

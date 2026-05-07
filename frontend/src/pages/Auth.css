@@ -52,6 +52,53 @@
   color: var(--text-secondary);
 }
 
+.auth-share-box {
+  margin-top: 1rem;
+  padding: 0.95rem 1.05rem;
+  border-radius: 14px;
+  border: 1px solid rgba(15, 91, 216, 0.16);
+  background: linear-gradient(180deg, rgba(15, 91, 216, 0.05), rgba(15, 91, 216, 0.02));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem;
+}
+
+.auth-share-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.auth-share-copy strong {
+  color: #0f172a;
+  font-size: 0.9rem;
+}
+
+.auth-share-copy span {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+.auth-share-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  min-height: 34px;
+  padding: 0.45rem 0.8rem;
+  border-radius: 10px;
+  background: rgba(15, 91, 216, 0.1);
+  color: var(--primary);
+  font-weight: 700;
+  border: 1px solid rgba(15, 91, 216, 0.16);
+}
+
+.auth-share-link:hover {
+  background: rgba(15, 91, 216, 0.16);
+  color: var(--primary-hover);
+}
+
 .auth-quick-links {
   margin-top: 1.3rem;
   padding: 0.95rem 1.05rem;
@@ -117,6 +164,11 @@
   }
 
   .auth-quick-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .auth-share-box {
     flex-direction: column;
     align-items: flex-start;
   }

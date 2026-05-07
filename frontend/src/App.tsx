@@ -27,6 +27,7 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/open" element={<OpenLocalEeg />} />
+      <Route path="/open/cache/:cacheId" element={<EEGViewer />} />
       <Route path="/open/:localId" element={<EEGViewer />} />
       <Route path="/share" element={<SharedLinkNew />} />
       <Route

@@ -106,6 +106,8 @@ interface KappaInstance {
     confidence: Float32Array
     logisticLabels: number[]
     logisticConfidence: Float32Array
+    logisticViterbiLabels: number[]
+    logisticViterbiConfidence: Float32Array
   } | null
 }
 
@@ -268,6 +270,8 @@ interface SleepSketchTimelineData {
   confidence: Float32Array
   logisticLabels?: number[]
   logisticConfidence?: Float32Array
+  logisticViterbiLabels?: number[]
+  logisticViterbiConfidence?: Float32Array
 }
 
 interface PersistedTriggerAverageSettings {
@@ -360,11 +364,13 @@ function canonicalizeRawChannelLabel(name: string): string {
 
 function getSleepSketchStageLabels(data?: SleepSketchTimelineData | null): number[] {
   if (data?.logisticLabels?.length) return data.logisticLabels
+  if (data?.logisticViterbiLabels?.length) return data.logisticViterbiLabels
   return data?.labels?.length ? data.labels : []
 }
 
 function getSleepSketchConfidence(data?: SleepSketchTimelineData | null): Float32Array | undefined {
   if (data?.logisticConfidence?.length) return data.logisticConfidence
+  if (data?.logisticViterbiConfidence?.length) return data.logisticViterbiConfidence
   return data?.confidence?.length ? data.confidence : undefined
 }
 
@@ -967,6 +973,8 @@ function DSAHeatmap({
   onViewerAnnotationSelect,
   onToggleExpand,
   onShowHypnogram,
+  onShowSleepAnalyzer,
+  showMetrics = true,
 }: {
   data: DSAData | null
   sleepSketchData?: SleepSketchTimelineData | null
@@ -983,6 +991,8 @@ function DSAHeatmap({
   onViewerAnnotationSelect?: (annotationId: string) => void
   onToggleExpand?: () => void
   onShowHypnogram?: () => void
+  onShowSleepAnalyzer?: () => void
+  showMetrics?: boolean
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -993,10 +1003,10 @@ function DSAHeatmap({
     if (!canvas || !wrap) return
 
     const width = wrap.clientWidth || 1200
-    const metricRows = 11
+    const metricRows = showMetrics ? 11 : 0
     const metricH = expanded ? 24 : 15
     const metricGap = expanded ? 5 : 3
-    const metricBlockH = metricRows * metricH + (metricRows - 1) * metricGap
+    const metricBlockH = metricRows > 0 ? metricRows * metricH + (metricRows - 1) * metricGap : 0
     const height = (expanded ? 320 : 196) + metricBlockH + 10
     canvas.width = width
     canvas.height = height
@@ -1131,99 +1141,101 @@ function DSAHeatmap({
     }
 
     const metricTop = plotY + plotH + 4
-    const metricDefs = [
-      { label: 'δ', values: sleepSketchData?.relDelta, stroke: '#16a34a', fill: 'rgba(22,163,74,0.08)', kind: 'trace' as const },
-      { label: 'θ', values: sleepSketchData?.relTheta, stroke: '#d97706', fill: 'rgba(217,119,6,0.08)', kind: 'trace' as const },
-      { label: 'α', values: sleepSketchData?.relAlpha, stroke: '#7c3aed', fill: 'rgba(124,58,237,0.08)', kind: 'trace' as const },
-      { label: 'σ', values: sleepSketchData?.relSigma, stroke: '#0f766e', fill: 'rgba(15,118,110,0.08)', kind: 'trace' as const },
-      { label: 'β', values: sleepSketchData?.relBeta, stroke: '#dc2626', fill: 'rgba(220,38,38,0.08)', kind: 'trace' as const },
-      { label: 'F4-12', values: sleepSketchData?.fmd4to12, stroke: '#475569', fill: 'rgba(71,85,105,0.08)', kind: 'heat' as const },
-      { label: 'Valid', values: sleepSketchData?.validFraction, stroke: '#0f766e', fill: 'rgba(15,118,110,0.08)', kind: 'trace' as const },
-      { label: 'Spn', values: sleepSketchData?.spindleSupportFraction, stroke: '#2563eb', fill: 'rgba(37,99,235,0.08)', kind: 'trace' as const },
-      { label: 'Arou', values: sleepSketchData?.arousalFraction, stroke: '#ea580c', fill: 'rgba(234,88,12,0.08)', kind: 'trace' as const },
-      { label: 'Conf', values: getSleepSketchConfidence(sleepSketchData), stroke: '#111827', fill: 'rgba(15,23,42,0.06)', kind: 'trace' as const },
-      { label: 'Hyp', values: stageSource, stroke: '#64748b', fill: 'rgba(100,116,139,0.08)', kind: 'stage' as const },
-    ]
+    if (showMetrics) {
+      const metricDefs = [
+        { label: 'δ', values: sleepSketchData?.relDelta, stroke: '#16a34a', fill: 'rgba(22,163,74,0.08)', kind: 'trace' as const },
+        { label: 'θ', values: sleepSketchData?.relTheta, stroke: '#d97706', fill: 'rgba(217,119,6,0.08)', kind: 'trace' as const },
+        { label: 'α', values: sleepSketchData?.relAlpha, stroke: '#7c3aed', fill: 'rgba(124,58,237,0.08)', kind: 'trace' as const },
+        { label: 'σ', values: sleepSketchData?.relSigma, stroke: '#0f766e', fill: 'rgba(15,118,110,0.08)', kind: 'trace' as const },
+        { label: 'β', values: sleepSketchData?.relBeta, stroke: '#dc2626', fill: 'rgba(220,38,38,0.08)', kind: 'trace' as const },
+        { label: 'F4-12', values: sleepSketchData?.fmd4to12, stroke: '#475569', fill: 'rgba(71,85,105,0.08)', kind: 'heat' as const },
+        { label: 'Valid', values: sleepSketchData?.validFraction, stroke: '#0f766e', fill: 'rgba(15,118,110,0.08)', kind: 'trace' as const },
+        { label: 'Spn', values: sleepSketchData?.spindleSupportFraction, stroke: '#2563eb', fill: 'rgba(37,99,235,0.08)', kind: 'trace' as const },
+        { label: 'Arou', values: sleepSketchData?.arousalFraction, stroke: '#ea580c', fill: 'rgba(234,88,12,0.08)', kind: 'trace' as const },
+        { label: 'Conf', values: getSleepSketchConfidence(sleepSketchData), stroke: '#111827', fill: 'rgba(15,23,42,0.06)', kind: 'trace' as const },
+        { label: 'Hyp', values: stageSource, stroke: '#64748b', fill: 'rgba(100,116,139,0.08)', kind: 'stage' as const },
+      ]
 
-    metricDefs.forEach((metric, rowIndex) => {
-      const y = metricTop + rowIndex * (metricH + metricGap)
-      ctx.fillStyle = metric.fill
-      ctx.fillRect(plotX, y, plotW, metricH)
-      if (metric.kind === 'stage') {
-        for (let ep = 0; ep < data.nEpochs; ep++) {
-          const x1 = plotX + Math.floor((ep * plotW) / data.nEpochs)
-          const x2 = plotX + Math.floor(((ep + 1) * plotW) / data.nEpochs)
-          ctx.fillStyle = sleepSketchLabels.length
-            ? sleepSketchLabelColor((metric.values[ep] ?? 4) as number)
-            : stageColor((metric.values[ep] ?? 0) as number)
-          ctx.fillRect(x1, y, Math.max(1, x2 - x1), metricH)
-        }
-      } else if (metric.kind === 'heat') {
-        const rawValues = (metric.values ?? []) as ArrayLike<number>
-        const finiteValues = Array.from(rawValues).filter((value) => Number.isFinite(value)).sort((a, b) => a - b)
-        const p10 = finiteValues.length > 0 ? finiteValues[Math.floor((finiteValues.length - 1) * 0.1)] : 4
-        const p90 = finiteValues.length > 0 ? finiteValues[Math.floor((finiteValues.length - 1) * 0.9)] : 12
-        const lo = Math.min(p10, p90 - 1e-6)
-        const hi = Math.max(p90, lo + 1e-6)
-        for (let ep = 0; ep < data.nEpochs; ep++) {
-          const x1 = plotX + Math.floor((ep * plotW) / data.nEpochs)
-          const x2 = plotX + Math.floor(((ep + 1) * plotW) / data.nEpochs)
-          const raw = (metric.values?.[ep] ?? 0) as number
-          const t = Math.max(0, Math.min(1, (raw - lo) / (hi - lo)))
-          ctx.fillStyle = fmdHeatColor(t)
-          ctx.fillRect(x1, y, Math.max(1, x2 - x1), metricH)
-        }
-        ctx.fillStyle = '#334155'
-        ctx.font = expanded ? '10px monospace' : '8px monospace'
-        ctx.fillText(`${lo.toFixed(1)}-${hi.toFixed(1)} Hz`, plotX + plotW - 82, y + metricH - 2)
-      } else {
-        const finiteValues = (metric.values ?? []).filter((value) => Number.isFinite(value)) as number[]
-        let localMin = finiteValues.length > 0 ? Math.min(...finiteValues) : 0
-        let localMax = finiteValues.length > 0 ? Math.max(...finiteValues) : 1
-        if (localMax - localMin < 1e-6) {
-          const pad = Math.max(0.05, Math.abs(localMax) * 0.1 || 0.1)
-          localMin -= pad
-          localMax += pad
+      metricDefs.forEach((metric, rowIndex) => {
+        const y = metricTop + rowIndex * (metricH + metricGap)
+        ctx.fillStyle = metric.fill
+        ctx.fillRect(plotX, y, plotW, metricH)
+        if (metric.kind === 'stage') {
+          for (let ep = 0; ep < data.nEpochs; ep++) {
+            const x1 = plotX + Math.floor((ep * plotW) / data.nEpochs)
+            const x2 = plotX + Math.floor(((ep + 1) * plotW) / data.nEpochs)
+            ctx.fillStyle = sleepSketchLabels.length
+              ? sleepSketchLabelColor((metric.values[ep] ?? 4) as number)
+              : stageColor((metric.values[ep] ?? 0) as number)
+            ctx.fillRect(x1, y, Math.max(1, x2 - x1), metricH)
+          }
+        } else if (metric.kind === 'heat') {
+          const rawValues = (metric.values ?? []) as ArrayLike<number>
+          const finiteValues = Array.from(rawValues).filter((value) => Number.isFinite(value)).sort((a, b) => a - b)
+          const p10 = finiteValues.length > 0 ? finiteValues[Math.floor((finiteValues.length - 1) * 0.1)] : 4
+          const p90 = finiteValues.length > 0 ? finiteValues[Math.floor((finiteValues.length - 1) * 0.9)] : 12
+          const lo = Math.min(p10, p90 - 1e-6)
+          const hi = Math.max(p90, lo + 1e-6)
+          for (let ep = 0; ep < data.nEpochs; ep++) {
+            const x1 = plotX + Math.floor((ep * plotW) / data.nEpochs)
+            const x2 = plotX + Math.floor(((ep + 1) * plotW) / data.nEpochs)
+            const raw = (metric.values?.[ep] ?? 0) as number
+            const t = Math.max(0, Math.min(1, (raw - lo) / (hi - lo)))
+            ctx.fillStyle = fmdHeatColor(t)
+            ctx.fillRect(x1, y, Math.max(1, x2 - x1), metricH)
+          }
+          ctx.fillStyle = '#334155'
+          ctx.font = expanded ? '10px monospace' : '8px monospace'
+          ctx.fillText(`${lo.toFixed(1)}-${hi.toFixed(1)} Hz`, plotX + plotW - 82, y + metricH - 2)
         } else {
-          const pad = (localMax - localMin) * 0.08
-          localMin -= pad
-          localMax += pad
+          const finiteValues = (metric.values ?? []).filter((value) => Number.isFinite(value)) as number[]
+          let localMin = finiteValues.length > 0 ? Math.min(...finiteValues) : 0
+          let localMax = finiteValues.length > 0 ? Math.max(...finiteValues) : 1
+          if (localMax - localMin < 1e-6) {
+            const pad = Math.max(0.05, Math.abs(localMax) * 0.1 || 0.1)
+            localMin -= pad
+            localMax += pad
+          } else {
+            const pad = (localMax - localMin) * 0.08
+            localMin -= pad
+            localMax += pad
+          }
+          const localMid = localMin + (localMax - localMin) * 0.5
+          const midT = Math.max(0, Math.min(1, (localMid - localMin) / Math.max(1e-9, localMax - localMin)))
+          const midY = y + metricH - 1 - midT * Math.max(1, metricH - 2)
+          ctx.strokeStyle = 'rgba(15,23,42,0.18)'
+          ctx.lineWidth = 1
+          ctx.beginPath()
+          ctx.moveTo(plotX, midY)
+          ctx.lineTo(plotX + plotW, midY)
+          ctx.stroke()
+          ctx.strokeStyle = metric.stroke
+          ctx.lineWidth = 1.5
+          ctx.beginPath()
+          for (let ep = 0; ep < data.nEpochs; ep++) {
+            const raw = (metric.values?.[ep] ?? 0) as number
+            const t = Math.max(0, Math.min(1, (raw - localMin) / Math.max(1e-9, localMax - localMin)))
+            const x = plotX + ((ep + 0.5) / Math.max(data.nEpochs, 1)) * plotW
+            const yy = y + metricH - 1 - t * Math.max(1, metricH - 2)
+            if (ep === 0) ctx.moveTo(x, yy)
+            else ctx.lineTo(x, yy)
+          }
+          ctx.stroke()
+          ctx.fillStyle = '#334155'
+          ctx.font = expanded ? '10px monospace' : '8px monospace'
+          ctx.fillText(`${localMin.toFixed(2)}-${localMax.toFixed(2)}`, plotX + plotW - 66, y + metricH - 2)
         }
-        const localMid = localMin + (localMax - localMin) * 0.5
-        const midT = Math.max(0, Math.min(1, (localMid - localMin) / Math.max(1e-9, localMax - localMin)))
-        const midY = y + metricH - 1 - midT * Math.max(1, metricH - 2)
-        ctx.strokeStyle = 'rgba(15,23,42,0.18)'
-        ctx.lineWidth = 1
-        ctx.beginPath()
-        ctx.moveTo(plotX, midY)
-        ctx.lineTo(plotX + plotW, midY)
-        ctx.stroke()
-        ctx.strokeStyle = metric.stroke
-        ctx.lineWidth = 1.5
-        ctx.beginPath()
-        for (let ep = 0; ep < data.nEpochs; ep++) {
-          const raw = (metric.values?.[ep] ?? 0) as number
-          const t = Math.max(0, Math.min(1, (raw - localMin) / Math.max(1e-9, localMax - localMin)))
-          const x = plotX + ((ep + 0.5) / Math.max(data.nEpochs, 1)) * plotW
-          const yy = y + metricH - 1 - t * Math.max(1, metricH - 2)
-          if (ep === 0) ctx.moveTo(x, yy)
-          else ctx.lineTo(x, yy)
-        }
-        ctx.stroke()
-        ctx.fillStyle = '#334155'
-        ctx.font = expanded ? '10px monospace' : '8px monospace'
-        ctx.fillText(`${localMin.toFixed(2)}-${localMax.toFixed(2)}`, plotX + plotW - 66, y + metricH - 2)
-      }
-      ctx.strokeStyle = '#111827'
-      ctx.strokeRect(plotX, y, plotW, metricH)
-      ctx.fillStyle = '#64748b'
-      ctx.font = expanded ? '11px monospace' : '9px monospace'
-      ctx.fillText(metric.label, 4, y + metricH - 2)
-      ctx.fillStyle = 'rgba(255,255,255,0.2)'
-      ctx.fillRect(currentX1, y, currentW, metricH)
-      ctx.strokeStyle = 'rgba(255,255,255,0.9)'
-      ctx.strokeRect(currentX1, y, currentW, metricH)
-    })
+        ctx.strokeStyle = '#111827'
+        ctx.strokeRect(plotX, y, plotW, metricH)
+        ctx.fillStyle = '#64748b'
+        ctx.font = expanded ? '11px monospace' : '9px monospace'
+        ctx.fillText(metric.label, 4, y + metricH - 2)
+        ctx.fillStyle = 'rgba(255,255,255,0.2)'
+        ctx.fillRect(currentX1, y, currentW, metricH)
+        ctx.strokeStyle = 'rgba(255,255,255,0.9)'
+        ctx.strokeRect(currentX1, y, currentW, metricH)
+      })
+    }
 
     const totalSec = data.nEpochs * data.epochSec
     const tickEvery = Math.max(1, Math.ceil(70 / Math.max(1, plotW / data.nEpochs)))
@@ -1251,7 +1263,7 @@ function DSAHeatmap({
     ctx.fillStyle = '#64748b'
     ctx.font = expanded ? '13px monospace' : '11px monospace'
     ctx.fillText(`${data.channelName} · ${Math.round(totalSec / 60)} min`, plotX + 6, height - 4)
-  }, [artifactEnabled, currentEndSec, currentStartSec, data, error, expanded, loading, selectedViewerAnnotationId, viewerAnnotations])
+  }, [artifactEnabled, currentEndSec, currentStartSec, data, error, expanded, loading, selectedViewerAnnotationId, showMetrics, viewerAnnotations])
 
   useEffect(() => {
     redraw()
@@ -1315,7 +1327,7 @@ function DSAHeatmap({
         position: 'relative',
       }}
     >
-      {onToggleExpand && (
+      {(onToggleExpand || onShowHypnogram || onShowSleepAnalyzer) && (
         <div
           style={{
             position: 'absolute',
@@ -1343,21 +1355,40 @@ function DSAHeatmap({
               Hipnograma
             </button>
           )}
-          <button
-            type="button"
-            onClick={onToggleExpand}
-            style={{
-              border: '1px solid #cbd5e1',
-              background: 'rgba(255,255,255,0.92)',
-              color: '#0f172a',
-              borderRadius: 6,
-              padding: expanded ? '0.35rem 0.55rem' : '0.2rem 0.45rem',
-              fontSize: expanded ? '0.8rem' : '0.72rem',
-              cursor: 'pointer',
-            }}
-          >
-            {expanded ? 'Cerrar DSA' : 'Ampliar DSA'}
-          </button>
+          {onShowSleepAnalyzer && (
+            <button
+              type="button"
+              onClick={onShowSleepAnalyzer}
+              style={{
+                border: '1px solid #cbd5e1',
+                background: 'rgba(255,255,255,0.92)',
+                color: '#0f172a',
+                borderRadius: 6,
+                padding: expanded ? '0.35rem 0.55rem' : '0.2rem 0.45rem',
+                fontSize: expanded ? '0.8rem' : '0.72rem',
+                cursor: 'pointer',
+              }}
+            >
+              Analizador sueño
+            </button>
+          )}
+          {onToggleExpand && (
+            <button
+              type="button"
+              onClick={onToggleExpand}
+              style={{
+                border: '1px solid #cbd5e1',
+                background: 'rgba(255,255,255,0.92)',
+                color: '#0f172a',
+                borderRadius: 6,
+                padding: expanded ? '0.35rem 0.55rem' : '0.2rem 0.45rem',
+                fontSize: expanded ? '0.8rem' : '0.72rem',
+                cursor: 'pointer',
+              }}
+            >
+              {expanded ? 'Cerrar DSA' : 'Ampliar DSA'}
+            </button>
+          )}
         </div>
       )}
       <canvas
@@ -1559,6 +1590,342 @@ function HypnogramModal({
         </div>
         <div ref={wrapRef} style={{ padding: '1rem', background: '#fffdf4' }}>
           <canvas ref={canvasRef} style={{ display: 'block', width: '100%' }} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SleepAnalyzerModal({
+  dsaData,
+  sleepSketchData,
+  artifactEnabled,
+  dsaLoading,
+  sleepSketchLoading,
+  dsaError,
+  currentStartSec,
+  currentEndSec,
+  viewerAnnotations,
+  selectedViewerAnnotationId,
+  onClose,
+  onEpochClick,
+  onArtifactEpochClick,
+  onViewerAnnotationSelect,
+}: {
+  dsaData: DSAData | null
+  sleepSketchData: SleepSketchTimelineData | null
+  artifactEnabled: boolean
+  dsaLoading: boolean
+  sleepSketchLoading: boolean
+  dsaError: string
+  currentStartSec: number
+  currentEndSec: number
+  viewerAnnotations?: ViewerAnnotation[]
+  selectedViewerAnnotationId?: string | null
+  onClose: () => void
+  onEpochClick: (epochIndex: number) => void
+  onArtifactEpochClick: (epochIndex: number) => void
+  onViewerAnnotationSelect?: (annotationId: string) => void
+}) {
+  const fmdCanvasRef = useRef<HTMLCanvasElement>(null)
+  const hypCanvasRef = useRef<HTMLCanvasElement>(null)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  const redraw = useCallback(() => {
+    const wrap = wrapRef.current
+    const fmdCanvas = fmdCanvasRef.current
+    const hypCanvas = hypCanvasRef.current
+    if (!wrap || !fmdCanvas || !hypCanvas || !dsaData) return
+
+    const width = Math.max(980, wrap.clientWidth || 980)
+    const plotX = 72
+    const plotW = width - plotX - 18
+    const totalSec = dsaData.nEpochs * dsaData.epochSec
+    const sleepSketchLabels = getSleepSketchStageLabels(sleepSketchData)
+    const labels = sleepSketchLabels.length
+      ? remapEpochValues(sleepSketchLabels, dsaData.nEpochs)
+      : dsaData.stages
+    const fmdValues = remapEpochValues(sleepSketchData?.fmd4to12, dsaData.nEpochs)
+    const counts = labels.reduce<Record<number, number>>((acc, label) => {
+      acc[label] = (acc[label] ?? 0) + 1
+      return acc
+    }, {})
+
+    {
+      const height = 230
+      fmdCanvas.width = width
+      fmdCanvas.height = height
+      const ctx = fmdCanvas.getContext('2d')
+      if (ctx) {
+        ctx.fillStyle = '#fffdf4'
+        ctx.fillRect(0, 0, width, height)
+
+        const finiteFmd = fmdValues.filter((value) => Number.isFinite(value))
+        let fmdMin = finiteFmd.length ? Math.min(...finiteFmd) : 4
+        let fmdMax = finiteFmd.length ? Math.max(...finiteFmd) : 12
+        if (fmdMax - fmdMin < 1e-6) {
+          fmdMin -= 0.5
+          fmdMax += 0.5
+        } else {
+          const pad = (fmdMax - fmdMin) * 0.08
+          fmdMin -= pad
+          fmdMax += pad
+        }
+
+        const top = 24
+        const bottomPad = 34
+        const laneH = height - top - bottomPad
+        for (let ep = 0; ep < dsaData.nEpochs; ep++) {
+          const x1 = plotX + Math.floor((ep * plotW) / dsaData.nEpochs)
+          const x2 = plotX + Math.floor(((ep + 1) * plotW) / dsaData.nEpochs)
+          ctx.fillStyle = sleepSketchLabelColor(labels[ep] ?? 4)
+          ctx.fillRect(x1, top, Math.max(1, x2 - x1), laneH)
+        }
+        ctx.strokeStyle = '#0f172a'
+        ctx.strokeRect(plotX, top, plotW, laneH)
+
+        const medianFmd = finiteFmd.length
+          ? finiteFmd.slice().sort((a, b) => a - b)[Math.floor(finiteFmd.length * 0.5)]
+          : null
+        if (medianFmd !== null) {
+          const t = (medianFmd - fmdMin) / Math.max(1e-6, fmdMax - fmdMin)
+          const y = top + laneH - 1 - t * Math.max(1, laneH - 2)
+          ctx.strokeStyle = 'rgba(15,23,42,0.28)'
+          ctx.lineWidth = 1
+          ctx.beginPath()
+          ctx.moveTo(plotX, y)
+          ctx.lineTo(plotX + plotW, y)
+          ctx.stroke()
+          ctx.fillStyle = '#334155'
+          ctx.font = '10px monospace'
+          ctx.fillText(`med ${medianFmd.toFixed(2)} Hz`, plotX + plotW - 90, y - 4)
+        }
+
+        if (fmdValues.length > 0) {
+          ctx.strokeStyle = '#0f172a'
+          ctx.lineWidth = 2
+          ctx.beginPath()
+          fmdValues.forEach((value, ep) => {
+            const x = plotX + ((ep + 0.5) / Math.max(dsaData.nEpochs, 1)) * plotW
+            const t = Math.max(0, Math.min(1, ((value ?? fmdMin) - fmdMin) / Math.max(1e-6, fmdMax - fmdMin)))
+            const y = top + laneH - 1 - t * Math.max(1, laneH - 2)
+            if (ep === 0) ctx.moveTo(x, y)
+            else ctx.lineTo(x, y)
+          })
+          ctx.stroke()
+        }
+
+        ctx.fillStyle = '#0f172a'
+        ctx.font = 'bold 13px monospace'
+        ctx.fillText('FMD 4-12', 16, 20)
+        ctx.font = '11px monospace'
+        ctx.fillText(`${fmdMin.toFixed(2)}-${fmdMax.toFixed(2)} Hz`, 16, height - 12)
+
+        const tickEvery = Math.max(1, Math.ceil(70 / Math.max(1, plotW / dsaData.nEpochs)))
+        const axisY = top + laneH + 10
+        ctx.strokeStyle = '#111827'
+        ctx.beginPath()
+        ctx.moveTo(plotX, axisY)
+        ctx.lineTo(plotX + plotW, axisY)
+        ctx.stroke()
+        ctx.fillStyle = '#475569'
+        ctx.font = '11px monospace'
+        for (let ep = 0; ep < dsaData.nEpochs; ep += tickEvery) {
+          const x = plotX + Math.floor((ep * plotW) / dsaData.nEpochs)
+          ctx.beginPath()
+          ctx.moveTo(x, axisY)
+          ctx.lineTo(x, axisY + 5)
+          ctx.stroke()
+          const tSec = ep * dsaData.epochSec
+          const minutes = Math.floor(tSec / 60)
+          const seconds = Math.floor(tSec % 60)
+          ctx.fillText(`${minutes}:${pad2(seconds)}`, x + 2, axisY + 16)
+        }
+        ctx.fillStyle = '#64748b'
+        ctx.fillText(`${Math.round(totalSec / 60)} min`, plotX + plotW - 54, height - 12)
+      }
+    }
+
+    {
+      const height = 244
+      hypCanvas.width = width
+      hypCanvas.height = height
+      const ctx = hypCanvas.getContext('2d')
+      if (ctx) {
+        ctx.fillStyle = '#fffdf4'
+        ctx.fillRect(0, 0, width, height)
+
+        const top = 56
+        const laneH = 112
+
+        const yForLabel = (label: number) => {
+          if (label === 0) return top + laneH * 0.15
+          if (label === 1) return top + laneH * 0.40
+          if (label === 2) return top + laneH * 0.65
+          if (label === 3) return top + laneH * 0.90
+          return top + laneH * 0.98
+        }
+
+        ctx.strokeStyle = '#cbd5e1'
+        ctx.lineWidth = 1
+        ;[
+          ['W', yForLabel(0)],
+          ['N1', yForLabel(1)],
+          ['N2', yForLabel(2)],
+          ['N3', yForLabel(3)],
+          ['?', yForLabel(4)],
+        ].forEach(([label, y]) => {
+          ctx.beginPath()
+          ctx.moveTo(plotX, y as number)
+          ctx.lineTo(plotX + plotW, y as number)
+          ctx.stroke()
+          ctx.fillStyle = '#334155'
+          ctx.font = '12px monospace'
+          ctx.fillText(label as string, 18, (y as number) + 4)
+        })
+
+        ctx.strokeStyle = '#0f172a'
+        ctx.lineWidth = 2.5
+        ctx.beginPath()
+        labels.forEach((label, epochIndex) => {
+          const x = plotX + ((epochIndex + 0.5) / Math.max(labels.length, 1)) * plotW
+          const y = yForLabel(label ?? 4)
+          if (epochIndex === 0) ctx.moveTo(x, y)
+          else ctx.lineTo(x, y)
+        })
+        ctx.stroke()
+
+        labels.forEach((label, epochIndex) => {
+          const x = plotX + ((epochIndex + 0.5) / Math.max(labels.length, 1)) * plotW
+          const y = yForLabel(label ?? 4)
+          ctx.fillStyle = sleepSketchLabelColor(label ?? 4)
+          ctx.fillRect(x - 5, y - 5, 10, 10)
+          ctx.strokeStyle = '#0f172a'
+          ctx.lineWidth = 0.6
+          ctx.strokeRect(x - 5, y - 5, 10, 10)
+        })
+
+        ctx.fillStyle = '#0f172a'
+        ctx.font = 'bold 14px monospace'
+        ctx.fillText(`${dsaData.channelName} · Hyp`, 16, 24)
+        ctx.font = '12px monospace'
+        ctx.fillText(
+          `W ${counts[0] ?? 0} · N1 ${counts[1] ?? 0} · N2 ${counts[2] ?? 0} · N3 ${counts[3] ?? 0} · ? ${counts[4] ?? 0}`,
+          16,
+          42,
+        )
+
+        const tickEvery = Math.max(1, Math.ceil(70 / Math.max(1, plotW / dsaData.nEpochs)))
+        const axisY = top + laneH + 26
+        ctx.strokeStyle = '#111827'
+        ctx.beginPath()
+        ctx.moveTo(plotX, axisY)
+        ctx.lineTo(plotX + plotW, axisY)
+        ctx.stroke()
+        ctx.fillStyle = '#475569'
+        ctx.font = '11px monospace'
+        for (let ep = 0; ep < dsaData.nEpochs; ep += tickEvery) {
+          const x = plotX + Math.floor((ep * plotW) / dsaData.nEpochs)
+          ctx.beginPath()
+          ctx.moveTo(x, axisY)
+          ctx.lineTo(x, axisY + 5)
+          ctx.stroke()
+          const tSec = ep * dsaData.epochSec
+          const minutes = Math.floor(tSec / 60)
+          const seconds = Math.floor(tSec % 60)
+          ctx.fillText(`${minutes}:${pad2(seconds)}`, x + 2, axisY + 16)
+        }
+        ctx.fillStyle = '#64748b'
+        ctx.fillText(`${Math.round(totalSec / 60)} min`, plotX + plotW - 54, height - 10)
+      }
+    }
+  }, [artifactEnabled, currentEndSec, currentStartSec, dsaData, dsaError, dsaLoading, onArtifactEpochClick, onEpochClick, onViewerAnnotationSelect, selectedViewerAnnotationId, sleepSketchData, sleepSketchLoading, viewerAnnotations])
+
+  useEffect(() => {
+    redraw()
+  }, [redraw])
+
+  useEffect(() => {
+    const wrap = wrapRef.current
+    if (!wrap) return
+    const ro = new ResizeObserver(() => redraw())
+    ro.observe(wrap)
+    return () => ro.disconnect()
+  }, [redraw])
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 1350,
+        background: 'rgba(15,23,42,0.5)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '1.2rem',
+      }}
+      onClick={onClose}
+    >
+      <div
+        ref={wrapRef}
+        style={{
+          width: 'min(96vw, 1600px)',
+          maxHeight: '92vh',
+          overflow: 'auto',
+          background: '#ffffff',
+          borderRadius: 14,
+          boxShadow: '0 30px 80px rgba(15,23,42,0.35)',
+          padding: '0.85rem',
+        }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.7rem' }}>
+          <div style={{ color: '#0f172a', fontWeight: 700, fontSize: '0.98rem' }}>Analizador de sueño</div>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              border: '1px solid #cbd5e1',
+              background: '#ffffff',
+              color: '#0f172a',
+              borderRadius: 6,
+              padding: '0.32rem 0.62rem',
+              fontSize: '0.8rem',
+              cursor: 'pointer',
+            }}
+          >
+            Cerrar
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+          <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
+            <DSAHeatmap
+              data={dsaData}
+              sleepSketchData={sleepSketchData}
+              loading={dsaLoading || sleepSketchLoading}
+              expanded
+              artifactEnabled={artifactEnabled}
+              showMetrics={false}
+              error={dsaError}
+              currentStartSec={currentStartSec}
+              currentEndSec={currentEndSec}
+              viewerAnnotations={viewerAnnotations}
+              selectedViewerAnnotationId={selectedViewerAnnotationId}
+              onEpochClick={onEpochClick}
+              onArtifactEpochClick={onArtifactEpochClick}
+              onViewerAnnotationSelect={onViewerAnnotationSelect}
+            />
+          </div>
+
+          <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', background: '#fffdf4' }}>
+            <canvas ref={fmdCanvasRef} style={{ display: 'block', width: '100%' }} />
+          </div>
+
+          <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', background: '#fffdf4' }}>
+            <canvas ref={hypCanvasRef} style={{ display: 'block', width: '100%' }} />
+          </div>
         </div>
       </div>
     </div>
@@ -3335,6 +3702,7 @@ export default function EEGViewer() {
   const [dsaError,        setDsaError]        = useState('')
   const [dsaExpanded,     setDsaExpanded]     = useState(false)
   const [hypnogramOpen,   setHypnogramOpen]   = useState(false)
+  const [sleepAnalyzerOpen, setSleepAnalyzerOpen] = useState(false)
   const [compactToolbar,  setCompactToolbar]  = useState(false)
   const [mobileControlsOpen, setMobileControlsOpen] = useState(false)
   const [localPickerError, setLocalPickerError] = useState('')
@@ -6562,6 +6930,7 @@ export default function EEGViewer() {
           selectedViewerAnnotationId={selectedViewerAnnotationId}
           onToggleExpand={() => setDsaExpanded(true)}
           onShowHypnogram={() => setHypnogramOpen(true)}
+          onShowSleepAnalyzer={() => setSleepAnalyzerOpen(true)}
           onEpochClick={(epochIndex) => {
             if (!dsaData) return
             goToDSAEpoch(epochIndex, dsaData.epochSec)
@@ -6623,6 +6992,7 @@ export default function EEGViewer() {
               selectedViewerAnnotationId={selectedViewerAnnotationId}
               onToggleExpand={() => setDsaExpanded(false)}
               onShowHypnogram={() => setHypnogramOpen(true)}
+              onShowSleepAnalyzer={() => setSleepAnalyzerOpen(true)}
               onEpochClick={(epochIndex) => {
                 if (!dsaData) return
                 goToDSAEpoch(epochIndex, dsaData.epochSec)
@@ -6641,6 +7011,30 @@ export default function EEGViewer() {
           dsaData={dsaData}
           sleepSketchData={sleepSketchData}
           onClose={() => setHypnogramOpen(false)}
+        />
+      )}
+      {sleepAnalyzerOpen && dsaChannel !== 'off' && (
+        <SleepAnalyzerModal
+          dsaData={dsaData}
+          sleepSketchData={sleepSketchData}
+          artifactEnabled={artifactReject}
+          dsaLoading={dsaLoading}
+          sleepSketchLoading={sleepSketchLoading}
+          dsaError={dsaError}
+          currentStartSec={tStart}
+          currentEndSec={tStart + pageDuration}
+          viewerAnnotations={viewerAnnotations}
+          selectedViewerAnnotationId={selectedViewerAnnotationId}
+          onClose={() => setSleepAnalyzerOpen(false)}
+          onEpochClick={(epochIndex) => {
+            if (!dsaData) return
+            goToDSAEpoch(epochIndex, dsaData.epochSec)
+          }}
+          onArtifactEpochClick={(epochIndex) => {
+            if (!dsaData) return
+            goToDSAEpoch(epochIndex, dsaData.artifactEpochSec)
+          }}
+          onViewerAnnotationSelect={(annotationId) => jumpToViewerAnnotation(annotationId)}
         />
       )}
       {triggerAvgModalOpen && triggerAvgOpen && (

@@ -4,6 +4,68 @@
   gap: 1.75rem;
 }
 
+.share-promo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  padding: 1.2rem 1.3rem;
+  border-color: rgba(15, 91, 216, 0.18);
+  background:
+    radial-gradient(circle at top right, rgba(15, 91, 216, 0.12), transparent 14rem),
+    linear-gradient(180deg, rgba(15, 91, 216, 0.04), rgba(15, 91, 216, 0.02));
+}
+
+.share-promo-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-width: 720px;
+}
+
+.share-promo-kicker {
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--primary);
+}
+
+.share-promo h3 {
+  font-size: 1.2rem;
+  margin: 0;
+}
+
+.share-promo p {
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+  margin: 0;
+}
+
+.share-promo-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.share-promo-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0.72rem 1rem;
+  border-radius: 12px;
+  background: var(--primary);
+  color: white;
+  font-weight: 700;
+  box-shadow: var(--shadow-soft);
+}
+
+.share-promo-link:hover {
+  background: var(--primary-hover);
+  color: white;
+}
+
 .dashboard-header {
   display: flex;
   align-items: center;
@@ -99,6 +161,19 @@
 }
 
 @media (max-width: 760px) {
+  .share-promo {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .share-promo-actions {
+    width: 100%;
+  }
+
+  .share-promo-link {
+    width: 100%;
+  }
+
   .case-row,
   .request-row {
     flex-direction: column;

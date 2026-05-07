@@ -89,6 +89,21 @@ export default function Dashboard() {
         )}
       />
 
+      <section className="share-promo card">
+        <div className="share-promo-copy">
+          <span className="share-promo-kicker">Shared Link</span>
+          <h3>Envía un EEG por enlace</h3>
+          <p>
+            Carga un EDF, OCEAN lo anonimiza y cifra en tu navegador, y genera un enlace efímero listo para WhatsApp, mail o interconsulta rápida.
+          </p>
+        </div>
+        <div className="share-promo-actions">
+          <Link to="/share" className="share-promo-link">
+            Abrir Shared Link
+          </Link>
+        </div>
+      </section>
+
       <section className="dashboard-section">
         <h3>{seeingAllCases ? 'Todos los Casos' : 'Mis Casos'}</h3>
         {cases.length === 0 ? (

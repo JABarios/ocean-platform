@@ -1,8 +1,10 @@
 import { useMemo, useRef, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import { API_BASE, friendlyError } from '../api/client'
 import { useCrypto, isCryptoAvailable } from '../hooks/useCrypto'
 import PageHeader from '../components/PageHeader'
 import { anonymizeEdfFile, type EdfAnonymizationReport, type EdfAnnotationMode } from '../utils/edfAnonymization'
+import './Auth.css'
 import './CaseNew.css'
 
 interface UploadResponse {
@@ -23,6 +25,8 @@ function getSharedViewerOrigin() {
 export default function SharedLinkNew() {
   const { encryptFile } = useCrypto()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const location = useLocation()
+  const isStandaloneShare = location.pathname === '/share'
 
   const [label, setLabel] = useState('')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -138,15 +142,15 @@ export default function SharedLinkNew() {
     }
   }
 
-  return (
-    <div className="case-new">
+  const content = (
+    <>
       <PageHeader
-        title="Comparte un EEG"
-        subtitle="Desidentificación local verificable: OCEAN genera una copia desidentificada en tu navegador, te enseña qué cambia y solo sube esa copia cifrada."
+        title="Comparte un EEG de forma segura"
+        subtitle="OCEAN genera una copia desidentificada en tu navegador, te enseña qué cambia y solo sube esa copia cifrada."
       />
       <form onSubmit={handleCreate} className="case-form card">
         <label>
-          Etiqueta del enlace
+          Etiqueta del enlace (opcional)
           <input
             type="text"
             value={label}
@@ -162,7 +166,7 @@ export default function SharedLinkNew() {
         </div>
 
         <label>
-          Archivo EEG (.edf)
+          Archivo EEG (.edf / EDF+)
           <input
             ref={fileInputRef}
             type="file"
@@ -186,7 +190,7 @@ export default function SharedLinkNew() {
           >
             <option value="remove">Quitar todas las anotaciones EDF+</option>
             <option value="clinical">Conservar solo etiquetas clínicas conocidas</option>
-            <option value="replace">Sustituir el texto por “ANNOTATION REDACTED”</option>
+            <option value="replace">Sustituir el texto por “ANOTACION ELIMINADA”</option>
           </select>
           <span className="file-hint">
             Las anotaciones pueden contener texto libre con identificadores. Por defecto se eliminan antes del cifrado; el modo clínico conserva solo marcas cortas conocidas como HV, HPV, ELI, EO, EC o photic.
@@ -286,6 +290,7 @@ export default function SharedLinkNew() {
             <div className="key-value" style={{ wordBreak: 'break-all' }}>{sharedUrl}</div>
             <p className="key-hint">
               Caduca automáticamente a las 24 horas.
+              La persona que reciba el enlace podrá abrir el EEG en el navegador sin iniciar sesión.
               {prettyExpiry ? ` Expira: ${prettyExpiry}.` : ''}
             </p>
             <div className="form-actions">
@@ -314,6 +319,24 @@ export default function SharedLinkNew() {
           </button>
         </div>
       </form>
-    </div>
+    </>
   )
+
+  if (isStandaloneShare) {
+    return (
+      <div className="auth-page">
+        <div className="auth-card card" style={{ maxWidth: '860px' }}>
+          <div style={{ marginBottom: '1.2rem' }}>
+            <h1 style={{ marginBottom: '0.3rem' }}>Compartir un EEG</h1>
+            <p className="subtitle" style={{ marginBottom: 0 }}>
+              <Link to="/login" className="public-share-platform-link">Plataforma clínica OCEAN</Link>
+            </p>
+          </div>
+          {content}
+        </div>
+      </div>
+    )
+  }
+
+  return <div className="case-new">{content}</div>
 }

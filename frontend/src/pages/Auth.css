@@ -153,6 +153,17 @@
   font-family: ui-monospace, monospace;
 }
 
+.public-share-platform-link {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(15, 91, 216, 0.18);
+}
+
+.public-share-platform-link:hover {
+  color: var(--primary);
+  border-bottom-color: rgba(15, 91, 216, 0.36);
+}
+
 @media (max-width: 640px) {
   .auth-page {
     padding: 1.25rem 0.9rem;
@@ -172,4 +183,5 @@
     flex-direction: column;
     align-items: flex-start;
   }
+
 }

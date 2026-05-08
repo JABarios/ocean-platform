@@ -207,7 +207,7 @@ export default function CaseNew() {
         </div>
 
         <label>
-          Archivo EEG (.edf)
+          Archivo EEG (.edf / EDF+)
           <input
             ref={fileInputRef}
             type="file"
@@ -231,7 +231,7 @@ export default function CaseNew() {
           >
             <option value="remove">Quitar todas las anotaciones EDF+</option>
             <option value="clinical">Conservar solo etiquetas clínicas conocidas</option>
-            <option value="replace">Sustituir el texto por “ANNOTATION REDACTED”</option>
+            <option value="replace">Sustituir el texto por “ANOTACION ELIMINADA”</option>
           </select>
           <span className="file-hint">
             Las anotaciones pueden contener texto libre con identificadores. Por defecto se eliminan antes del cifrado; el modo clínico conserva solo marcas cortas conocidas como HV, HPV, ELI, EO, EC o photic.

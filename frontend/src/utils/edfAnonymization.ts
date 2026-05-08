@@ -78,7 +78,7 @@ const ANON_RECORDING = 'Startdate X X X X'
 const ANON_START_DATE = '01.01.85'
 const ANON_START_TIME = '00.00.00'
 const CERTIFICATE_VERSION = 'OCEAN Local De-ID v1'
-const DEFAULT_ANNOTATION_REPLACEMENT = 'ANNOTATION REDACTED'
+const DEFAULT_ANNOTATION_REPLACEMENT = 'ANOTACION ELIMINADA'
 
 function decodeAscii(bytes: Uint8Array, offset: number, length: number) {
   return new TextDecoder('ascii').decode(bytes.slice(offset, offset + length))

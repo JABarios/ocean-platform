@@ -344,7 +344,7 @@ export function extractEdfAnnotations(input: ArrayBuffer | Uint8Array): EdfAnnot
 export function rewriteEdfAnnotations(
   input: ArrayBuffer | Uint8Array,
   mode: 'keep' | 'remove' | 'replace' | 'clinical',
-  replacementText = 'ANNOTATION REDACTED',
+  replacementText = 'ANOTACION ELIMINADA',
 ): EdfAnnotationRewriteResult {
   const bytes = input instanceof Uint8Array ? new Uint8Array(input.slice()) : new Uint8Array(input.slice(0))
   if (mode === 'keep') {

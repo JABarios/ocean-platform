@@ -126,11 +126,11 @@ describe('EDF annotations', () => {
 
   it('puede sustituir el texto de las anotaciones EDF+ por una marca neutra', () => {
     const bytes = buildFakeEdfWithAnnotations()
-    const rewritten = rewriteEdfAnnotations(bytes, 'replace', 'ANNOTATION REDACTED')
+    const rewritten = rewriteEdfAnnotations(bytes, 'replace', 'ANOTACION ELIMINADA')
 
     expect(extractEdfAnnotations(rewritten.bytes)).toEqual([
-      { onsetSec: 0.5, durationSec: -1, text: 'ANNOTATION REDACTED' },
-      { onsetSec: 1.25, durationSec: 0.75, text: 'ANNOTATION REDACTED' },
+      { onsetSec: 0.5, durationSec: -1, text: 'ANOTACION ELIMINADA' },
+      { onsetSec: 1.25, durationSec: 0.75, text: 'ANOTACION ELIMINADA' },
     ])
   })
 

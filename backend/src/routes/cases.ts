@@ -230,8 +230,11 @@ router.patch('/:id/status', async (req: AuthenticatedRequest, res) => {
 
 // Borrar caso del propietario
 router.delete('/:id', async (req: AuthenticatedRequest, res) => {
+  const canDeleteAnyCase = req.user?.role === 'Admin'
   const caseItem = await prisma.case.findFirst({
-    where: { id: req.params.id, ownerId: req.user!.id },
+    where: canDeleteAnyCase
+      ? { id: req.params.id }
+      : { id: req.params.id, ownerId: req.user!.id },
     include: {
       package: {
         select: {

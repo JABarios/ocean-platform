@@ -338,6 +338,25 @@ describe('DELETE /cases/:id', () => {
     expect(await prisma.case.findUnique({ where: { id: c.id } })).not.toBeNull()
   })
 
+  it('permite a admin borrar un caso ajeno', async () => {
+    const owner = await createUser({ email: 'delete-admin-owner@ocean.local', displayName: 'Delete Admin Owner', password: 'pass' })
+    const admin = await createUser({ email: 'delete-admin@ocean.local', displayName: 'Delete Admin', role: 'Admin', password: 'pass' })
+    const c = await createCase(owner.id, { title: 'Caso borrado por admin' })
+    const token = generateToken(admin.id, admin.email, admin.role)
+
+    const res = await request(app)
+      .delete(`/cases/${c.id}`)
+      .set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ deleted: true, caseId: c.id })
+    expect(await prisma.case.findUnique({ where: { id: c.id } })).toBeNull()
+    const deletionAudit = await prisma.auditEvent.findFirst({
+      where: { actorId: admin.id, action: 'CaseDeleted', target: c.id },
+    })
+    expect(deletionAudit).not.toBeNull()
+  })
+
   it('conserva el EEG si sigue enlazado desde una galería', async () => {
     const owner = await createUser({ email: 'delete-gallery-owner@ocean.local', displayName: 'Delete Gallery Owner', password: 'pass' })
     const c = await createCase(owner.id, { title: 'Caso con galería' })

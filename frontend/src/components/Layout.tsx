@@ -35,7 +35,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <Link to="/cases/new" className={navLinkClass('/cases/new')}>
               Nuevo Caso
             </Link>
-            <Link to="/share" className={navLinkClass('/share', '/shared/new')}>
+            <Link to="/share/new" className={navLinkClass('/share/new', '/shared/new')}>
               Shared Link
             </Link>
             <Link to="/cases" className={navLinkClass('/cases', '/cases/manage')}>

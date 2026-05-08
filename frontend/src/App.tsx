@@ -55,9 +55,16 @@ export default function App() {
         }
       />
       <Route
-        path="/shared/new"
-        element={<SharedLinkNew />}
+        path="/share/new"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <SharedLinkNew />
+            </Layout>
+          </ProtectedRoute>
+        }
       />
+      <Route path="/shared/new" element={<SharedLinkNew />} />
       <Route
         path="/cases"
         element={

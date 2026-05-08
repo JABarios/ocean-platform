@@ -3989,6 +3989,7 @@ export default function EEGViewer() {
   const effectiveGainMult = selectedChannelName
     ? (channelGainOverrides[selectedChannelName] ?? gainMult)
     : gainMult
+  const selectedChannelHasOwnGain = !!(selectedChannelName && Object.prototype.hasOwnProperty.call(channelGainOverrides, selectedChannelName))
 
   const triggerChannelOptions = useMemo(() => {
     if (!processedEpoch) return []
@@ -5500,6 +5501,15 @@ export default function EEGViewer() {
     }
     setGainMult(nextGain)
   }, [selectedChannelName])
+  const releaseSelectedChannelGainOverride = useCallback(() => {
+    if (!selectedChannelName) return
+    setChannelGainOverrides((current) => {
+      if (!Object.prototype.hasOwnProperty.call(current, selectedChannelName)) return current
+      const next = { ...current }
+      delete next[selectedChannelName]
+      return next
+    })
+  }, [selectedChannelName])
   const nudgeTriggerThreshold = useCallback((delta: number) => {
     setTriggerThresholdStep((current) => Math.max(0, Math.min(TRIGGER_THRESHOLD_POSITIONS - 1, current + delta)))
   }, [])
@@ -6348,10 +6358,29 @@ export default function EEGViewer() {
                 flexShrink: 0,
               }}>
                 <span>{selectedChannelName}</span>
+                {selectedChannelHasOwnGain && (
+                  <button
+                    type="button"
+                    onClick={releaseSelectedChannelGainOverride}
+                    title="Volver a encadenar este canal con la ganancia global"
+                    style={{
+                      background: '#ffffff',
+                      border: '1px solid #fca5a5',
+                      borderRadius: 4,
+                      color: '#b91c1c',
+                      fontSize: '0.72rem',
+                      padding: '0.05rem 0.32rem',
+                      cursor: 'pointer',
+                      fontWeight: 700,
+                    }}
+                  >
+                    Reenc.
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setSelectedChannelName(null)}
-                  title="Volver al modo global y conservar la ganancia propia de este canal"
+                  title="Salir del modo de ajuste por canal"
                   style={{
                     background: '#ffffff',
                     border: '1px solid #fca5a5',
@@ -6526,9 +6555,29 @@ export default function EEGViewer() {
               whiteSpace: 'nowrap',
             }}>
               <span>{selectedChannelName}</span>
+              {selectedChannelHasOwnGain && (
+                <button
+                  type="button"
+                  onClick={releaseSelectedChannelGainOverride}
+                  title="Volver a encadenar este canal con la ganancia global"
+                  style={{
+                    background: '#ffffff',
+                    border: '1px solid #fca5a5',
+                    borderRadius: 4,
+                    color: '#b91c1c',
+                    fontSize: '0.68rem',
+                    padding: '0.04rem 0.28rem',
+                    cursor: 'pointer',
+                    fontWeight: 700,
+                  }}
+                >
+                  Reenc.
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setSelectedChannelName(null)}
+                title="Salir del modo de ajuste por canal"
                 style={{
                   background: '#ffffff',
                   border: '1px solid #fca5a5',

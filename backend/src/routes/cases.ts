@@ -6,6 +6,7 @@ import { deleteBlob } from '../utils/storage'
 import { buildCaseReadAccessWhere } from '../utils/teachingState'
 import { getAllowedClinicalEvents, getNextClinicalState } from '../domain/workflows/clinicalWorkflow'
 import { decorateCaseReviewRequests, getCaseAvailableActions } from '../domain/workflows/caseWorkflow'
+import { hasAppAction } from '../domain/workflows/appWorkflow'
 
 const router = Router()
 
@@ -26,7 +27,7 @@ const updateStatusSchema = z.object({
 router.use(authMiddleware)
 
 function canSeeAllCases(req: AuthenticatedRequest) {
-  return req.user?.role === 'Admin'
+  return req.user ? hasAppAction(req.user.role, 'access_admin') : false
 }
 
 function safeParseJson(value: any): any {
@@ -296,7 +297,7 @@ router.patch('/:id/status', async (req: AuthenticatedRequest, res) => {
 })
 
 router.delete('/:id', async (req: AuthenticatedRequest, res) => {
-  const canDeleteAnyCase = req.user?.role === 'Admin'
+  const canDeleteAnyCase = req.user ? hasAppAction(req.user.role, 'access_admin') : false
   const caseItem = await prisma.case.findFirst({
     where: canDeleteAnyCase
       ? { id: req.params.id }

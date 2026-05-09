@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken'
 import { z } from 'zod'
 import { prisma } from '../utils/prisma'
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth'
+import { getAppAvailableActions } from '../domain/workflows/appWorkflow'
 
 const router = Router()
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me'
@@ -58,7 +59,16 @@ router.post('/register', async (req, res) => {
     { expiresIn: '7d' }
   )
 
-  res.status(201).json({ token, user: { id: user.id, email: user.email, displayName: user.displayName, role: user.role } })
+  res.status(201).json({
+    token,
+    user: {
+      id: user.id,
+      email: user.email,
+      displayName: user.displayName,
+      role: user.role,
+      availableActions: getAppAvailableActions(user.role),
+    },
+  })
 })
 
 router.post('/login', async (req, res) => {
@@ -102,7 +112,16 @@ router.post('/login', async (req, res) => {
     { expiresIn: '7d' }
   )
 
-  res.json({ token, user: { id: updatedUser.id, email: updatedUser.email, displayName: updatedUser.displayName, role: updatedUser.role } })
+  res.json({
+    token,
+    user: {
+      id: updatedUser.id,
+      email: updatedUser.email,
+      displayName: updatedUser.displayName,
+      role: updatedUser.role,
+      availableActions: getAppAvailableActions(updatedUser.role),
+    },
+  })
 })
 
 router.get('/me', authMiddleware, async (req: AuthenticatedRequest, res) => {
@@ -115,7 +134,10 @@ router.get('/me', authMiddleware, async (req: AuthenticatedRequest, res) => {
     res.status(404).json({ error: 'Usuario no encontrado' })
     return
   }
-  res.json(user)
+  res.json({
+    ...user,
+    availableActions: getAppAvailableActions(user.role),
+  })
 })
 
 export default router

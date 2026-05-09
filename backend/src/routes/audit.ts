@@ -1,12 +1,12 @@
 import { Router } from 'express'
 import { prisma } from '../utils/prisma'
-import { authMiddleware, AuthenticatedRequest, requireRole } from '../middleware/auth'
+import { authMiddleware, AuthenticatedRequest, requireAppAction } from '../middleware/auth'
 
 const router = Router()
 
 router.use(authMiddleware)
 
-router.get('/', requireRole(['Admin']), async (req: AuthenticatedRequest, res) => {
+router.get('/', requireAppAction('view_audit_log'), async (req: AuthenticatedRequest, res) => {
   const { caseId, action, limit } = req.query
 
   const where: Record<string, unknown> = {}

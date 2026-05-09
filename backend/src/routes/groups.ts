@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../utils/prisma'
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth'
+import { canManageGroupMembers } from '../domain/workflows/groupWorkflow'
 
 const router = Router()
 
@@ -85,7 +86,7 @@ router.post('/:id/members', async (req: AuthenticatedRequest, res) => {
   const membership = await prisma.groupMember.findUnique({
     where: { userId_groupId: { userId: req.user!.id, groupId: req.params.id } },
   })
-  if (!membership || membership.role !== 'admin') {
+  if (!membership || !canManageGroupMembers(membership.role)) {
     res.status(403).json({ error: 'Solo el administrador del grupo puede añadir miembros' })
     return
   }
@@ -117,7 +118,7 @@ router.delete('/:id/members/:userId', async (req: AuthenticatedRequest, res) => 
   const membership = await prisma.groupMember.findUnique({
     where: { userId_groupId: { userId: req.user!.id, groupId: req.params.id } },
   })
-  if (!membership || membership.role !== 'admin') {
+  if (!membership || !canManageGroupMembers(membership.role)) {
     res.status(403).json({ error: 'Solo el administrador del grupo puede eliminar miembros' })
     return
   }

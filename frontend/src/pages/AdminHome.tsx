@@ -1,6 +1,7 @@
 import { Link, Navigate } from 'react-router-dom'
 import PageHeader from '../components/PageHeader'
 import { useAuthStore } from '../store/authStore'
+import { hasAvailableAction } from '../utils/teachingState'
 import './AdminHome.css'
 
 const adminTools = [
@@ -41,8 +42,9 @@ const workspaceShortcuts = [
 
 export default function AdminHome() {
   const user = useAuthStore((s) => s.user)
+  const canAccessAdmin = hasAvailableAction(user?.availableActions, 'access_admin')
 
-  if (user?.role !== 'Admin') {
+  if (!canAccessAdmin) {
     return <Navigate to="/" replace />
   }
 

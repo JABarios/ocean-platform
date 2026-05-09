@@ -4,6 +4,7 @@ import { api, friendlyError } from '../api/client'
 import type { CaseItem, ReviewRequest } from '../types'
 import PageHeader from '../components/PageHeader'
 import { useAuthStore } from '../store/authStore'
+import { hasAvailableAction } from '../utils/teachingState'
 import './Dashboard.css'
 
 function statusBadgeClass(status: CaseItem['status']) {
@@ -25,7 +26,7 @@ function statusBadgeClass(status: CaseItem['status']) {
 
 export default function Dashboard() {
   const currentUser = useAuthStore((s) => s.user)
-  const seeingAllCases = currentUser?.role === 'Admin'
+  const seeingAllCases = hasAvailableAction(currentUser?.availableActions, 'access_admin')
   const [cases, setCases] = useState<CaseItem[]>([])
   const [pending, setPending] = useState<ReviewRequest[]>([])
   const [active, setActive] = useState<ReviewRequest[]>([])

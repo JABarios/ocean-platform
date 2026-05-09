@@ -1,81 +1,28 @@
 import { getNextTeachingState } from '../domain/workflows/teachingWorkflow'
+import {
+  OPEN_TEACHING_STATUSES,
+  buildCasePackageReadAccessWhere as buildCasePackageReadAccessWhereFromWorkflow,
+  buildCaseReadAccessWhere as buildCaseReadAccessWhereFromWorkflow,
+  buildTeachingContributorAccessWhere as buildTeachingContributorAccessWhereFromWorkflow,
+  buildTeachingProposalReadAccessWhere as buildTeachingProposalReadAccessWhereFromWorkflow,
+} from '../domain/workflows/caseAccessWorkflow'
 
-export const OPEN_TEACHING_STATUSES = ['Proposed', 'Recommended', 'Validated'] as const
 export const COMMUNITY_TEACHING_STATUSES = ['Proposed', 'Recommended'] as const
 
 export function buildCaseReadAccessWhere(userId: string) {
-  return {
-    OR: [
-      { ownerId: userId },
-      { statusTeaching: { in: [...OPEN_TEACHING_STATUSES] } },
-      {
-        reviewRequests: {
-          some: {
-            OR: [
-              { targetUserId: userId },
-              { requestedBy: userId },
-            ],
-          },
-        },
-      },
-    ],
-  }
+  return buildCaseReadAccessWhereFromWorkflow(userId)
 }
 
 export function buildTeachingProposalReadAccessWhere(userId: string) {
-  return {
-    OR: [
-      { ownerId: userId },
-      { statusTeaching: { in: [...OPEN_TEACHING_STATUSES] } },
-      {
-        reviewRequests: {
-          some: {
-            OR: [
-              { targetUserId: userId, status: 'Accepted' },
-              { requestedBy: userId },
-            ],
-          },
-        },
-      },
-    ],
-  }
+  return buildTeachingProposalReadAccessWhereFromWorkflow(userId)
 }
 
 export function buildCasePackageReadAccessWhere(userId: string) {
-  return {
-    OR: [
-      { ownerId: userId },
-      { statusTeaching: { in: [...OPEN_TEACHING_STATUSES] } },
-      {
-        reviewRequests: {
-          some: {
-            OR: [
-              { targetUserId: userId, status: 'Accepted' },
-              { requestedBy: userId },
-            ],
-          },
-        },
-      },
-    ],
-  }
+  return buildCasePackageReadAccessWhereFromWorkflow(userId)
 }
 
 export function buildTeachingContributorAccessWhere(userId: string) {
-  return {
-    OR: [
-      { ownerId: userId },
-      {
-        reviewRequests: {
-          some: {
-            OR: [
-              { targetUserId: userId, status: 'Accepted' },
-              { requestedBy: userId },
-            ],
-          },
-        },
-      },
-    ],
-  }
+  return buildTeachingContributorAccessWhereFromWorkflow(userId)
 }
 
 export function proposalSupportCount(input: {

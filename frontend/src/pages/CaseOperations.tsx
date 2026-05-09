@@ -30,7 +30,7 @@ function formatDate(value?: string) {
 
 export default function CaseOperations() {
   const currentUser = useAuthStore((s) => s.user)
-  const seeingAllCases = currentUser?.role === 'Admin'
+  const seeingAllCases = hasAvailableAction(currentUser?.availableActions, 'access_admin')
   const [cases, setCases] = useState<CaseItem[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)

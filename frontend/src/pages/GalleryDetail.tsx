@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import PageHeader from '../components/PageHeader'
 import { api, friendlyError } from '../api/client'
-import { useAuthStore } from '../store/authStore'
+import { hasAvailableAction } from '../utils/teachingState'
 import type { Gallery } from '../types'
 import './GalleryDetail.css'
 
@@ -29,8 +29,6 @@ function formatDuration(seconds?: number) {
 export default function GalleryDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const user = useAuthStore((s) => s.user)
-  const canManage = user?.role === 'Admin' || user?.role === 'Curator'
   const [gallery, setGallery] = useState<Gallery | null>(null)
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(true)
@@ -116,6 +114,10 @@ export default function GalleryDetail() {
     })
   }, [gallery, query])
 
+  const canEditGallery = hasAvailableAction(gallery?.availableActions, 'edit_gallery')
+  const canDeleteGallery = hasAvailableAction(gallery?.availableActions, 'delete_gallery')
+  const canManage = canEditGallery || canDeleteGallery
+
   if (loading) return <div className="gallery-detail">Cargando galería…</div>
 
   return (
@@ -125,14 +127,16 @@ export default function GalleryDetail() {
         subtitle={gallery?.description || 'Colección de EEGs preparada para navegación directa y apertura en visor.'}
         actions={gallery && canManage ? (
           <>
-            {!editing && (
+            {!editing && canEditGallery && (
               <button className="btn-primary" type="button" onClick={() => setEditing(true)}>
                 Editar galería
               </button>
             )}
-            <button className="btn-danger" type="button" onClick={handleDelete} disabled={deleting}>
-              {deleting ? 'Borrando…' : 'Borrar galería'}
-            </button>
+            {canDeleteGallery && (
+              <button className="btn-danger" type="button" onClick={handleDelete} disabled={deleting}>
+                {deleting ? 'Borrando…' : 'Borrar galería'}
+              </button>
+            )}
           </>
         ) : undefined}
         aside={gallery ? (
@@ -148,7 +152,7 @@ export default function GalleryDetail() {
 
       {gallery && (
         <>
-          {canManage && (
+          {canEditGallery && (
             <section className="card gallery-manage">
               <div className="gallery-manage-header">
                 <div>

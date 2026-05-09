@@ -2,8 +2,8 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../utils/prisma'
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth'
-import { buildCaseReadAccessWhere } from '../utils/teachingState'
 import { canCommentOnCase } from '../domain/workflows/caseWorkflow'
+import { canReadCase } from '../domain/workflows/caseAccessWorkflow'
 
 const router = Router()
 
@@ -13,10 +13,6 @@ const createCommentSchema = z.object({
   requestId: z.string().uuid().optional(),
 })
 
-function canSeeAllCases(req: AuthenticatedRequest) {
-  return req.user?.role === 'Admin'
-}
-
 router.use(authMiddleware)
 
 // Listar comentarios de un caso
@@ -24,13 +20,21 @@ router.get('/case/:caseId', async (req: AuthenticatedRequest, res) => {
   const caseItem = await prisma.case.findFirst({
     where: {
       id: req.params.caseId,
-      ...(canSeeAllCases(req)
-        ? {}
-        : buildCaseReadAccessWhere(req.user!.id)),
+    },
+    select: {
+      ownerId: true,
+      statusTeaching: true,
+      reviewRequests: {
+        select: {
+          requestedBy: true,
+          targetUserId: true,
+          status: true,
+        },
+      },
     },
   })
 
-  if (!caseItem) {
+  if (!caseItem || !canReadCase(caseItem, req.user!.id, req.user?.role)) {
     res.status(404).json({ error: 'Caso no encontrado o sin acceso' })
     return
   }
@@ -79,6 +83,23 @@ router.post('/case/:caseId', async (req: AuthenticatedRequest, res) => {
   if (!caseItem || !canCommentOnCase(caseItem, req.user!)) {
     res.status(404).json({ error: 'Caso no encontrado o sin acceso' })
     return
+  }
+
+  if (parsed.data.requestId) {
+    const request = await prisma.reviewRequest.findUnique({
+      where: { id: parsed.data.requestId },
+      select: {
+        caseId: true,
+        requestedBy: true,
+        targetUserId: true,
+        status: true,
+      },
+    })
+
+    if (!request || request.caseId !== req.params.caseId) {
+      res.status(400).json({ error: 'La solicitud vinculada no pertenece a este caso' })
+      return
+    }
   }
 
   const comment = await prisma.comment.create({

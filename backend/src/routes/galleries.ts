@@ -4,10 +4,11 @@ import path from 'path'
 import crypto from 'crypto'
 import { z } from 'zod'
 import { prisma } from '../utils/prisma'
-import { authMiddleware, AuthenticatedRequest, requireRole } from '../middleware/auth'
+import { authMiddleware, AuthenticatedRequest, requireAppAction } from '../middleware/auth'
 import { uploadBlob, getBlobStream } from '../utils/storage'
 import { deleteBlob } from '../utils/storage'
 import { buildGalleryImportHints } from '../utils/galleryImport'
+import { getGalleryAvailableActions } from '../domain/workflows/galleryWorkflow'
 
 const router = Router()
 
@@ -87,7 +88,7 @@ async function safeDeleteBlob(blobLocation: string) {
   }
 }
 
-function toGalleryListItem(gallery: any) {
+function toGalleryListItem(gallery: any, viewer?: { role: string }) {
   return {
     id: gallery.id,
     title: gallery.title,
@@ -105,6 +106,7 @@ function toGalleryListItem(gallery: any) {
       email: gallery.creator.email,
     } : undefined,
     recordCount: gallery._count?.records ?? gallery.records?.length ?? 0,
+    availableActions: viewer ? getGalleryAvailableActions(viewer.role) : [],
   }
 }
 
@@ -127,7 +129,7 @@ function toGalleryRecord(record: any) {
   }
 }
 
-router.get('/', async (_req: AuthenticatedRequest, res) => {
+router.get('/', async (req: AuthenticatedRequest, res) => {
   const galleries = await prisma.gallery.findMany({
     orderBy: { createdAt: 'desc' },
     include: {
@@ -136,7 +138,7 @@ router.get('/', async (_req: AuthenticatedRequest, res) => {
     },
   })
 
-  res.json(galleries.map(toGalleryListItem))
+  res.json(galleries.map((gallery) => toGalleryListItem(gallery, req.user!)))
 })
 
 router.get('/:id', async (req: AuthenticatedRequest, res) => {
@@ -159,7 +161,7 @@ router.get('/:id', async (req: AuthenticatedRequest, res) => {
   }
 
   res.json({
-    ...toGalleryListItem(gallery),
+    ...toGalleryListItem(gallery, req.user!),
     records: gallery.records.map(toGalleryRecord),
   })
 })
@@ -222,7 +224,7 @@ router.get('/records/:recordId/download', async (req: AuthenticatedRequest, res)
   stream.pipe(res)
 })
 
-router.patch('/:id', requireRole(['Curator', 'Admin']), async (req: AuthenticatedRequest, res) => {
+router.patch('/:id', requireAppAction('import_gallery'), async (req: AuthenticatedRequest, res) => {
   const parsed = updateGallerySchema.safeParse(req.body)
   if (!parsed.success) {
     res.status(400).json({ error: 'Datos de galería inválidos', issues: parsed.error.issues })
@@ -269,10 +271,10 @@ router.patch('/:id', requireRole(['Curator', 'Admin']), async (req: Authenticate
     },
   })
 
-  res.json(toGalleryListItem(gallery))
+  res.json(toGalleryListItem(gallery, req.user!))
 })
 
-router.delete('/:id', requireRole(['Curator', 'Admin']), async (req: AuthenticatedRequest, res) => {
+router.delete('/:id', requireAppAction('import_gallery'), async (req: AuthenticatedRequest, res) => {
   const gallery = await prisma.gallery.findUnique({
     where: { id: req.params.id },
     include: {
@@ -325,7 +327,7 @@ router.delete('/:id', requireRole(['Curator', 'Admin']), async (req: Authenticat
   res.json({ deleted: true, galleryId: gallery.id })
 })
 
-router.post('/import', requireRole(['Curator', 'Admin']), async (req: AuthenticatedRequest, res) => {
+router.post('/import', requireAppAction('import_gallery'), async (req: AuthenticatedRequest, res) => {
   const parsed = importGallerySchema.safeParse(req.body)
   if (!parsed.success) {
     res.status(400).json({ error: 'Datos de importación inválidos', issues: parsed.error.issues })

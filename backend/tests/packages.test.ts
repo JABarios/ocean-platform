@@ -1,3 +1,5 @@
+import path from 'path'
+import { promises as fsPromises } from 'fs'
 import request from 'supertest'
 import app from '../src/index'
 import { createCase, createCasePackage, createEegRecord, createReviewRequest, createUser, generateToken, prisma } from './helpers'
@@ -91,6 +93,22 @@ describe('EEG key custody', () => {
 
     expect(res.status).toBe(404)
   })
+
+  it('usuario autenticado puede descargar el paquete de un caso propuesto', async () => {
+    const owner = await createUser({ email: 'pkg-open-owner@ocean.local', displayName: 'Pkg Open Owner', password: 'pass123' })
+    const outsider = await createUser({ email: 'pkg-open-viewer@ocean.local', displayName: 'Pkg Open Viewer', password: 'viewer123' })
+    const caseItem = await createCase(owner.id, { statusTeaching: 'Proposed' })
+    const pkg = await createCasePackage(caseItem.id, 'pkg-open-hash')
+    await fsPromises.mkdir(path.dirname(pkg.blobLocation), { recursive: true })
+    await fsPromises.writeFile(pkg.blobLocation, Buffer.from('fake-open-package'))
+    const token = generateToken(outsider.id, outsider.email, outsider.role)
+
+    const res = await request(app)
+      .get(`/packages/download/${caseItem.id}`)
+      .set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(200)
+  })
 })
 
 describe('EEG records', () => {
@@ -117,5 +135,26 @@ describe('EEG records', () => {
     expect(res.body[0].blobHash).toBe('shared-hash-123')
     expect(res.body[0].usageCount).toBe(2)
     expect(res.body[0].cases.map((item: { title: string }) => item.title).sort()).toEqual(['Caso A', 'Caso B'])
+  })
+
+  it('no lista EEGs de casos privados a usuarios sin relación de revisión', async () => {
+    const owner = await createUser({ email: 'eeg-private-owner@ocean.local', displayName: 'EEG Private Owner', password: 'pass123' })
+    const outsider = await createUser({ email: 'eeg-private-outsider@ocean.local', displayName: 'EEG Private Outsider', password: 'pass123' })
+    const caseItem = await createCase(owner.id, { title: 'Privado', statusTeaching: 'None' })
+    const eegRecord = await createEegRecord({
+      blobHash: 'private-hash-123',
+      blobLocation: 'shared/private-hash-123.enc',
+      sizeBytes: 2048,
+      uploadedBy: owner.id,
+    })
+    await createCasePackage(caseItem.id, 'private-hash-123', { eegRecordId: eegRecord.id, blobLocation: eegRecord.blobLocation })
+    const token = generateToken(outsider.id, outsider.email, outsider.role)
+
+    const res = await request(app)
+      .get('/packages/eegs')
+      .set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body).toHaveLength(0)
   })
 })

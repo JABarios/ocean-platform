@@ -9,7 +9,12 @@ import { prisma } from '../utils/prisma'
 import { uploadBlob, getBlobStream } from '../utils/storage'
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth'
 import { wrapCaseKey, unwrapCaseKey } from '../utils/keyCustody'
-import { buildCasePackageReadAccessWhere } from '../utils/teachingState'
+import {
+  canDownloadCasePackage,
+  canRecoverCasePackageSecret,
+  canStoreCasePackageSecret,
+  canUploadCasePackage,
+} from '../domain/workflows/casePackageWorkflow'
 
 const router = Router()
 
@@ -41,9 +46,26 @@ router.post('/upload', authMiddleware, upload.single('blob'), async (req: Authen
 
   // Verificar ownership
   const caseItem = await prisma.case.findFirst({
-    where: { id: caseId, ownerId: req.user!.id },
+    where: { id: caseId },
+    select: {
+      ownerId: true,
+      statusTeaching: true,
+      reviewRequests: {
+        select: {
+          requestedBy: true,
+          targetUserId: true,
+          status: true,
+        },
+      },
+    },
   })
-  if (!caseItem) {
+  if (!caseItem || !canUploadCasePackage({
+    ownerId: caseItem.ownerId,
+    statusTeaching: caseItem.statusTeaching,
+    reviewRequests: caseItem.reviewRequests,
+    viewerId: req.user!.id,
+    viewerRole: req.user!.role,
+  })) {
     await fsPromises.unlink(req.file.path).catch(() => {})
     res.status(404).json({ error: 'Caso no encontrado' })
     return
@@ -150,10 +172,17 @@ router.post('/secret/:caseId', authMiddleware, async (req: AuthenticatedRequest,
   }
 
   const caseItem = await prisma.case.findFirst({
-    where: { id: caseId, ownerId: req.user!.id },
+    where: { id: caseId },
     include: { package: true },
   })
-  if (!caseItem || !caseItem.package) {
+  if (!caseItem || !caseItem.package || !canStoreCasePackageSecret({
+    ownerId: caseItem.ownerId,
+    statusTeaching: caseItem.statusTeaching,
+    reviewRequests: [],
+    hasPackage: Boolean(caseItem.package),
+    viewerId: req.user!.id,
+    viewerRole: req.user!.role,
+  })) {
     res.status(404).json({ error: 'Caso o paquete no encontrado' })
     return
   }
@@ -194,29 +223,29 @@ router.post('/secret/:caseId/recover', authMiddleware, async (req: Authenticated
   }
 
   const caseItem = await prisma.case.findFirst({
-    where: {
-      id: caseId,
-      OR: [
-        { ownerId: req.user!.id },
-        {
-          reviewRequests: {
-            some: {
-              OR: [
-                { targetUserId: req.user!.id, status: 'Accepted' },
-                { requestedBy: req.user!.id },
-              ],
-            },
-          },
-        },
-      ],
-    },
+    where: { id: caseId },
     include: {
       package: true,
       accessSecret: true,
+      reviewRequests: {
+        select: {
+          requestedBy: true,
+          targetUserId: true,
+          status: true,
+        },
+      },
     },
   })
 
-  if (!caseItem || !caseItem.package || !caseItem.accessSecret) {
+  if (!caseItem || !caseItem.package || !caseItem.accessSecret || !canRecoverCasePackageSecret({
+    ownerId: caseItem.ownerId,
+    statusTeaching: caseItem.statusTeaching,
+    reviewRequests: caseItem.reviewRequests,
+    hasPackage: Boolean(caseItem.package),
+    hasStoredSecret: Boolean(caseItem.accessSecret),
+    viewerId: req.user!.id,
+    viewerRole: req.user!.role,
+  })) {
     res.status(404).json({ error: 'Clave custodiada no disponible para este caso' })
     return
   }
@@ -264,12 +293,27 @@ router.get('/download/:caseId', authMiddleware, async (req: AuthenticatedRequest
   const caseItem = await prisma.case.findFirst({
     where: {
       id: caseId,
-      ...buildCasePackageReadAccessWhere(req.user!.id),
     },
-    include: { package: true },
+    include: {
+      package: true,
+      reviewRequests: {
+        select: {
+          requestedBy: true,
+          targetUserId: true,
+          status: true,
+        },
+      },
+    },
   })
 
-  if (!caseItem || !caseItem.package) {
+  if (!caseItem || !caseItem.package || !canDownloadCasePackage({
+    ownerId: caseItem.ownerId,
+    statusTeaching: caseItem.statusTeaching,
+    reviewRequests: caseItem.reviewRequests,
+    hasPackage: Boolean(caseItem.package),
+    viewerId: req.user!.id,
+    viewerRole: req.user!.role,
+  })) {
     res.status(404).json({ error: 'Paquete no encontrado o sin acceso' })
     return
   }
@@ -304,11 +348,12 @@ router.get('/eegs', authMiddleware, async (req: AuthenticatedRequest, res) => {
           case: {
             OR: [
               { ownerId: req.user!.id },
+              { statusTeaching: { in: ['Proposed', 'Recommended', 'Validated'] } },
               {
                 reviewRequests: {
                   some: {
                     OR: [
-                      { targetUserId: req.user!.id },
+                      { targetUserId: req.user!.id, status: 'Accepted' },
                       { requestedBy: req.user!.id },
                     ],
                   },

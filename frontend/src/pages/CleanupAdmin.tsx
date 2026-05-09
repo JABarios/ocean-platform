@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Navigate } from 'react-router-dom'
 import { api, friendlyError } from '../api/client'
+import { useAuthStore } from '../store/authStore'
+import { hasAvailableAction } from '../utils/teachingState'
 import PageHeader from '../components/PageHeader'
 import './CleanupAdmin.css'
 
@@ -64,6 +67,8 @@ function formatBytes(bytes?: number) {
 }
 
 export default function CleanupAdmin() {
+  const currentUser = useAuthStore((s) => s.user)
+  const canRunCleanup = hasAvailableAction(currentUser?.availableActions, 'run_cleanup')
   const [report, setReport] = useState<CleanupReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
@@ -127,6 +132,10 @@ export default function CleanupAdmin() {
     } finally {
       setRunning(false)
     }
+  }
+
+  if (!canRunCleanup) {
+    return <Navigate to="/" replace />
   }
 
   if (loading && !report) {

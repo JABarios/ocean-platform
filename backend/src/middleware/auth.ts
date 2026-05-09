@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express'
 import jwt from 'jsonwebtoken'
 import { prisma } from '../utils/prisma'
+import { AppAvailableAction, hasAppAction } from '../domain/workflows/appWorkflow'
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me'
 
@@ -49,6 +50,20 @@ export function requireRole(roles: string[]) {
       return
     }
     if (!roles.includes(req.user.role)) {
+      res.status(403).json({ error: 'Permiso insuficiente' })
+      return
+    }
+    next()
+  }
+}
+
+export function requireAppAction(action: AppAvailableAction) {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      res.status(401).json({ error: 'Autenticación requerida' })
+      return
+    }
+    if (!hasAppAction(req.user.role, action)) {
       res.status(403).json({ error: 'Permiso insuficiente' })
       return
     }

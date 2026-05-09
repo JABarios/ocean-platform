@@ -3,6 +3,7 @@ export interface User {
   email: string
   displayName: string
   role: string
+  availableActions?: AppAvailableAction[]
   status?: string
   institution?: string
   specialty?: string
@@ -128,6 +129,7 @@ export interface Gallery {
   recordCount: number
   createdBy?: Pick<User, 'id' | 'displayName' | 'email'>
   records?: GalleryRecord[]
+  availableActions?: GalleryAvailableAction[]
 }
 
 export interface SharedLinkBlobInfo {
@@ -161,6 +163,18 @@ export type ReviewRequestAvailableAction =
   | 'reject_review_request'
   | 'resend_review_request'
   | 'withdraw_review_request'
+
+export type AppAvailableAction =
+  | 'access_admin'
+  | 'view_teaching_queue'
+  | 'import_gallery'
+  | 'manage_users'
+  | 'view_audit_log'
+  | 'run_cleanup'
+
+export type GalleryAvailableAction =
+  | 'edit_gallery'
+  | 'delete_gallery'
 
 export type AvailableAction = ClinicalAvailableAction | TeachingAvailableAction
 

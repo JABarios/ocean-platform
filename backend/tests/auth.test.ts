@@ -15,6 +15,7 @@ describe('POST /auth/register', () => {
     expect(res.body).toHaveProperty('token')
     expect(res.body.user.id).toBeDefined()
     expect(res.body.user.email).toBe('test@ocean.local')
+    expect(res.body.user.availableActions).toEqual([])
   })
 
   it('rechaza email duplicado', async () => {
@@ -48,6 +49,7 @@ describe('POST /auth/login', () => {
     expect(res.status).toBe(200)
     expect(res.body).toHaveProperty('token')
     expect(res.body.user.email).toBe('login@ocean.local')
+    expect(res.body.user.availableActions).toEqual([])
   })
 
   it('rechaza credenciales inválidas', async () => {
@@ -66,6 +68,25 @@ describe('GET /auth/me', () => {
     const res = await request(app).get('/auth/me').set('Authorization', `Bearer ${token}`)
     expect(res.status).toBe(200)
     expect(res.body.email).toBe('me@ocean.local')
+    expect(res.body.availableActions).toEqual([])
+  })
+
+  it('expone availableActions de aplicación según el rol actual', async () => {
+    const curator = await createUser({
+      email: 'curator-me@ocean.local',
+      displayName: 'Curator Me',
+      password: 'pass123',
+      role: 'Curator',
+    })
+    const token = generateToken(curator.id, curator.email, curator.role)
+
+    const res = await request(app).get('/auth/me').set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.availableActions).toEqual(
+      expect.arrayContaining(['view_teaching_queue', 'import_gallery'])
+    )
+    expect(res.body.availableActions).not.toContain('access_admin')
   })
 
   it('actualiza lastLoginAt al consultar /auth/me', async () => {

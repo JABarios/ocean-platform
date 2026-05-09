@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
+import { hasAvailableAction } from '../utils/teachingState'
 import './Layout.css'
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -43,6 +44,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const showExploreSubnav = ['/explore', '/galleries', '/library', '/eegs', '/queue'].some((path) =>
     location.pathname === path || location.pathname.startsWith(`${path}/`)
   )
+  const canAccessAdmin = hasAvailableAction(user?.availableActions, 'access_admin')
+  const canViewTeachingQueue = hasAvailableAction(user?.availableActions, 'view_teaching_queue')
 
   return (
     <div className="layout">
@@ -61,7 +64,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <Link to="/share/new" className={navLinkClass('/share/new', '/shared/new')}>
               Compartir EEG
             </Link>
-            {user?.role === 'Admin' && (
+            {canAccessAdmin && (
               <Link to="/admin" className={navLinkClass('/admin')}>
                 Admin
               </Link>
@@ -105,7 +108,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <Link to="/eegs" className={exploreLinkClass('/eegs')}>
                 EEG
               </Link>
-              {(user?.role === 'Admin' || user?.role === 'Curator') && (
+              {canViewTeachingQueue && (
                 <Link to="/queue" className={exploreLinkClass('/queue')}>
                   Casos propuestos
                 </Link>

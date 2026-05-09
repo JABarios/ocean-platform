@@ -65,6 +65,23 @@ describe('POST /comments/case/:caseId', () => {
     expect(res.status).toBe(201)
     expect(res.body.type).toBe('Conclusion')
   })
+
+  it('rechaza vincular el comentario a una solicitud de otro caso', async () => {
+    const owner = await createUser({ email: 'comm-link-own@ocean.local', displayName: 'CommLinkOwn', password: 'pass' })
+    const reviewer = await createUser({ email: 'comm-link-rev@ocean.local', displayName: 'CommLinkRev', password: 'pass' })
+    const caseA = await createCase(owner.id, { statusClinical: 'InReview' })
+    const caseB = await createCase(owner.id, { statusClinical: 'InReview' })
+    const requestB = await createReviewRequest({ caseId: caseB.id, requestedBy: owner.id, targetUserId: reviewer.id })
+    const token = generateToken(owner.id, owner.email, owner.role)
+
+    const res = await request(app)
+      .post(`/comments/case/${caseA.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ body: 'Comentario mal vinculado', requestId: requestB.id })
+
+    expect(res.status).toBe(400)
+    expect(res.body.error).toMatch(/no pertenece a este caso/i)
+  })
 })
 
 describe('GET /comments/case/:caseId', () => {

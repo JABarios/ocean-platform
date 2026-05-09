@@ -110,6 +110,9 @@ describe('Galleries', () => {
 
     expect(listRes.status).toBe(200)
     expect(listRes.body[0].recordCount).toBeGreaterThan(0)
+    expect(listRes.body[0].availableActions).toEqual(
+      expect.arrayContaining(['edit_gallery', 'delete_gallery'])
+    )
 
     const detailRes = await request(app)
       .get(`/galleries/${galleryId}`)
@@ -118,6 +121,9 @@ describe('Galleries', () => {
     expect(detailRes.status).toBe(200)
     expect(detailRes.body.id).toBe(galleryId)
     expect(detailRes.body.records).toHaveLength(1)
+    expect(detailRes.body.availableActions).toEqual(
+      expect.arrayContaining(['edit_gallery', 'delete_gallery'])
+    )
 
     const recordRes = await request(app)
       .get(`/galleries/records/${recordId}`)
@@ -128,6 +134,53 @@ describe('Galleries', () => {
     expect(recordRes.body.gallery.id).toBe(galleryId)
     expect(recordRes.body.eegRecord.encryptionMode).toBe('NONE')
     expect(listRes.body[0].metadata.recordImportedCount).toBeGreaterThan(0)
+  })
+
+  it('devuelve availableActions vacías para un clínico sin permisos curatoriales', async () => {
+    const curator = await createUser({
+      email: 'gallery-owner@ocean.local',
+      displayName: 'Gallery Owner',
+      role: 'Curator',
+      password: 'pass123',
+    })
+    const clinician = await createUser({
+      email: 'gallery-clinician@ocean.local',
+      displayName: 'Gallery Clinician',
+      role: 'Clinician',
+      password: 'pass123',
+    })
+    const curatorToken = generateToken(curator.id, curator.email, curator.role)
+    const clinicianToken = generateToken(clinician.id, clinician.email, clinician.role)
+
+    const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'ocean-gallery-'))
+    await fsPromises.writeFile(path.join(tmpDir, 'epsilon.edf'), Buffer.from('fake-edf-epsilon'))
+
+    const createRes = await request(app)
+      .post('/galleries/import')
+      .set('Authorization', `Bearer ${curatorToken}`)
+      .send({
+        title: 'Galería visible',
+        source: 'Servidor local',
+        license: 'Libre',
+        visibility: 'Public',
+        tags: ['visible'],
+        directoryPath: tmpDir,
+      })
+
+    const galleryId = createRes.body.id
+
+    const listRes = await request(app)
+      .get('/galleries')
+      .set('Authorization', `Bearer ${clinicianToken}`)
+
+    const detailRes = await request(app)
+      .get(`/galleries/${galleryId}`)
+      .set('Authorization', `Bearer ${clinicianToken}`)
+
+    expect(listRes.status).toBe(200)
+    expect(listRes.body[0].availableActions).toEqual([])
+    expect(detailRes.status).toBe(200)
+    expect(detailRes.body.availableActions).toEqual([])
   })
 
   it('permite actualizar y borrar una galería, limpiando EEGs huérfanos', async () => {
@@ -171,6 +224,9 @@ describe('Galleries', () => {
     expect(updateRes.status).toBe(200)
     expect(updateRes.body.title).toBe('Galería editada')
     expect(updateRes.body.visibility).toBe('Public')
+    expect(updateRes.body.availableActions).toEqual(
+      expect.arrayContaining(['edit_gallery', 'delete_gallery'])
+    )
 
     const deleteRes = await request(app)
       .delete(`/galleries/${galleryId}`)

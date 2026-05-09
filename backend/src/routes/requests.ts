@@ -2,7 +2,12 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../utils/prisma'
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth'
-import { getReviewRequestAvailableActions } from '../domain/workflows/reviewRequestWorkflow'
+import {
+  getNextReviewRequestState,
+  getReviewRequestAvailableActions,
+} from '../domain/workflows/reviewRequestWorkflow'
+import { getAllowedClinicalEvents, getNextClinicalState } from '../domain/workflows/clinicalWorkflow'
+import { getCaseAvailableActions } from '../domain/workflows/caseWorkflow'
 
 const router = Router()
 
@@ -32,6 +37,32 @@ function serializeRequest(item: any, viewer: { id: string }) {
   }
 }
 
+function getReviewRequestWorkflowInput(item: any, viewer: { id: string }, isTargetGroupMember = false) {
+  return {
+    status: item.status,
+    isRequester: item.requestedBy === viewer.id,
+    isTargetUser: item.targetUserId === viewer.id,
+    isTargetGroupMember,
+  }
+}
+
+async function loadRequestWithViewerScope(requestId: string, viewerId: string) {
+  return prisma.reviewRequest.findUnique({
+    where: { id: requestId },
+    include: {
+      targetGroup: {
+        select: {
+          id: true,
+          members: {
+            where: { userId: viewerId },
+            select: { userId: true },
+          },
+        },
+      },
+    },
+  })
+}
+
 async function createPendingRequest(params: {
   caseId: string
   requestedBy: string
@@ -50,6 +81,50 @@ async function createPendingRequest(params: {
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     },
   })
+}
+
+async function createReviewRequestForCase(params: {
+  caseId: string
+  requestedBy: string
+  targetUserId?: string
+  targetGroupId?: string
+  message?: string
+  auditAction: string
+}) {
+  const request = await createPendingRequest({
+    caseId: params.caseId,
+    requestedBy: params.requestedBy,
+    targetUserId: params.targetUserId,
+    targetGroupId: params.targetGroupId,
+    message: params.message,
+  })
+
+  const caseItem = await prisma.case.findUnique({
+    where: { id: params.caseId },
+    select: { id: true, statusClinical: true },
+  })
+
+  if (
+    caseItem
+    && getAllowedClinicalEvents(caseItem.statusClinical).includes('REQUEST_REVIEW')
+    && getNextClinicalState(caseItem.statusClinical, 'REQUEST_REVIEW') === 'Requested'
+  ) {
+    await prisma.case.update({
+      where: { id: params.caseId },
+      data: { statusClinical: 'Requested' },
+    })
+  }
+
+  await prisma.auditEvent.create({
+    data: {
+      actorId: params.requestedBy,
+      caseId: params.caseId,
+      action: params.auditAction,
+      target: request.id,
+    },
+  })
+
+  return request
 }
 
 // Listar solicitudes donde el usuario es destinatario (pendientes)
@@ -129,37 +204,42 @@ router.post('/', async (req: AuthenticatedRequest, res) => {
     return
   }
 
-  const caseItem = await prisma.case.findFirst({
-    where: { id: caseId, ownerId: req.user!.id },
+  const caseItem = await prisma.case.findUnique({
+    where: { id: caseId },
+    select: {
+      id: true,
+      ownerId: true,
+      statusClinical: true,
+      statusTeaching: true,
+      reviewRequests: {
+        select: {
+          requestedBy: true,
+          targetUserId: true,
+          status: true,
+        },
+      },
+      teachingProposals: {
+        where: { status: { in: ['Proposed', 'Recommended', 'Validated'] } },
+        take: 1,
+        select: {
+          proposerId: true,
+          recommendations: { select: { authorId: true } },
+        },
+      },
+    },
   })
-  if (!caseItem) {
+  if (!caseItem || !getCaseAvailableActions(caseItem, req.user!).includes('send_review_request')) {
     res.status(404).json({ error: 'Caso no encontrado' })
     return
   }
 
-  const request = await createPendingRequest({
+  const request = await createReviewRequestForCase({
     caseId,
     requestedBy: req.user!.id,
     targetUserId,
     targetGroupId,
     message,
-  })
-
-  // Si el caso estaba en Draft, pasar a Requested
-  if (caseItem.statusClinical === 'Draft') {
-    await prisma.case.update({
-      where: { id: caseId },
-      data: { statusClinical: 'Requested' },
-    })
-  }
-
-  await prisma.auditEvent.create({
-    data: {
-      actorId: req.user!.id,
-      caseId,
-      action: 'RequestSent',
-      target: request.id,
-    },
+    auditAction: 'RequestSent',
   })
 
   res.status(201).json(request)
@@ -179,6 +259,7 @@ router.post('/request-access', async (req: AuthenticatedRequest, res) => {
     select: {
       id: true,
       ownerId: true,
+      statusClinical: true,
       statusTeaching: true,
       reviewRequests: {
         select: {
@@ -186,6 +267,14 @@ router.post('/request-access', async (req: AuthenticatedRequest, res) => {
           requestedBy: true,
           targetUserId: true,
           status: true,
+        },
+      },
+      teachingProposals: {
+        where: { status: { in: ['Proposed', 'Recommended', 'Validated'] } },
+        take: 1,
+        select: {
+          proposerId: true,
+          recommendations: { select: { authorId: true } },
         },
       },
     },
@@ -196,38 +285,28 @@ router.post('/request-access', async (req: AuthenticatedRequest, res) => {
     return
   }
 
-  if (!['Proposed', 'Recommended'].includes(caseItem.statusTeaching)) {
+  if (!getCaseAvailableActions(caseItem, req.user!).includes('request_review_access')) {
+    const alreadyLinked = caseItem.reviewRequests.some((item) =>
+      item.requestedBy === req.user!.id || item.targetUserId === req.user!.id
+    )
+    if (alreadyLinked) {
+      res.status(409).json({ error: 'Ya existe una relación de revisión con este caso' })
+      return
+    }
+    if (caseItem.ownerId === req.user!.id) {
+      res.status(400).json({ error: 'Ya eres el propietario del caso' })
+      return
+    }
     res.status(400).json({ error: 'Solo puedes solicitar acceso a casos propuestos o recomendados' })
     return
   }
 
-  if (caseItem.ownerId === req.user!.id) {
-    res.status(400).json({ error: 'Ya eres el propietario del caso' })
-    return
-  }
-
-  const alreadyLinked = caseItem.reviewRequests.some((item) =>
-    item.requestedBy === req.user!.id || item.targetUserId === req.user!.id
-  )
-  if (alreadyLinked) {
-    res.status(409).json({ error: 'Ya existe una relación de revisión con este caso' })
-    return
-  }
-
-  const accessRequest = await createPendingRequest({
+  const accessRequest = await createReviewRequestForCase({
     caseId,
     requestedBy: req.user!.id,
     targetUserId: caseItem.ownerId,
     message,
-  })
-
-  await prisma.auditEvent.create({
-    data: {
-      actorId: req.user!.id,
-      caseId,
-      action: 'ReviewAccessRequested',
-      target: accessRequest.id,
-    },
+    auditAction: 'ReviewAccessRequested',
   })
 
   res.status(201).json(accessRequest)
@@ -235,35 +314,43 @@ router.post('/request-access', async (req: AuthenticatedRequest, res) => {
 
 // Aceptar solicitud
 router.post('/:id/accept', async (req: AuthenticatedRequest, res) => {
-  const request = await prisma.reviewRequest.findFirst({
-    where: {
-      id: req.params.id,
-      OR: [
-        { targetUserId: req.user!.id },
-        {
-          targetGroup: {
-            members: { some: { userId: req.user!.id } },
-          },
-        },
-      ],
-      status: 'Pending',
-    },
-  })
+  const request = await loadRequestWithViewerScope(req.params.id, req.user!.id)
 
   if (!request) {
     res.status(404).json({ error: 'Solicitud no encontrada o no disponible' })
     return
   }
 
+  const isTargetGroupMember = Boolean(request.targetGroup?.members?.length)
+  const workflowInput = getReviewRequestWorkflowInput(request, req.user!, isTargetGroupMember)
+  if (!getReviewRequestAvailableActions(workflowInput).includes('accept_review_request')) {
+    res.status(404).json({ error: 'Solicitud no encontrada o no disponible' })
+    return
+  }
+
+  const nextStatus = getNextReviewRequestState(workflowInput, { type: 'ACCEPT' })
+  const caseItem = await prisma.case.findUnique({
+    where: { id: request.caseId },
+    select: { id: true, statusClinical: true },
+  })
+  const nextClinicalStatus = caseItem
+    && getAllowedClinicalEvents(caseItem.statusClinical).includes('START_REVIEW')
+    ? getNextClinicalState(caseItem.statusClinical, 'START_REVIEW')
+    : undefined
+
   const [updated] = await prisma.$transaction([
     prisma.reviewRequest.update({
       where: { id: req.params.id },
-      data: { status: 'Accepted', acceptedAt: new Date() },
+      data: { status: nextStatus, acceptedAt: new Date() },
     }),
-    prisma.case.update({
-      where: { id: request.caseId },
-      data: { statusClinical: 'InReview' },
-    }),
+    ...(nextClinicalStatus
+      ? [
+          prisma.case.update({
+            where: { id: request.caseId },
+            data: { statusClinical: nextClinicalStatus },
+          }),
+        ]
+      : []),
     prisma.auditEvent.create({
       data: {
         actorId: req.user!.id,
@@ -279,29 +366,25 @@ router.post('/:id/accept', async (req: AuthenticatedRequest, res) => {
 
 // Rechazar solicitud
 router.post('/:id/reject', async (req: AuthenticatedRequest, res) => {
-  const request = await prisma.reviewRequest.findFirst({
-    where: {
-      id: req.params.id,
-      OR: [
-        { targetUserId: req.user!.id },
-        {
-          targetGroup: {
-            members: { some: { userId: req.user!.id } },
-          },
-        },
-      ],
-      status: 'Pending',
-    },
-  })
+  const request = await loadRequestWithViewerScope(req.params.id, req.user!.id)
 
   if (!request) {
     res.status(404).json({ error: 'Solicitud no encontrada' })
     return
   }
 
+  const isTargetGroupMember = Boolean(request.targetGroup?.members?.length)
+  const workflowInput = getReviewRequestWorkflowInput(request, req.user!, isTargetGroupMember)
+  if (!getReviewRequestAvailableActions(workflowInput).includes('reject_review_request')) {
+    res.status(404).json({ error: 'Solicitud no encontrada' })
+    return
+  }
+
+  const nextStatus = getNextReviewRequestState(workflowInput, { type: 'REJECT' })
+
   const updated = await prisma.reviewRequest.update({
     where: { id: req.params.id },
-    data: { status: 'Rejected' },
+    data: { status: nextStatus },
   })
 
   await prisma.auditEvent.create({
@@ -318,23 +401,25 @@ router.post('/:id/reject', async (req: AuthenticatedRequest, res) => {
 
 // Reenviar solicitud del propietario
 router.post('/:id/resend', async (req: AuthenticatedRequest, res) => {
-  const existing = await prisma.reviewRequest.findFirst({
-    where: {
-      id: req.params.id,
-      requestedBy: req.user!.id,
-      status: { in: ['Pending', 'Rejected', 'Expired'] },
-    },
-  })
+  const existing = await loadRequestWithViewerScope(req.params.id, req.user!.id)
 
   if (!existing) {
     res.status(404).json({ error: 'Solicitud no encontrada o no reenviable' })
     return
   }
 
+  const workflowInput = getReviewRequestWorkflowInput(existing, req.user!)
+  if (!getReviewRequestAvailableActions(workflowInput).includes('resend_review_request')) {
+    res.status(404).json({ error: 'Solicitud no encontrada o no reenviable' })
+    return
+  }
+
+  const nextStatus = getNextReviewRequestState(workflowInput, { type: 'RESEND' })
+
   const updated = await prisma.reviewRequest.update({
     where: { id: req.params.id },
     data: {
-      status: 'Pending',
+      status: nextStatus,
       acceptedAt: null,
       completedAt: null,
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
@@ -355,15 +440,15 @@ router.post('/:id/resend', async (req: AuthenticatedRequest, res) => {
 
 // Retirar solicitud del propietario
 router.delete('/:id', async (req: AuthenticatedRequest, res) => {
-  const existing = await prisma.reviewRequest.findFirst({
-    where: {
-      id: req.params.id,
-      requestedBy: req.user!.id,
-      status: { in: ['Pending', 'Rejected', 'Expired'] },
-    },
-  })
+  const existing = await loadRequestWithViewerScope(req.params.id, req.user!.id)
 
   if (!existing) {
+    res.status(404).json({ error: 'Solicitud no encontrada o no retirable' })
+    return
+  }
+
+  const workflowInput = getReviewRequestWorkflowInput(existing, req.user!)
+  if (!getReviewRequestAvailableActions(workflowInput).includes('withdraw_review_request')) {
     res.status(404).json({ error: 'Solicitud no encontrada o no retirable' })
     return
   }

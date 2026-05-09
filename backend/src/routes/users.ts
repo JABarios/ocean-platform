@@ -1,7 +1,8 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../utils/prisma'
-import { authMiddleware, AuthenticatedRequest, requireRole } from '../middleware/auth'
+import { authMiddleware, AuthenticatedRequest } from '../middleware/auth'
+import { getAppAvailableActions } from '../domain/workflows/appWorkflow'
 
 const router = Router()
 
@@ -53,7 +54,7 @@ async function setUserStatus(actorId: string, userId: string, status: 'Active' |
 router.use(authMiddleware)
 
 router.get('/', async (req: AuthenticatedRequest, res) => {
-  if (req.user?.role !== 'Admin') {
+  if (!req.user || !getAppAvailableActions(req.user.role).includes('manage_users')) {
     const users = await prisma.user.findMany({
       where: { status: 'Active' },
       select: {
@@ -123,7 +124,7 @@ router.get('/', async (req: AuthenticatedRequest, res) => {
 })
 
 router.patch('/:id/role', async (req: AuthenticatedRequest, res) => {
-  if (req.user?.role !== 'Admin') {
+  if (!req.user || !getAppAvailableActions(req.user.role).includes('manage_users')) {
     res.status(403).json({ error: 'Permiso insuficiente' })
     return
   }
@@ -158,7 +159,7 @@ router.patch('/:id/role', async (req: AuthenticatedRequest, res) => {
 })
 
 router.patch('/:id/status', async (req: AuthenticatedRequest, res) => {
-  if (req.user?.role !== 'Admin') {
+  if (!req.user || !getAppAvailableActions(req.user.role).includes('manage_users')) {
     res.status(403).json({ error: 'Permiso insuficiente' })
     return
   }
@@ -193,7 +194,7 @@ router.patch('/:id/status', async (req: AuthenticatedRequest, res) => {
 })
 
 router.delete('/:id', async (req: AuthenticatedRequest, res) => {
-  if (req.user?.role !== 'Admin') {
+  if (!req.user || !getAppAvailableActions(req.user.role).includes('manage_users')) {
     res.status(403).json({ error: 'Permiso insuficiente' })
     return
   }

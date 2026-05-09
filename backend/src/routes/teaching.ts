@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../utils/prisma'
-import { authMiddleware, AuthenticatedRequest, requireRole } from '../middleware/auth'
+import { authMiddleware, AuthenticatedRequest, requireAppAction } from '../middleware/auth'
 import {
   buildTeachingContributorAccessWhere,
   buildTeachingProposalReadAccessWhere,
@@ -364,7 +364,7 @@ router.post('/proposals/:id/recommend', async (req: AuthenticatedRequest, res) =
 })
 
 // Validar/rechazar propuesta (solo Curator o Admin)
-router.post('/proposals/:id/validate', requireRole(['Curator', 'Admin']), async (req: AuthenticatedRequest, res) => {
+router.post('/proposals/:id/validate', requireAppAction('view_teaching_queue'), async (req: AuthenticatedRequest, res) => {
   const parsed = validateSchema.safeParse(req.body)
   if (!parsed.success) {
     res.status(400).json({ error: 'Datos inválidos' })

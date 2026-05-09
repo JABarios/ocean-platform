@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Navigate } from 'react-router-dom'
 import { api, friendlyError } from '../api/client'
 import type { User } from '../types'
 import { useAuthStore } from '../store/authStore'
 import PageHeader from '../components/PageHeader'
+import { hasAvailableAction } from '../utils/teachingState'
 import './UserAdmin.css'
 
 const VALID_ROLES = ['Clinician', 'Reviewer', 'Curator', 'Admin'] as const
@@ -20,6 +22,7 @@ function formatDate(value?: string) {
 
 export default function UserAdmin() {
   const currentUser = useAuthStore((s) => s.user)
+  const canManageUsers = hasAvailableAction(currentUser?.availableActions, 'manage_users')
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
@@ -88,6 +91,10 @@ export default function UserAdmin() {
     inactive: users.filter((user) => user.status !== 'Active').length,
     admins: users.filter((user) => user.role === 'Admin').length,
   }), [users])
+
+  if (!canManageUsers) {
+    return <Navigate to="/" replace />
+  }
 
   if (loading) return <div style={{ color: 'var(--text-secondary)', padding: '2rem 0' }}>Cargando…</div>
 

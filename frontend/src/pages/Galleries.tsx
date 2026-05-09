@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import PageHeader from '../components/PageHeader'
 import { api, friendlyError } from '../api/client'
 import { useAuthStore } from '../store/authStore'
+import { hasAvailableAction } from '../utils/teachingState'
 import type { Gallery } from '../types'
 import './Galleries.css'
 
@@ -13,7 +14,7 @@ function formatDate(value?: string) {
 
 export default function Galleries() {
   const user = useAuthStore((s) => s.user)
-  const canImport = user?.role === 'Admin' || user?.role === 'Curator'
+  const canImport = hasAvailableAction(user?.availableActions, 'import_gallery')
   const [galleries, setGalleries] = useState<Gallery[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')

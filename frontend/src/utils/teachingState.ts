@@ -1,13 +1,26 @@
 import type {
+  AppAvailableAction,
   AvailableAction,
+  GalleryAvailableAction,
   ReviewRequestAvailableAction,
   TeachingAvailableAction,
   TeachingProposal,
 } from '../types'
 
 export function hasAvailableAction(
-  actions: AvailableAction[] | TeachingAvailableAction[] | ReviewRequestAvailableAction[] | undefined,
-  action: AvailableAction | TeachingAvailableAction | ReviewRequestAvailableAction,
+  actions:
+    | AvailableAction[]
+    | TeachingAvailableAction[]
+    | ReviewRequestAvailableAction[]
+    | AppAvailableAction[]
+    | GalleryAvailableAction[]
+    | undefined,
+  action:
+    | AvailableAction
+    | TeachingAvailableAction
+    | ReviewRequestAvailableAction
+    | AppAvailableAction
+    | GalleryAvailableAction,
 ) {
   return actions?.includes(action as never) ?? false
 }

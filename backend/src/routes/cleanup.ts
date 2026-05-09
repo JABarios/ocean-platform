@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { authMiddleware, AuthenticatedRequest, requireRole } from '../middleware/auth'
+import { authMiddleware, AuthenticatedRequest, requireAppAction } from '../middleware/auth'
 import { CleanupTaskName, getCleanupReport, runCleanupTasks, SAFE_CLEANUP_TASKS } from '../utils/cleanup'
 
 const router = Router()
@@ -10,7 +10,7 @@ const runCleanupSchema = z.object({
 })
 
 router.use(authMiddleware)
-router.use(requireRole(['Admin']))
+router.use(requireAppAction('run_cleanup'))
 
 router.get('/report', async (_req: AuthenticatedRequest, res) => {
   const report = await getCleanupReport()

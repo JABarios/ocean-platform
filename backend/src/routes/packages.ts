@@ -9,6 +9,7 @@ import { prisma } from '../utils/prisma'
 import { uploadBlob, getBlobStream } from '../utils/storage'
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth'
 import { wrapCaseKey, unwrapCaseKey } from '../utils/keyCustody'
+import { buildCasePackageReadAccessWhere } from '../utils/teachingState'
 
 const router = Router()
 
@@ -263,20 +264,7 @@ router.get('/download/:caseId', authMiddleware, async (req: AuthenticatedRequest
   const caseItem = await prisma.case.findFirst({
     where: {
       id: caseId,
-      OR: [
-        { ownerId: req.user!.id },
-        { statusTeaching: { in: ['Proposed', 'Recommended', 'Validated'] } },
-        {
-          reviewRequests: {
-            some: {
-              OR: [
-                { targetUserId: req.user!.id, status: 'Accepted' },
-                { requestedBy: req.user!.id },
-              ],
-            },
-          },
-        },
-      ],
+      ...buildCasePackageReadAccessWhere(req.user!.id),
     },
     include: { package: true },
   })

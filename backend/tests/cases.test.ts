@@ -180,6 +180,91 @@ describe('GET /cases/:id', () => {
     expect(res.body.title).toBe('Caso propuesto visible')
   })
 
+  it('devuelve availableActions acordes al workflow para un observador de un caso propuesto', async () => {
+    const owner = await createUser({ email: 'workflow-own@ocean.local', displayName: 'WorkflowOwn', password: 'pass' })
+    const outsider = await createUser({ email: 'workflow-out@ocean.local', displayName: 'WorkflowOut', password: 'pass' })
+    const c = await createCase(owner.id, {
+      statusClinical: 'Resolved',
+      statusTeaching: 'Proposed',
+      title: 'Caso con acciones',
+    })
+    const token = generateToken(outsider.id, outsider.email, outsider.role)
+
+    const res = await request(app).get(`/cases/${c.id}`).set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(200)
+    expect(Array.isArray(res.body.availableActions)).toBe(true)
+    expect(res.body.availableActions).toContain('request_review_access')
+  })
+
+  it('owner de un caso resuelto sin propuesta puede proponer para biblioteca', async () => {
+    const owner = await createUser({ email: 'owner-propose@ocean.local', displayName: 'OwnerPropose', password: 'pass' })
+    const c = await createCase(owner.id, {
+      statusClinical: 'Resolved',
+      statusTeaching: 'None',
+      title: 'Caso listo para biblioteca',
+    })
+    const token = generateToken(owner.id, owner.email, owner.role)
+
+    const res = await request(app).get(`/cases/${c.id}`).set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.availableActions).toContain('propose_teaching')
+  })
+
+  it('usuario autenticado no proponente puede recomendar un caso propuesto visible', async () => {
+    const owner = await createUser({ email: 'owner-rec@ocean.local', displayName: 'OwnerRec', password: 'pass' })
+    const outsider = await createUser({ email: 'outsider-rec@ocean.local', displayName: 'OutsiderRec', password: 'pass' })
+    const c = await createCase(owner.id, {
+      statusClinical: 'Resolved',
+      statusTeaching: 'Proposed',
+      title: 'Caso para recomendar',
+    })
+    await prisma.teachingProposal.create({
+      data: {
+        caseId: c.id,
+        proposerId: owner.id,
+        status: 'Proposed',
+        summary: 'Resumen docente',
+        difficulty: 'Intermediate',
+      },
+    })
+    const token = generateToken(outsider.id, outsider.email, outsider.role)
+
+    const res = await request(app).get(`/cases/${c.id}`).set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.availableActions).toContain('recommend_teaching')
+    expect(res.body.availableActions).toContain('request_review_access')
+  })
+
+  it('curator ve acciones curatoriales en un caso recomendado', async () => {
+    const owner = await createUser({ email: 'owner-cur@ocean.local', displayName: 'OwnerCur', password: 'pass' })
+    const curator = await createUser({ email: 'curator-actions@ocean.local', displayName: 'CuratorActions', password: 'pass', role: 'Curator' })
+    const c = await createCase(owner.id, {
+      statusClinical: 'Resolved',
+      statusTeaching: 'Recommended',
+      title: 'Caso para validar',
+    })
+    await prisma.teachingProposal.create({
+      data: {
+        caseId: c.id,
+        proposerId: owner.id,
+        status: 'Recommended',
+        summary: 'Resumen recomendado',
+        difficulty: 'Advanced',
+      },
+    })
+    const token = generateToken(curator.id, curator.email, curator.role)
+
+    const res = await request(app).get(`/cases/${c.id}`).set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.availableActions).toEqual(
+      expect.arrayContaining(['recommend_teaching', 'request_review_access', 'validate_teaching', 'reject_teaching']),
+    )
+  })
+
   it('crea auditEvent al crear caso', async () => {
     const user = await createUser({ email: 'audit@ocean.local', displayName: 'Audit', password: 'pass' })
     const token = generateToken(user.id, user.email, user.role)

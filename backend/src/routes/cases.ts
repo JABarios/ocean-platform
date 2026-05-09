@@ -3,6 +3,9 @@ import { z } from 'zod'
 import { prisma } from '../utils/prisma'
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth'
 import { deleteBlob } from '../utils/storage'
+import { buildCaseReadAccessWhere } from '../utils/teachingState'
+import { getAllowedClinicalEvents, getNextClinicalState } from '../domain/workflows/clinicalWorkflow'
+import { getTeachingAvailableActions } from '../domain/workflows/teachingWorkflow'
 
 const router = Router()
 
@@ -26,25 +29,6 @@ function canSeeAllCases(req: AuthenticatedRequest) {
   return req.user?.role === 'Admin'
 }
 
-function caseReadAccessWhere(userId: string) {
-  return {
-    OR: [
-      { ownerId: userId },
-      { statusTeaching: { in: ['Proposed', 'Recommended', 'Validated'] } },
-      {
-        reviewRequests: {
-          some: {
-            OR: [
-              { targetUserId: userId },
-              { requestedBy: userId },
-            ],
-          },
-        },
-      },
-    ],
-  }
-}
-
 function safeParseJson(value: any): any {
   if (typeof value !== 'string') return value
   try {
@@ -54,23 +38,85 @@ function safeParseJson(value: any): any {
   }
 }
 
-function toCaseResponse(caseObj: any) {
+function getCaseInclude() {
+  return {
+    owner: { select: { id: true, displayName: true, email: true } },
+    package: true,
+    accessSecret: { select: { id: true } },
+    reviewRequests: {
+      include: {
+        requester: { select: { id: true, displayName: true } },
+        targetUser: { select: { id: true, displayName: true, email: true } },
+        targetGroup: { select: { id: true, name: true } },
+      },
+    },
+    comments: {
+      orderBy: { createdAt: 'asc' as const },
+      include: { author: { select: { id: true, displayName: true } } },
+    },
+    teachingProposals: {
+      where: { status: { in: ['Proposed', 'Recommended', 'Validated'] } },
+      orderBy: { createdAt: 'desc' as const },
+      take: 1,
+      include: {
+        recommendations: {
+          select: { authorId: true },
+        },
+      },
+    },
+  }
+}
+
+function deriveAvailableActions(caseObj: any, viewer?: { id: string; role: string }) {
+  if (!viewer) return []
+
+  const reviewRequests = caseObj.reviewRequests ?? []
+  const activeTeachingProposal = caseObj.teachingProposals?.[0] ?? null
+  const isOwner = caseObj.ownerId === viewer.id
+  const isReviewer = reviewRequests.some((request: any) =>
+    (request.targetUserId === viewer.id && request.status === 'Accepted') || request.requestedBy === viewer.id,
+  )
+  const hasReviewRelationship = reviewRequests.some((request: any) =>
+    request.targetUserId === viewer.id || request.requestedBy === viewer.id,
+  )
+
+  const clinicalActions: string[] = []
+  if (isOwner) {
+    for (const event of getAllowedClinicalEvents(caseObj.statusClinical)) {
+      const nextState = getNextClinicalState(caseObj.statusClinical, event)
+      if (nextState === 'Requested') clinicalActions.push('request_review')
+      if (nextState === 'InReview') clinicalActions.push('start_review')
+      if (nextState === 'Resolved') clinicalActions.push('resolve_case')
+      if (nextState === 'Archived') clinicalActions.push('archive_case')
+    }
+  }
+
+  const teachingActions = getTeachingAvailableActions({
+    clinicalStatus: caseObj.statusClinical,
+    teachingStatus: caseObj.statusTeaching,
+    isOwner,
+    isReviewer,
+    isCurator: viewer.role === 'Curator' || viewer.role === 'Admin',
+    hasTeachingProposal: Boolean(activeTeachingProposal),
+    hasRecommended: Boolean(activeTeachingProposal?.recommendations?.some((item: any) => item.authorId === viewer.id)),
+    isProposer: activeTeachingProposal?.proposerId === viewer.id,
+    hasReviewRelationship,
+    isAuthenticated: true,
+  })
+
+  return [...clinicalActions, ...teachingActions]
+}
+
+function toCaseResponse(caseObj: any, viewer?: { id: string; role: string }) {
   const plain = JSON.parse(JSON.stringify(caseObj))
   plain.status = plain.statusClinical
   plain.teachingStatus = plain.statusTeaching
   plain.tags = safeParseJson(plain.tags) ?? []
   plain.summaryMetrics = safeParseJson(plain.summaryMetrics)
   plain.storedKeyAvailable = !!plain.accessSecret
+  plain.availableActions = deriveAvailableActions(caseObj, viewer)
   delete plain.accessSecret
   return plain
-}
-
-const VALID_TRANSITIONS: Record<string, string[]> = {
-  Draft: ['Requested', 'Archived'],
-  Requested: ['Draft', 'InReview', 'Archived'],
-  InReview: ['Resolved', 'Archived'],
-  Resolved: ['Archived'],
-  Archived: [],
 }
 
 async function safeDeleteBlob(blobLocation: string) {
@@ -82,7 +128,6 @@ async function safeDeleteBlob(blobLocation: string) {
   }
 }
 
-// Listar casos del usuario autenticado
 router.get('/', async (req: AuthenticatedRequest, res) => {
   const cases = await prisma.case.findMany({
     where: canSeeAllCases(req) ? undefined : { ownerId: req.user!.id },
@@ -90,12 +135,29 @@ router.get('/', async (req: AuthenticatedRequest, res) => {
     include: {
       _count: { select: { reviewRequests: true, comments: true } },
       owner: { select: { id: true, displayName: true, email: true } },
+      reviewRequests: {
+        select: {
+          requestedBy: true,
+          targetUserId: true,
+          status: true,
+        },
+      },
+      teachingProposals: {
+        where: { status: { in: ['Proposed', 'Recommended', 'Validated'] } },
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+        include: {
+          recommendations: {
+            select: { authorId: true },
+          },
+        },
+      },
     },
   })
-  res.json(cases.map(toCaseResponse))
+
+  res.json(cases.map((item) => toCaseResponse(item, req.user!)))
 })
 
-// Bandeja operativa de casos del propietario
 router.get('/managed', async (req: AuthenticatedRequest, res) => {
   const cases = await prisma.case.findMany({
     where: canSeeAllCases(req) ? undefined : { ownerId: req.user!.id },
@@ -112,13 +174,23 @@ router.get('/managed', async (req: AuthenticatedRequest, res) => {
           targetGroup: { select: { id: true, name: true } },
         },
       },
+      teachingProposals: {
+        where: { status: { in: ['Proposed', 'Recommended', 'Validated'] } },
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+        include: {
+          recommendations: {
+            select: { authorId: true },
+          },
+        },
+      },
       _count: { select: { comments: true } },
     },
   })
-  res.json(cases.map(toCaseResponse))
+
+  res.json(cases.map((item) => toCaseResponse(item, req.user!)))
 })
 
-// Crear caso
 router.post('/', async (req: AuthenticatedRequest, res) => {
   const parsed = createCaseSchema.safeParse(req.body)
   if (!parsed.success) {
@@ -188,33 +260,16 @@ router.post('/', async (req: AuthenticatedRequest, res) => {
     },
   })
 
-  res.status(201).json(toCaseResponse(newCase))
+  res.status(201).json(toCaseResponse(newCase, req.user!))
 })
 
-// Obtener caso por ID
 router.get('/:id', async (req: AuthenticatedRequest, res) => {
   const caseItem = await prisma.case.findFirst({
     where: {
       id: req.params.id,
-      ...(canSeeAllCases(req)
-        ? {}
-        : caseReadAccessWhere(req.user!.id)),
+      ...(canSeeAllCases(req) ? {} : buildCaseReadAccessWhere(req.user!.id)),
     },
-    include: {
-      owner: { select: { id: true, displayName: true, email: true } },
-      package: true,
-      accessSecret: { select: { id: true } },
-      reviewRequests: {
-        include: {
-          requester: { select: { id: true, displayName: true } },
-          targetUser: { select: { id: true, displayName: true } },
-        },
-      },
-      comments: {
-        orderBy: { createdAt: 'asc' },
-        include: { author: { select: { id: true, displayName: true } } },
-      },
-    },
+    include: getCaseInclude(),
   })
 
   if (!caseItem) {
@@ -222,10 +277,9 @@ router.get('/:id', async (req: AuthenticatedRequest, res) => {
     return
   }
 
-  res.json(toCaseResponse(caseItem))
+  res.json(toCaseResponse(caseItem, req.user!))
 })
 
-// Actualizar estado clínico
 router.patch('/:id/status', async (req: AuthenticatedRequest, res) => {
   const parsed = updateStatusSchema.safeParse(req.body)
   if (!parsed.success) {
@@ -241,8 +295,11 @@ router.patch('/:id/status', async (req: AuthenticatedRequest, res) => {
     return
   }
 
-  const allowed = VALID_TRANSITIONS[caseItem.statusClinical] ?? []
-  if (!allowed.includes(parsed.data.statusClinical)) {
+  const allowedNextStates = getAllowedClinicalEvents(caseItem.statusClinical)
+    .map((event) => getNextClinicalState(caseItem.statusClinical, event))
+    .filter(Boolean)
+
+  if (!allowedNextStates.includes(parsed.data.statusClinical)) {
     res.status(400).json({
       error: `Transición no permitida: ${caseItem.statusClinical} → ${parsed.data.statusClinical}`,
     })
@@ -271,27 +328,12 @@ router.patch('/:id/status', async (req: AuthenticatedRequest, res) => {
 
   const hydrated = await prisma.case.findUnique({
     where: { id: updated.id },
-    include: {
-      owner: { select: { id: true, displayName: true, email: true } },
-      package: true,
-      accessSecret: { select: { id: true } },
-      reviewRequests: {
-        include: {
-          requester: { select: { id: true, displayName: true } },
-          targetUser: { select: { id: true, displayName: true } },
-        },
-      },
-      comments: {
-        orderBy: { createdAt: 'asc' },
-        include: { author: { select: { id: true, displayName: true } } },
-      },
-    },
+    include: getCaseInclude(),
   })
 
-  res.json(toCaseResponse(hydrated ?? updated))
+  res.json(toCaseResponse(hydrated ?? updated, req.user!))
 })
 
-// Borrar caso del propietario
 router.delete('/:id', async (req: AuthenticatedRequest, res) => {
   const canDeleteAnyCase = req.user?.role === 'Admin'
   const caseItem = await prisma.case.findFirst({

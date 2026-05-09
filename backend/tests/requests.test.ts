@@ -1,6 +1,6 @@
 import request from 'supertest'
 import app from '../src/index'
-import { createUser, generateToken, createCase, createReviewRequest } from './helpers'
+import { createUser, generateToken, createCase, createReviewRequest, prisma } from './helpers'
 
 describe('POST /requests — validaciones', () => {
   it('rechaza si no se especifica destinatario', async () => {
@@ -116,6 +116,60 @@ describe('POST /requests', () => {
       .send({ caseId: c.id })
 
     expect(res.status).toBe(409)
+  })
+
+  it('rechaza solicitar acceso si ya existe una invitación previa para ese usuario', async () => {
+    const owner = await createUser({ email: 'acc-linked-own@ocean.local', displayName: 'AccLinkedOwn', password: 'pass' })
+    const outsider = await createUser({ email: 'acc-linked-out@ocean.local', displayName: 'AccLinkedOut', password: 'pass' })
+    const c = await createCase(owner.id, { statusTeaching: 'Proposed' })
+    await createReviewRequest({ caseId: c.id, requestedBy: owner.id, targetUserId: outsider.id, status: 'Pending' })
+    const token = generateToken(outsider.id, outsider.email, outsider.role)
+
+    const res = await request(app)
+      .post('/requests/request-access')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ caseId: c.id })
+
+    expect(res.status).toBe(409)
+    expect(res.body.error).toMatch(/relación de revisión/i)
+  })
+
+  it('rechaza que el owner solicite acceso a su propio caso', async () => {
+    const owner = await createUser({ email: 'acc-self-own@ocean.local', displayName: 'AccSelfOwn', password: 'pass' })
+    const c = await createCase(owner.id, { statusTeaching: 'Proposed' })
+    const token = generateToken(owner.id, owner.email, owner.role)
+
+    const res = await request(app)
+      .post('/requests/request-access')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ caseId: c.id })
+
+    expect(res.status).toBe(400)
+    expect(res.body.error).toMatch(/propietario/i)
+  })
+
+  it('crea audit event al solicitar acceso a revisión', async () => {
+    const owner = await createUser({ email: 'acc-audit-own@ocean.local', displayName: 'AccAuditOwn', password: 'pass' })
+    const outsider = await createUser({ email: 'acc-audit-out@ocean.local', displayName: 'AccAuditOut', password: 'pass' })
+    const c = await createCase(owner.id, { statusTeaching: 'Recommended' })
+    const token = generateToken(outsider.id, outsider.email, outsider.role)
+
+    const res = await request(app)
+      .post('/requests/request-access')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ caseId: c.id, message: 'Quiero participar' })
+
+    expect(res.status).toBe(201)
+
+    const audit = await prisma.auditEvent.findFirst({
+      where: {
+        caseId: c.id,
+        actorId: outsider.id,
+        action: 'ReviewAccessRequested',
+        target: res.body.id,
+      },
+    })
+    expect(audit).not.toBeNull()
   })
 })
 

@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../utils/prisma'
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth'
+import { buildCaseReadAccessWhere } from '../utils/teachingState'
 
 const router = Router()
 
@@ -15,25 +16,6 @@ function canSeeAllCases(req: AuthenticatedRequest) {
   return req.user?.role === 'Admin'
 }
 
-function caseReadAccessWhere(userId: string) {
-  return {
-    OR: [
-      { ownerId: userId },
-      { statusTeaching: { in: ['Proposed', 'Recommended', 'Validated'] } },
-      {
-        reviewRequests: {
-          some: {
-            OR: [
-              { targetUserId: userId },
-              { requestedBy: userId },
-            ],
-          },
-        },
-      },
-    ],
-  }
-}
-
 router.use(authMiddleware)
 
 // Listar comentarios de un caso
@@ -43,7 +25,7 @@ router.get('/case/:caseId', async (req: AuthenticatedRequest, res) => {
       id: req.params.caseId,
       ...(canSeeAllCases(req)
         ? {}
-        : caseReadAccessWhere(req.user!.id)),
+        : buildCaseReadAccessWhere(req.user!.id)),
     },
   })
 

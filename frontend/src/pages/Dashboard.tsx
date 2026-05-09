@@ -223,7 +223,7 @@ export default function Dashboard() {
                     {c.modality && <span>{c.modality}</span>}
                     {c.studyReason && <span>{c.studyReason}</span>}
                   </div>
-                  {c.tags.length > 0 && (
+                  {(c.tags?.length ?? 0) > 0 && (
                     <div className="case-tags">
                       {c.tags.slice(0, 4).map((tag) => (
                         <span key={tag} className="badge">{tag}</span>

@@ -159,6 +159,7 @@ export interface CaseItem {
   package?: CasePackage
   reviewRequests?: ReviewRequest[]
   storedKeyAvailable?: boolean
+  availableActions?: string[]
 }
 
 export interface ReviewRequest {
@@ -209,6 +210,7 @@ export interface TeachingProposal {
   validatedAt?: string
   validatedBy?: string
   rejectionReason?: string
+  supportCount?: number
   case?: Pick<CaseItem, 'id' | 'title' | 'clinicalContext' | 'ageRange' | 'modality' | 'tags' | 'status'>
   proposer?: Pick<User, 'id' | 'displayName'>
   recommendations?: Array<{ authorId: string; author?: Pick<User, 'id' | 'displayName'>; rationale?: string }>

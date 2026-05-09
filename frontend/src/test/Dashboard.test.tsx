@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
-import { BrowserRouter } from 'react-router-dom'
+import { MemoryRouter } from 'react-router-dom'
 import Dashboard from '../pages/Dashboard'
-import { mockFetch, makeResponse } from './mocks'
+import { makeResponse, mockFetchSequence } from './mocks'
+import type { User } from '../types'
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom')
@@ -12,51 +13,70 @@ vi.mock('react-router-dom', async () => {
   }
 })
 
+let mockAuthState = {
+  user: { id: 'owner-1', email: 'owner@test.com', displayName: 'Dr. Owner', role: 'Clinician' } as User,
+  token: 'test-token',
+}
+
+vi.mock('../store/authStore', () => ({
+  useAuthStore: (selector: (s: unknown) => unknown) => selector(mockAuthState),
+}))
+
+function renderDashboard() {
+  return render(
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <Dashboard />
+    </MemoryRouter>,
+  )
+}
+
 describe('Dashboard', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.restoreAllMocks()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockAuthState = {
+      user: { id: 'owner-1', email: 'owner@test.com', displayName: 'Dr. Owner', role: 'Clinician' },
+      token: 'test-token',
+    }
   })
 
   it('muestra estado de carga inicialmente', () => {
-    mockFetch({ cases: [], pending: [], active: [] })
-    render(
-      <BrowserRouter>
-        <Dashboard />
-      </BrowserRouter>
-    )
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})))
+    renderDashboard()
     expect(screen.getByText('Cargando…')).toBeInTheDocument()
   })
 
   it('muestra casos del usuario', async () => {
-    mockFetch([
-      { id: '1', title: 'Caso A', status: 'Draft', createdAt: '2024-01-01' },
-      { id: '2', title: 'Caso B', status: 'Resolved', createdAt: '2024-01-02' },
+    mockFetchSequence([
+      {
+        data: [
+          { id: '1', title: 'Caso A', status: 'Draft', tags: ['epilepsia'], createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+          { id: '2', title: 'Caso B', status: 'Resolved', tags: [], createdAt: '2024-01-02', updatedAt: '2024-01-02' },
+        ],
+      },
+      { data: [] },
+      { data: [] },
+      { data: [] },
     ])
 
-    render(
-      <BrowserRouter>
-        <Dashboard />
-      </BrowserRouter>
-    )
+    renderDashboard()
 
-    await waitFor(() => {
-      expect(screen.getByText('Caso A')).toBeInTheDocument()
-      expect(screen.getByText('Caso B')).toBeInTheDocument()
-    })
+    expect(await screen.findByText('Caso A')).toBeInTheDocument()
+    expect(screen.getByText('Caso B')).toBeInTheDocument()
+    expect(screen.getByText('Tus casos recientes')).toBeInTheDocument()
   })
 
   it('muestra mensaje cuando no hay casos', async () => {
-    mockFetch([])
+    mockFetchSequence([
+      { data: [] },
+      { data: [] },
+      { data: [] },
+      { data: [] },
+    ])
 
-    render(
-      <BrowserRouter>
-        <Dashboard />
-      </BrowserRouter>
-    )
+    renderDashboard()
 
-    await waitFor(() => {
-      expect(screen.getByText('No tienes casos creados.')).toBeInTheDocument()
-    })
+    expect(await screen.findByText('No tienes casos creados.')).toBeInTheDocument()
   })
 
   it('muestra revisiones pendientes', async () => {
@@ -72,29 +92,22 @@ describe('Dashboard', () => {
       return makeResponse({}, 404)
     }))
 
-    render(
-      <BrowserRouter>
-        <Dashboard />
-      </BrowserRouter>
-    )
+    renderDashboard()
 
-    await waitFor(() => {
-      expect(screen.getByText('Caso Pendiente')).toBeInTheDocument()
-      expect(screen.getByText('Revisa esto')).toBeInTheDocument()
-    })
+    expect(await screen.findByText('Caso Pendiente')).toBeInTheDocument()
+    expect(screen.getByText('Revisa esto')).toBeInTheDocument()
   })
 
   it('muestra botón para nuevo caso', async () => {
-    mockFetch([])
+    mockFetchSequence([
+      { data: [] },
+      { data: [] },
+      { data: [] },
+      { data: [] },
+    ])
 
-    render(
-      <BrowserRouter>
-        <Dashboard />
-      </BrowserRouter>
-    )
+    renderDashboard()
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Solicitar nueva revisión/i })).toBeInTheDocument()
-    })
+    expect(await screen.findByRole('button', { name: /Nuevo caso/i })).toBeInTheDocument()
   })
 })

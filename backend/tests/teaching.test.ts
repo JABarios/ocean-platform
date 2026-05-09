@@ -53,6 +53,28 @@ describe('POST /teaching/proposals', () => {
     expect(res.body.status).toBe('Proposed')
   })
 
+  it('la propuesta cuenta como primer apoyo implícito', async () => {
+    const user = await createUser({ email: 'teach-support@ocean.local', displayName: 'TeachSupport', password: 'pass' })
+    const c = await createCase(user.id, { statusClinical: 'Resolved' })
+    const token = generateToken(user.id, user.email, user.role)
+
+    await request(app)
+      .post('/teaching/proposals')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        caseId: c.id,
+        summary: 'Caso con apoyo implícito',
+        difficulty: 'Intermediate',
+      })
+
+    const proposal = await request(app)
+      .get(`/teaching/proposals/case/${c.id}`)
+      .set('Authorization', `Bearer ${token}`)
+
+    expect(proposal.status).toBe(200)
+    expect(proposal.body.supportCount).toBe(1)
+  })
+
   it('rechaza caso no resuelto', async () => {
     const user = await createUser({ email: 'teach2@ocean.local', displayName: 'Teach2', password: 'pass' })
     const c = await createCase(user.id, { statusClinical: 'Draft' })
@@ -123,10 +145,9 @@ describe('POST /teaching/proposals/:id/recommend', () => {
     expect(res.body.error).toMatch(/propia propuesta/)
   })
 
-  it('marca como Recommended tras 2 recomendaciones', async () => {
+  it('marca como Recommended tras la primera recomendación externa', async () => {
     const proposer = await createUser({ email: 'thr@ocean.local', displayName: 'Thr', password: 'pass' })
     const r1 = await createUser({ email: 'r1@ocean.local', displayName: 'R1', password: 'pass' })
-    const r2 = await createUser({ email: 'r2@ocean.local', displayName: 'R2', password: 'pass' })
     const c = await createCase(proposer.id, { statusClinical: 'Resolved' })
     const pToken = generateToken(proposer.id, proposer.email, proposer.role)
 
@@ -139,9 +160,36 @@ describe('POST /teaching/proposals/:id/recommend', () => {
       .post(`/teaching/proposals/${propRes.body.id}/recommend`)
       .set('Authorization', `Bearer ${generateToken(r1.id, r1.email, r1.role)}`)
 
+    const queue = await request(app)
+      .get('/teaching/proposals')
+      .set('Authorization', `Bearer ${pToken}`)
+
+    const item = queue.body.find((p: any) => p.id === propRes.body.id)
+    expect(item.status).toBe('Recommended')
+    expect(item.supportCount).toBe(2)
+  })
+
+  it('mantiene Recommended y suma apoyos adicionales cuando entra otra recomendación', async () => {
+    const proposer = await createUser({ email: 'thr2@ocean.local', displayName: 'Thr2', password: 'pass' })
+    const r1 = await createUser({ email: 'thr2-r1@ocean.local', displayName: 'Thr2R1', password: 'pass' })
+    const r2 = await createUser({ email: 'thr2-r2@ocean.local', displayName: 'Thr2R2', password: 'pass' })
+    const c = await createCase(proposer.id, { statusClinical: 'Resolved' })
+    const pToken = generateToken(proposer.id, proposer.email, proposer.role)
+
+    const propRes = await request(app)
+      .post('/teaching/proposals')
+      .set('Authorization', `Bearer ${pToken}`)
+      .send({ caseId: c.id, summary: 'S', keyFindings: 'K', learningPoints: 'L', difficulty: 'Intermediate' })
+
     await request(app)
       .post(`/teaching/proposals/${propRes.body.id}/recommend`)
+      .set('Authorization', `Bearer ${generateToken(r1.id, r1.email, r1.role)}`)
+
+    const res = await request(app)
+      .post(`/teaching/proposals/${propRes.body.id}/recommend`)
       .set('Authorization', `Bearer ${generateToken(r2.id, r2.email, r2.role)}`)
+
+    expect(res.status).toBe(201)
 
     const queue = await request(app)
       .get('/teaching/proposals')
@@ -149,6 +197,7 @@ describe('POST /teaching/proposals/:id/recommend', () => {
 
     const item = queue.body.find((p: any) => p.id === propRes.body.id)
     expect(item.status).toBe('Recommended')
+    expect(item.supportCount).toBe(3)
   })
 })
 
@@ -293,6 +342,71 @@ describe('GET /teaching/library', () => {
   it('GET /teaching/proposals requiere autenticación', async () => {
     const res = await request(app).get('/teaching/proposals')
     expect(res.status).toBe(401)
+  })
+
+  it('GET /teaching/proposals por defecto lista propuestas y recomendadas, pero no validadas', async () => {
+    const proposer = await createUser({ email: 'queue-default-p@ocean.local', displayName: 'QueueDefaultP', password: 'pass' })
+    const curator = await createUser({ email: 'queue-default-c@ocean.local', displayName: 'QueueDefaultC', password: 'pass', role: 'Curator' })
+    const pToken = generateToken(proposer.id, proposer.email, proposer.role)
+    const cToken = generateToken(curator.id, curator.email, curator.role)
+
+    const proposedCase = await createCase(proposer.id, { statusClinical: 'Resolved' })
+    const validatedCase = await createCase(proposer.id, { statusClinical: 'Resolved' })
+
+    const proposedRes = await request(app)
+      .post('/teaching/proposals')
+      .set('Authorization', `Bearer ${pToken}`)
+      .send({ caseId: proposedCase.id, summary: 'Caso propuesto', difficulty: 'Intermediate' })
+
+    const validatedRes = await request(app)
+      .post('/teaching/proposals')
+      .set('Authorization', `Bearer ${pToken}`)
+      .send({ caseId: validatedCase.id, summary: 'Caso validado', difficulty: 'Intermediate' })
+
+    await request(app)
+      .post(`/teaching/proposals/${validatedRes.body.id}/validate`)
+      .set('Authorization', `Bearer ${cToken}`)
+      .send({ status: 'Validated' })
+
+    const queue = await request(app).get('/teaching/proposals').set('Authorization', `Bearer ${pToken}`)
+    const ids = queue.body.map((item: any) => item.id)
+
+    expect(ids).toContain(proposedRes.body.id)
+    expect(ids).not.toContain(validatedRes.body.id)
+  })
+
+  it('usuario autenticado puede consultar la propuesta de un caso validado aunque no haya sido invitado', async () => {
+    const owner = await createUser({ email: 'tp-valid-own@ocean.local', displayName: 'TpValidOwn', password: 'pass' })
+    const outsider = await createUser({ email: 'tp-valid-out@ocean.local', displayName: 'TpValidOut', password: 'pass' })
+    const curator = await createUser({ email: 'tp-valid-cur@ocean.local', displayName: 'TpValidCur', password: 'pass', role: 'Curator' })
+    const c = await createCase(owner.id, { statusClinical: 'Resolved' })
+    const ownerToken = generateToken(owner.id, owner.email, owner.role)
+    const curatorToken = generateToken(curator.id, curator.email, curator.role)
+
+    const proposalRes = await request(app)
+      .post('/teaching/proposals')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({
+        caseId: c.id,
+        summary: 'Caso visible ya validado',
+        keyFindings: 'Hallazgo',
+        learningPoints: 'Aprendizaje',
+        difficulty: 'Intermediate',
+      })
+
+    await request(app)
+      .post(`/teaching/proposals/${proposalRes.body.id}/validate`)
+      .set('Authorization', `Bearer ${curatorToken}`)
+      .send({ status: 'Validated' })
+
+    const token = generateToken(outsider.id, outsider.email, outsider.role)
+    const res = await request(app)
+      .get(`/teaching/proposals/case/${c.id}`)
+      .set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.status).toBe('Validated')
+    expect(res.body.summary).toBe('Caso visible ya validado')
   })
 
   it('usuario autenticado puede consultar la propuesta de un caso propuesto aunque no haya sido invitado', async () => {

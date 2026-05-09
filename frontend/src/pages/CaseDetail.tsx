@@ -4,6 +4,12 @@ import { api, friendlyError } from '../api/client'
 import { useAuthStore } from '../store/authStore'
 import { useCrypto } from '../hooks/useCrypto'
 import type { CaseItem, Comment, TeachingProposal, User } from '../types'
+import {
+  canProposeTeachingCase,
+  canRecommendTeachingProposal,
+  canRequestTeachingReviewAccess,
+  getTeachingSupportCount,
+} from '../utils/teachingState'
 import PageHeader from '../components/PageHeader'
 import './CaseDetail.css'
 
@@ -342,24 +348,25 @@ export default function CaseDetail() {
     return <div className="card">Caso no encontrado.</div>
   }
 
-  const canPropose =
-    isOwner && (caseItem.status === 'Resolved' || caseItem.status === 'Archived')
+  const canPropose = canProposeTeachingCase({
+    caseItem,
+    isOwner,
+    hasTeachingProposal: Boolean(teachingProposal),
+  }) || caseItem.availableActions?.includes('propose_teaching')
   const ownerCanPrepareProposalLater =
     isOwner && !canPropose && !teachingProposal
-  const canRecommendProposal =
-    Boolean(teachingProposal)
-    && teachingProposal?.status !== 'Validated'
-    && teachingProposal?.status !== 'Rejected'
-    && teachingProposal?.proposerId !== user?.id
-    && !teachingProposal?.recommendations?.some((r) => r.authorId === user?.id)
+  const canRecommendProposal = canRecommendTeachingProposal({
+    proposal: teachingProposal,
+    userId: user?.id,
+  }) || caseItem.availableActions?.includes('recommend_teaching')
   const currentUserReviewLink = caseItem.reviewRequests?.find((request) =>
     request.requestedBy === user?.id || request.targetUserId === user?.id
   )
-  const hasReviewRelationship = Boolean(currentUserReviewLink)
-  const canRequestReviewAccess =
-    !isOwner
-    && ['Proposed', 'Recommended'].includes(caseItem.teachingStatus)
-    && !hasReviewRelationship
+  const canRequestReviewAccess = canRequestTeachingReviewAccess({
+    caseItem,
+    isOwner,
+    userId: user?.id,
+  }) || caseItem.availableActions?.includes('request_review_access')
   const reviewAccessStatusLabel =
     currentUserReviewLink?.status === 'Pending'
       ? 'Has solicitado acceso a la revisión'
@@ -368,8 +375,9 @@ export default function CaseDetail() {
         : currentUserReviewLink?.status === 'Rejected'
           ? 'Tu solicitud de acceso fue rechazada'
           : currentUserReviewLink?.status === 'Expired'
-            ? 'Tu solicitud de acceso expiró'
+          ? 'Tu solicitud de acceso expiró'
             : null
+  const teachingSupportCount = getTeachingSupportCount(teachingProposal)
 
   return (
     <div className="case-detail">
@@ -505,7 +513,7 @@ export default function CaseDetail() {
               <div>
                 <div className="teaching-proposal-meta">
                   <span>Propuesto por {teachingProposal.proposer?.displayName || '—'}</span>
-                  <span>{teachingProposal._count?.recommendations ?? 0} recomendaciones</span>
+                  <span>{teachingSupportCount} apoyos</span>
                   {teachingProposal.difficulty && <span>{teachingProposal.difficulty}</span>}
                 </div>
                 <p className="teaching-summary">{teachingProposal.summary}</p>
@@ -516,7 +524,7 @@ export default function CaseDetail() {
                     {recommending ? 'Recomendando…' : 'Recomendar para biblioteca'}
                   </button>
                 ) : teachingProposal.proposerId === user?.id ? (
-                  <span className="ops-subtle">Eres quien propuso este caso.</span>
+                  <span className="ops-subtle">Eres quien propuso este caso. Tu propuesta cuenta como primer apoyo.</span>
                 ) : teachingProposal.recommendations?.some((r) => r.authorId === user?.id) ? (
                   <span className="ops-subtle">Ya lo has recomendado.</span>
                 ) : teachingProposal.status === 'Validated' ? (

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import { useAuthStore } from '../store/authStore'
 import type { TeachingProposal } from '../types'
+import { getTeachingSupportCount } from '../utils/teachingState'
 import PageHeader from '../components/PageHeader'
 import './TeachingQueue.css'
 
@@ -113,7 +114,7 @@ export default function TeachingQueue() {
 
               <div className="item-meta">
                 <span>Propuesto por: {item.proposer?.displayName || '—'}</span>
-                <span>Recomendaciones: {item._count?.recommendations ?? 0}</span>
+                <span>Apoyos: {getTeachingSupportCount(item)}</span>
               </div>
 
               {item.tags && item.tags.length > 0 && (

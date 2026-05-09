@@ -26,3 +26,8 @@ const localStorageMock = {
 Object.defineProperty(window, 'localStorage', {
   value: localStorageMock,
 })
+
+Object.defineProperty(window, 'alert', {
+  writable: true,
+  value: vi.fn(),
+})

@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
-import { BrowserRouter } from 'react-router-dom'
+import { MemoryRouter } from 'react-router-dom'
 import CaseDetail from '../pages/CaseDetail'
 import { mockFetchSequence } from './mocks'
 import type { User } from '../types'
+import * as navigation from '../utils/navigation'
 
 // --- Mocks de módulos ---
 
@@ -44,24 +45,34 @@ const BASE_CASE = {
 
 const OTHER_USER = { id: 'other-1', email: 'other@test.com', displayName: 'Dr. Otro', role: 'Clinician' }
 
-function mockLoad(caseData = BASE_CASE, comments: unknown[] = [], users: unknown[] = [OTHER_USER]) {
+function mockLoad(
+  caseData = BASE_CASE,
+  comments: unknown[] = [],
+  users: unknown[] = [OTHER_USER],
+  teachingProposal: unknown = null,
+) {
   return mockFetchSequence([
     { data: caseData },   // GET /cases/case-1
     { data: comments },   // GET /comments/case/case-1
     { data: users },      // GET /users
-    { data: null },       // GET /teaching/proposals/case/case-1
+    { data: teachingProposal }, // GET /teaching/proposals/case/case-1
   ])
 }
 
 function renderDetail() {
-  return render(<BrowserRouter><CaseDetail /></BrowserRouter>)
+  return render(
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <CaseDetail />
+    </MemoryRouter>,
+  )
 }
 
 // --- Tests ---
 
 describe('CaseDetail — carga inicial', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.restoreAllMocks()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
     mockAuthState = {
       user: { id: 'owner-1', email: 'owner@test.com', displayName: 'Dr. Owner', role: 'Clinician' },
       token: 'test-token',
@@ -69,7 +80,7 @@ describe('CaseDetail — carga inicial', () => {
   })
 
   it('muestra estado de carga inicialmente', () => {
-    mockLoad()
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})))
     renderDetail()
     expect(screen.getByText('Cargando…')).toBeInTheDocument()
   })
@@ -80,7 +91,8 @@ describe('CaseDetail — carga inicial', () => {
     expect(await screen.findByText('EEG Caso Test')).toBeInTheDocument()
     expect(screen.getByText('Paciente con crisis')).toBeInTheDocument()
     expect(screen.getByText('Adulto')).toBeInTheDocument()
-    expect(screen.getByText('EEG')).toBeInTheDocument()
+    expect(screen.getByText('Modalidad')).toBeInTheDocument()
+    expect(screen.getAllByText('EEG').length).toBeGreaterThan(0)
   })
 
   it('muestra el badge de estado', async () => {
@@ -91,6 +103,7 @@ describe('CaseDetail — carga inicial', () => {
   })
 
   it('muestra error cuando la API devuelve 401', async () => {
+    const reloadSpy = vi.spyOn(navigation, 'reloadApplication').mockImplementation(() => undefined)
     mockFetchSequence([
       { data: { error: 'Token inválido' }, status: 401 },
       { data: [] },
@@ -103,6 +116,7 @@ describe('CaseDetail — carga inicial', () => {
     await waitFor(() => {
       expect(screen.queryByText('EEG Caso Test')).not.toBeInTheDocument()
     })
+    expect(reloadSpy).toHaveBeenCalled()
   })
 
   it('muestra error cuando el caso no se encuentra', async () => {
@@ -140,7 +154,10 @@ describe('CaseDetail — carga inicial', () => {
 })
 
 describe('CaseDetail — acceso por rol (owner vs no-owner)', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
 
   it('el owner ve el botón de cambio de estado (Draft → Enviar solicitud)', async () => {
     mockAuthState = { ...mockAuthState, user: { ...mockAuthState.user, id: 'owner-1' } }
@@ -182,9 +199,154 @@ describe('CaseDetail — acceso por rol (owner vs no-owner)', () => {
   })
 })
 
+describe('CaseDetail — flujo docente visible', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+
+  it('muestra apoyos y el mensaje del primer apoyo implícito al proponente', async () => {
+    mockAuthState = {
+      user: { id: 'owner-1', email: 'owner@test.com', displayName: 'Dr. Owner', role: 'Clinician' },
+      token: 'test-token',
+    }
+
+    mockLoad(
+      {
+        ...BASE_CASE,
+        status: 'Resolved',
+        teachingStatus: 'Proposed',
+        ownerId: 'owner-1',
+        availableActions: [],
+      },
+      [],
+      [OTHER_USER],
+      {
+        id: 'proposal-1',
+        caseId: 'case-1',
+        proposerId: 'owner-1',
+        status: 'Proposed',
+        summary: 'Caso muy ilustrativo',
+        supportCount: 1,
+        proposer: { id: 'owner-1', displayName: 'Dr. Owner' },
+        recommendations: [],
+      },
+    )
+
+    renderDetail()
+
+    expect(await screen.findByText('1 apoyos')).toBeInTheDocument()
+    expect(screen.getByText(/Tu propuesta cuenta como primer apoyo/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Recomendar para biblioteca/i })).not.toBeInTheDocument()
+  })
+
+  it('ofrece solicitar acceso a la revisión a un usuario que ve un caso propuesto', async () => {
+    mockAuthState = {
+      user: { id: 'viewer-2', email: 'viewer@test.com', displayName: 'Dr. Viewer', role: 'Clinician' },
+      token: 'test-token',
+    }
+
+    mockLoad(
+      {
+        ...BASE_CASE,
+        status: 'Resolved',
+        teachingStatus: 'Proposed',
+        ownerId: 'owner-1',
+        availableActions: ['request_review_access'],
+        reviewRequests: [],
+      },
+      [],
+      [OTHER_USER],
+      {
+        id: 'proposal-1',
+        caseId: 'case-1',
+        proposerId: 'owner-1',
+        status: 'Proposed',
+        summary: 'Caso abierto a revisión comunitaria',
+        supportCount: 1,
+        proposer: { id: 'owner-1', displayName: 'Dr. Owner' },
+        recommendations: [],
+      },
+    )
+
+    renderDetail()
+
+    expect(await screen.findByRole('button', { name: /Solicitar acceso a la revisión/i })).toBeInTheDocument()
+    expect(screen.getByText(/puedes solicitar acceso al propietario del caso/i)).toBeInTheDocument()
+  })
+
+  it('tras solicitar acceso muestra que ya se ha pedido la revisión', async () => {
+    mockAuthState = {
+      user: { id: 'viewer-2', email: 'viewer@test.com', displayName: 'Dr. Viewer', role: 'Clinician' },
+      token: 'test-token',
+    }
+
+    const fetchMock = mockFetchSequence([
+      {
+        data: {
+          ...BASE_CASE,
+          status: 'Resolved',
+          teachingStatus: 'Proposed',
+          ownerId: 'owner-1',
+          availableActions: ['request_review_access'],
+          reviewRequests: [],
+        },
+      },
+      { data: [] },
+      { data: [OTHER_USER] },
+      {
+        data: {
+          id: 'proposal-1',
+          caseId: 'case-1',
+          proposerId: 'owner-1',
+          status: 'Proposed',
+          summary: 'Caso abierto a revisión comunitaria',
+          supportCount: 1,
+          proposer: { id: 'owner-1', displayName: 'Dr. Owner' },
+          recommendations: [],
+        },
+      },
+      { data: { id: 'req-access-1', status: 'Pending', targetUserId: 'owner-1', requestedBy: 'viewer-2' } },
+      {
+        data: {
+          ...BASE_CASE,
+          status: 'Resolved',
+          teachingStatus: 'Proposed',
+          ownerId: 'owner-1',
+          availableActions: [],
+          reviewRequests: [
+            {
+              id: 'req-access-1',
+              requestedBy: 'viewer-2',
+              targetUserId: 'owner-1',
+              status: 'Pending',
+            },
+          ],
+        },
+      },
+    ])
+
+    renderDetail()
+
+    const button = await screen.findByRole('button', { name: /Solicitar acceso a la revisión/i })
+    fireEvent.click(button)
+
+    await waitFor(() => {
+      const postCall = fetchMock.mock.calls.find(([url, opts]) =>
+        url.includes('/requests/request-access') && opts?.method === 'POST'
+      )
+      expect(postCall).toBeDefined()
+      expect(JSON.parse(postCall![1].body as string)).toEqual({ caseId: 'case-1', message: '' })
+    })
+
+    expect(await screen.findByText('Has solicitado acceso a la revisión')).toBeInTheDocument()
+  })
+})
+
 describe('CaseDetail — cambio de estado', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.restoreAllMocks()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
     mockAuthState = {
       user: { id: 'owner-1', email: 'owner@test.com', displayName: 'Dr. Owner', role: 'Clinician' },
       token: 'test-token',
@@ -231,7 +393,8 @@ describe('CaseDetail — cambio de estado', () => {
 
 describe('CaseDetail — comentarios', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.restoreAllMocks()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
     mockAuthState = {
       user: { id: 'owner-1', email: 'owner@test.com', displayName: 'Dr. Owner', role: 'Clinician' },
       token: 'test-token',
@@ -326,7 +489,8 @@ describe('CaseDetail — comentarios', () => {
 
 describe('CaseDetail — sección de paquete EEG', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.restoreAllMocks()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
     mockAuthState = {
       user: { id: 'owner-1', email: 'owner@test.com', displayName: 'Dr. Owner', role: 'Clinician' },
       token: 'test-token',
@@ -351,7 +515,7 @@ describe('CaseDetail — sección de paquete EEG', () => {
       },
     })
     renderDetail()
-    expect(await screen.findByRole('button', { name: /Descargar .enc/i })).toBeInTheDocument()
+    expect(await screen.findAllByRole('button', { name: /Descargar .enc/i })).toHaveLength(2)
     expect(screen.getByPlaceholderText(/Pega la clave de descifrado/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Usar clave guardada en OCEAN/i })).toBeInTheDocument()
   })

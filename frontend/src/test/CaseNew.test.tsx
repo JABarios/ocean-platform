@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { BrowserRouter } from 'react-router-dom'
+import { MemoryRouter } from 'react-router-dom'
 import CaseNew from '../pages/CaseNew'
 import { mockFetch } from './mocks'
 
@@ -14,14 +14,15 @@ vi.mock('react-router-dom', async () => {
 
 describe('CaseNew', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.restoreAllMocks()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
   })
 
   it('muestra el formulario de nuevo caso', () => {
     render(
-      <BrowserRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <CaseNew />
-      </BrowserRouter>
+      </MemoryRouter>
     )
     expect(screen.getByText('Nuevo caso')).toBeInTheDocument()
     expect(screen.getByLabelText(/Título/i)).toBeInTheDocument()
@@ -33,9 +34,9 @@ describe('CaseNew', () => {
 
   it('valida campos requeridos', async () => {
     render(
-      <BrowserRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <CaseNew />
-      </BrowserRouter>
+      </MemoryRouter>
     )
 
     const form = document.querySelector('form')!
@@ -47,9 +48,9 @@ describe('CaseNew', () => {
 
   it('mantiene deshabilitada la creación local hasta que haya un EEG preparado', () => {
     render(
-      <BrowserRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <CaseNew />
-      </BrowserRouter>
+      </MemoryRouter>
     )
 
     fireEvent.change(screen.getByLabelText(/Título/i), {
@@ -73,9 +74,9 @@ describe('CaseNew', () => {
 
   it('no permite crear un caso local sin haber seleccionado un EEG', () => {
     render(
-      <BrowserRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <CaseNew />
-      </BrowserRouter>
+      </MemoryRouter>
     )
 
     fireEvent.change(screen.getByLabelText(/Título/i), {
@@ -125,9 +126,9 @@ describe('CaseNew', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     render(
-      <BrowserRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <CaseNew />
-      </BrowserRouter>
+      </MemoryRouter>
     )
 
     fireEvent.click(screen.getByRole('button', { name: /Elegir EEG desde una galería/i }))

@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { BrowserRouter } from 'react-router-dom'
+import { MemoryRouter } from 'react-router-dom'
 import Login from '../pages/Login'
 import { mockFetch } from './mocks'
+import * as navigation from '../utils/navigation'
 
 const mockNavigate = vi.fn()
 vi.mock('react-router-dom', async () => {
@@ -15,15 +16,16 @@ vi.mock('react-router-dom', async () => {
 
 describe('Login', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.restoreAllMocks()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
     localStorage.clear()
   })
 
   it('muestra el formulario de login', () => {
     render(
-      <BrowserRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Login />
-      </BrowserRouter>
+      </MemoryRouter>
     )
     expect(screen.getByText('Iniciar sesión')).toBeInTheDocument()
     expect(screen.getByLabelText(/Correo electrónico/i)).toBeInTheDocument()
@@ -38,9 +40,9 @@ describe('Login', () => {
     })
 
     render(
-      <BrowserRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Login />
-      </BrowserRouter>
+      </MemoryRouter>
     )
 
     fireEvent.change(screen.getByLabelText(/Correo electrónico/i), {
@@ -57,12 +59,13 @@ describe('Login', () => {
   })
 
   it('muestra error si las credenciales son inválidas', async () => {
+    vi.spyOn(navigation, 'reloadApplication').mockImplementation(() => undefined)
     mockFetch({ error: 'Unauthorized' }, 401)
 
     render(
-      <BrowserRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Login />
-      </BrowserRouter>
+      </MemoryRouter>
     )
 
     fireEvent.change(screen.getByLabelText(/Correo electrónico/i), {

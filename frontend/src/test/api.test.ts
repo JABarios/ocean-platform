@@ -4,6 +4,7 @@ import * as navigation from '../utils/navigation'
 
 beforeEach(() => {
   vi.restoreAllMocks()
+  vi.spyOn(console, 'error').mockImplementation(() => {})
   localStorage.clear()
 })
 

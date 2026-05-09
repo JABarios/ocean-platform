@@ -2,6 +2,12 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../utils/prisma'
 import { authMiddleware, AuthenticatedRequest, requireRole } from '../middleware/auth'
+import {
+  buildTeachingContributorAccessWhere,
+  buildTeachingProposalReadAccessWhere,
+  nextTeachingProposalStatus,
+  proposalSupportCount,
+} from '../utils/teachingState'
 
 const router = Router()
 
@@ -26,8 +32,14 @@ const validateSchema = z.object({
 router.use(authMiddleware)
 
 function serializeProposal(item: any) {
+  const explicitRecommendationCount = item._count?.recommendations ?? item.recommendations?.length ?? 0
+  const supportCount = proposalSupportCount({
+    proposerId: item.proposerId,
+    recommendationsCount: explicitRecommendationCount,
+  })
   return {
     ...item,
+    supportCount,
     tags: item.tags ? JSON.parse(item.tags) : [],
     case: item.case
       ? {
@@ -79,20 +91,7 @@ router.get('/proposals/case/:caseId', async (req: AuthenticatedRequest, res) => 
   const accessibleCase = await prisma.case.findFirst({
     where: {
       id: caseId,
-      OR: [
-        { ownerId: req.user!.id },
-        { statusTeaching: { in: ['Proposed', 'Recommended', 'Validated'] } },
-        {
-          reviewRequests: {
-            some: {
-              OR: [
-                { targetUserId: req.user!.id, status: 'Accepted' },
-                { requestedBy: req.user!.id },
-              ],
-            },
-          },
-        },
-      ],
+      ...buildTeachingProposalReadAccessWhere(req.user!.id),
     },
     select: { id: true },
   })
@@ -201,19 +200,7 @@ router.post('/proposals', async (req: AuthenticatedRequest, res) => {
   const caseItem = await prisma.case.findFirst({
     where: {
       id: caseId,
-      OR: [
-        { ownerId: req.user!.id },
-        {
-          reviewRequests: {
-            some: {
-              OR: [
-                { targetUserId: req.user!.id, status: 'Accepted' },
-                { requestedBy: req.user!.id },
-              ],
-            },
-          },
-        },
-      ],
+      ...buildTeachingContributorAccessWhere(req.user!.id),
       statusClinical: { in: ['Resolved', 'Archived'] },
     },
   })
@@ -279,7 +266,7 @@ router.post('/proposals/:id/recommend', async (req: AuthenticatedRequest, res) =
     },
   })
 
-  if (!proposal || proposal.status === 'Rejected') {
+  if (!proposal || !['Proposed', 'Recommended'].includes(proposal.status)) {
     res.status(404).json({ error: 'Propuesta no encontrada' })
     return
   }
@@ -310,14 +297,18 @@ router.post('/proposals/:id/recommend', async (req: AuthenticatedRequest, res) =
   const count = await prisma.teachingRecommendation.count({
     where: { proposalId: req.params.id },
   })
-  if (count >= 2 && proposal.status === 'Proposed') {
+  const nextStatus = nextTeachingProposalStatus(proposal.status, proposalSupportCount({
+    proposerId: proposal.proposerId,
+    recommendationsCount: count,
+  }))
+  if (nextStatus !== proposal.status) {
     await prisma.teachingProposal.update({
       where: { id: req.params.id },
-      data: { status: 'Recommended' },
+      data: { status: nextStatus },
     })
     await prisma.case.update({
       where: { id: proposal.caseId },
-      data: { statusTeaching: 'Recommended' },
+      data: { statusTeaching: nextStatus },
     })
   }
 

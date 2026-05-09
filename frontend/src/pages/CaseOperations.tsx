@@ -4,6 +4,7 @@ import { api, friendlyError } from '../api/client'
 import type { CaseItem, ReviewRequest, TeachingProposal, User } from '../types'
 import { useAuthStore } from '../store/authStore'
 import PageHeader from '../components/PageHeader'
+import { hasAvailableAction } from '../utils/teachingState'
 import './CaseOperations.css'
 
 type CaseStatusFilter = 'all' | CaseItem['status']
@@ -315,7 +316,8 @@ export default function CaseOperations() {
               {requests.length > 0 && (
                 <div className="request-list">
                   {requests.map((request) => {
-                    const canOwnerManageRequest = request.status === 'Pending' || request.status === 'Rejected' || request.status === 'Expired'
+                    const canResendRequest = hasAvailableAction(request.availableActions, 'resend_review_request')
+                    const canWithdrawRequest = hasAvailableAction(request.availableActions, 'withdraw_review_request')
                     return (
                       <div key={request.id} className="request-row">
                         <div className="request-main">
@@ -327,24 +329,28 @@ export default function CaseOperations() {
                           </span>
                         </div>
                         {request.message && <div className="request-message">{request.message}</div>}
-                        {canOwnerManageRequest && (
+                        {(canResendRequest || canWithdrawRequest) && (
                           <div className="request-actions">
-                            <button
-                              type="button"
-                              className="btn-secondary"
-                              onClick={() => resendRequest(item.id, request.id)}
-                              disabled={busyRequestId === request.id}
-                            >
-                              Reenviar
-                            </button>
-                            <button
-                              type="button"
-                              className="btn-secondary"
-                              onClick={() => withdrawRequest(item.id, request.id)}
-                              disabled={busyRequestId === request.id}
-                            >
-                              Retirar
-                            </button>
+                            {canResendRequest && (
+                              <button
+                                type="button"
+                                className="btn-secondary"
+                                onClick={() => resendRequest(item.id, request.id)}
+                                disabled={busyRequestId === request.id}
+                              >
+                                Reenviar
+                              </button>
+                            )}
+                            {canWithdrawRequest && (
+                              <button
+                                type="button"
+                                className="btn-secondary"
+                                onClick={() => withdrawRequest(item.id, request.id)}
+                                disabled={busyRequestId === request.id}
+                              >
+                                Retirar
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -354,15 +360,17 @@ export default function CaseOperations() {
               )}
 
               <div className="actions-row">
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => setInviteCaseId(inviteCaseId === item.id ? null : item.id)}
-                  disabled={busyCaseId === item.id}
-                >
-                  Invitar revisor
-                </button>
-                {item.status === 'InReview' && (
+                {hasAvailableAction(item.availableActions, 'send_review_request') && (
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => setInviteCaseId(inviteCaseId === item.id ? null : item.id)}
+                    disabled={busyCaseId === item.id}
+                  >
+                    Invitar revisor
+                  </button>
+                )}
+                {hasAvailableAction(item.availableActions, 'resolve_case') && (
                   <button
                     type="button"
                     className="btn-primary"
@@ -372,7 +380,7 @@ export default function CaseOperations() {
                     Marcar resuelto
                   </button>
                 )}
-                {(item.status === 'Resolved' || item.status === 'Requested' || item.status === 'Draft') && (
+                {hasAvailableAction(item.availableActions, 'archive_case') && (
                   <button
                     type="button"
                     className="btn-secondary"
@@ -382,7 +390,7 @@ export default function CaseOperations() {
                     Archivar
                   </button>
                 )}
-                {(item.status === 'Resolved' || item.status === 'Archived') && item.teachingStatus === 'None' && (
+                {hasAvailableAction(item.availableActions, 'propose_teaching') && (
                   <button
                     type="button"
                     className="btn-secondary"

@@ -1,8 +1,13 @@
-import type { AvailableAction, TeachingAvailableAction, TeachingProposal } from '../types'
+import type {
+  AvailableAction,
+  ReviewRequestAvailableAction,
+  TeachingAvailableAction,
+  TeachingProposal,
+} from '../types'
 
 export function hasAvailableAction(
-  actions: AvailableAction[] | TeachingAvailableAction[] | undefined,
-  action: AvailableAction | TeachingAvailableAction,
+  actions: AvailableAction[] | TeachingAvailableAction[] | ReviewRequestAvailableAction[] | undefined,
+  action: AvailableAction | TeachingAvailableAction | ReviewRequestAvailableAction,
 ) {
   return actions?.includes(action as never) ?? false
 }

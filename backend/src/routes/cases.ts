@@ -5,7 +5,7 @@ import { authMiddleware, AuthenticatedRequest } from '../middleware/auth'
 import { deleteBlob } from '../utils/storage'
 import { buildCaseReadAccessWhere } from '../utils/teachingState'
 import { getAllowedClinicalEvents, getNextClinicalState } from '../domain/workflows/clinicalWorkflow'
-import { getCaseAvailableActions } from '../domain/workflows/caseWorkflow'
+import { decorateCaseReviewRequests, getCaseAvailableActions } from '../domain/workflows/caseWorkflow'
 
 const router = Router()
 
@@ -75,6 +75,7 @@ function toCaseResponse(caseObj: any, viewer?: { id: string; role: string }) {
   plain.summaryMetrics = safeParseJson(plain.summaryMetrics)
   plain.storedKeyAvailable = !!plain.accessSecret
   plain.availableActions = getCaseAvailableActions(caseObj, viewer)
+  plain.reviewRequests = decorateCaseReviewRequests(plain.reviewRequests, viewer)
   delete plain.accessSecret
   return plain
 }

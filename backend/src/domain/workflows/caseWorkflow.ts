@@ -1,4 +1,5 @@
 import { getAllowedClinicalEvents, getNextClinicalState } from './clinicalWorkflow'
+import { getReviewRequestAvailableActions } from './reviewRequestWorkflow'
 import { getTeachingAvailableActions } from './teachingWorkflow'
 
 interface CaseWorkflowViewer {
@@ -91,4 +92,17 @@ export function getCaseAvailableActions(caseObj: CaseWorkflowCase, viewer?: Case
 
 export function canCommentOnCase(caseObj: CaseWorkflowCase, viewer: CaseWorkflowViewer) {
   return getCaseAvailableActions(caseObj, viewer).includes('comment_case')
+}
+
+export function decorateCaseReviewRequests(requests: ReviewRequestLike[] = [], viewer?: CaseWorkflowViewer) {
+  if (!viewer) return requests
+
+  return requests.map((request) => ({
+    ...request,
+    availableActions: getReviewRequestAvailableActions({
+      status: request.status ?? '',
+      isRequester: request.requestedBy === viewer.id,
+      isTargetUser: request.targetUserId === viewer.id,
+    }),
+  }))
 }

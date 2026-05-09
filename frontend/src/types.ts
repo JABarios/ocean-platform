@@ -156,6 +156,12 @@ export type TeachingAvailableAction =
   | 'validate_teaching'
   | 'reject_teaching'
 
+export type ReviewRequestAvailableAction =
+  | 'accept_review_request'
+  | 'reject_review_request'
+  | 'resend_review_request'
+  | 'withdraw_review_request'
+
 export type AvailableAction = ClinicalAvailableAction | TeachingAvailableAction
 
 export interface CaseItem {
@@ -194,6 +200,7 @@ export interface ReviewRequest {
   requester?: Pick<User, 'id' | 'displayName'>
   targetUser?: Pick<User, 'id' | 'displayName'>
   targetGroup?: { id: string; name: string }
+  availableActions?: ReviewRequestAvailableAction[]
 }
 
 export interface Comment {

@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../utils/prisma'
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth'
+import { getReviewRequestAvailableActions } from '../domain/workflows/reviewRequestWorkflow'
 
 const router = Router()
 
@@ -18,6 +19,18 @@ const requestAccessSchema = z.object({
 })
 
 router.use(authMiddleware)
+
+function serializeRequest(item: any, viewer: { id: string }) {
+  return {
+    ...item,
+    availableActions: getReviewRequestAvailableActions({
+      status: item.status,
+      isRequester: item.requestedBy === viewer.id,
+      isTargetUser: item.targetUserId === viewer.id,
+    }),
+    case: item.case ? { ...item.case, status: item.case.statusClinical, statusClinical: undefined } : item.case,
+  }
+}
 
 async function createPendingRequest(params: {
   caseId: string
@@ -59,10 +72,7 @@ router.get('/pending', async (req: AuthenticatedRequest, res) => {
     },
     orderBy: { createdAt: 'desc' },
   })
-  const response = requests.map((r) => ({
-    ...r,
-    case: r.case ? { ...r.case, status: r.case.statusClinical, statusClinical: undefined } : r.case,
-  }))
+  const response = requests.map((r) => serializeRequest(r, req.user!))
   res.json(response)
 })
 
@@ -82,10 +92,7 @@ router.get('/active', async (req: AuthenticatedRequest, res) => {
     },
     orderBy: { createdAt: 'desc' },
   })
-  const response = requests.map((r) => ({
-    ...r,
-    case: r.case ? { ...r.case, status: r.case.statusClinical, statusClinical: undefined } : r.case,
-  }))
+  const response = requests.map((r) => serializeRequest(r, req.user!))
   res.json(response)
 })
 
@@ -104,10 +111,7 @@ router.get('/expired', async (req: AuthenticatedRequest, res) => {
     },
     orderBy: { expiresAt: 'desc' },
   })
-  const response = requests.map((r) => ({
-    ...r,
-    case: r.case ? { ...r.case, status: r.case.statusClinical, statusClinical: undefined } : r.case,
-  }))
+  const response = requests.map((r) => serializeRequest(r, req.user!))
   res.json(response)
 })
 

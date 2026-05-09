@@ -246,6 +246,9 @@ describe('GET /requests/pending', () => {
     const res = await request(app).get('/requests/pending').set('Authorization', `Bearer ${token}`)
     expect(res.status).toBe(200)
     expect(res.body).toHaveLength(1)
+    expect(res.body[0].availableActions).toEqual(
+      expect.arrayContaining(['accept_review_request', 'reject_review_request']),
+    )
   })
 
   it('no muestra solicitudes de otros usuarios', async () => {
@@ -271,6 +274,29 @@ describe('GET /requests/pending', () => {
     const res = await request(app).get('/requests/pending').set('Authorization', `Bearer ${token}`)
     expect(res.body[0].case).toHaveProperty('status', 'Requested')
     expect(res.body[0].case).not.toHaveProperty('statusClinical')
+  })
+})
+
+describe('GET /requests/active', () => {
+  it('el solicitante ve acciones para reenviar o retirar cuando la invitación está rechazada', async () => {
+    const owner = await createUser({ email: 'active-own@ocean.local', displayName: 'ActiveOwn', password: 'pass' })
+    const reviewer = await createUser({ email: 'active-rev@ocean.local', displayName: 'ActiveRev', password: 'pass' })
+    const c = await createCase(owner.id)
+    const req = await createReviewRequest({
+      caseId: c.id,
+      requestedBy: owner.id,
+      targetUserId: reviewer.id,
+      status: 'Rejected',
+    })
+    const token = generateToken(owner.id, owner.email, owner.role)
+
+    const res = await request(app).get('/requests/active').set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(200)
+    const item = res.body.find((entry: { id: string }) => entry.id === req.id)
+    expect(item.availableActions).toEqual(
+      expect.arrayContaining(['resend_review_request', 'withdraw_review_request']),
+    )
   })
 })
 

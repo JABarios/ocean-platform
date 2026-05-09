@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import type { TeachingProposal } from '../types'
 import PageHeader from '../components/PageHeader'
@@ -8,7 +9,9 @@ const DIFFICULTIES = ['Introductory', 'Intermediate', 'Advanced']
 
 export default function TeachingLibrary() {
   const [items, setItems] = useState<TeachingProposal[]>([])
+  const [proposalItems, setProposalItems] = useState<TeachingProposal[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingProposals, setLoadingProposals] = useState(true)
   const [q, setQ] = useState('')
   const [difficulty, setDifficulty] = useState('')
   const [tagsInput, setTagsInput] = useState('')
@@ -28,10 +31,22 @@ export default function TeachingLibrary() {
 
   useEffect(() => { fetchLibrary() }, [])
 
+  useEffect(() => {
+    setLoadingProposals(true)
+    api.get<TeachingProposal[]>('/teaching/proposals')
+      .then(setProposalItems)
+      .catch(() => {})
+      .finally(() => setLoadingProposals(false))
+  }, [])
+
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
     fetchLibrary()
   }
+
+  const proposedCount = proposalItems.filter((item) => item.status === 'Proposed').length
+  const recommendedCount = proposalItems.filter((item) => item.status === 'Recommended').length
+  const recentProposalItems = proposalItems.slice(0, 3)
 
   return (
     <div className="library">
@@ -39,6 +54,51 @@ export default function TeachingLibrary() {
         title="Biblioteca docente"
         subtitle="Casos validados por la comunidad como material de enseñanza y consulta."
       />
+
+      <section className="library-overview card">
+        <div className="library-overview-copy">
+          <h3>Propuestas en curso</h3>
+          <p>
+            La biblioteca muestra solo los casos ya validados. Las propuestas y recomendaciones pendientes
+            se consultan en casos propuestos.
+          </p>
+        </div>
+        <div className="library-overview-stats">
+          <span>{loadingProposals ? '…' : proposedCount} propuestas</span>
+          <span>{loadingProposals ? '…' : recommendedCount} recomendados</span>
+        </div>
+        <div className="library-overview-actions">
+          <Link to="/queue" className="btn-secondary">
+            Ver casos propuestos
+          </Link>
+        </div>
+      </section>
+
+      {!loadingProposals && recentProposalItems.length > 0 && (
+        <section className="library-proposals card">
+          <div className="library-proposals-header">
+            <h3>Propuestas recientes</h3>
+            <Link to="/queue">Ver todas</Link>
+          </div>
+          <ul className="library-proposals-list">
+            {recentProposalItems.map((item) => (
+              <li key={item.id} className="library-proposal-row">
+                <div className="library-proposal-main">
+                  <strong>{item.case?.title || 'Caso sin título'}</strong>
+                  <span>
+                    Propuesto por {item.proposer?.displayName || '—'}
+                    {item.case?.id ? ` · ` : ''}
+                    {item.case?.id && <Link to={`/cases/${item.case.id}`}>Ver caso</Link>}
+                  </span>
+                </div>
+                <span className={`badge ${item.status === 'Recommended' ? 'badge-resolved' : 'badge-draft'}`}>
+                  {item.status === 'Recommended' ? 'Recomendado' : 'Propuesto'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <form onSubmit={handleSearch} className="search-bar card">
         <input

@@ -47,7 +47,7 @@ export default function TeachingQueue() {
   if (loading) {
     return (
       <div style={{ color: 'var(--text-secondary)', padding: '2rem 0' }}>
-        Cargando cola de propuestas…
+        Cargando casos propuestos…
       </div>
     )
   }
@@ -55,7 +55,7 @@ export default function TeachingQueue() {
   return (
     <div className="queue">
       <PageHeader
-        title="Cola de propuestas docentes"
+        title="Casos propuestos"
         subtitle="Casos propuestos por la comunidad pendientes de recomendación y validación curatorial."
       />
 
@@ -73,7 +73,7 @@ export default function TeachingQueue() {
 
       {filtered.length === 0 ? (
         <div className="card empty-state">
-          No hay propuestas docentes en esta categoría.
+          No hay casos propuestos en esta categoría.
         </div>
       ) : (
         <ul className="queue-list">

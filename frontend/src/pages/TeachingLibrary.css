@@ -4,6 +4,96 @@
   gap: 1rem;
 }
 
+.library-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) auto auto;
+  gap: 1rem;
+  align-items: center;
+}
+
+.library-overview-copy h3,
+.library-proposals-header h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+
+.library-overview-copy p {
+  font-size: 0.92rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.library-overview-stats {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.library-overview-stats span {
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.library-overview-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.library-proposals {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.library-proposals-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.library-proposals-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.library-proposal-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border);
+}
+
+.library-proposal-row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.library-proposal-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+}
+
+.library-proposal-main strong {
+  font-size: 0.95rem;
+}
+
+.library-proposal-main span {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
 .library h2 {
   font-size: 1.45rem;
   font-weight: 700;
@@ -92,6 +182,15 @@
 }
 
 @media (max-width: 760px) {
+  .library-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .library-overview-stats,
+  .library-overview-actions {
+    justify-content: flex-start;
+  }
+
   .search-bar {
     flex-direction: column;
     align-items: stretch;
@@ -104,6 +203,12 @@
   }
 
   .item-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .library-proposals-header,
+  .library-proposal-row {
     flex-direction: column;
     align-items: flex-start;
   }

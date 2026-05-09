@@ -107,7 +107,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </Link>
               {(user?.role === 'Admin' || user?.role === 'Curator') && (
                 <Link to="/queue" className={exploreLinkClass('/queue')}>
-                  Cola docente
+                  Casos propuestos
                 </Link>
               )}
             </div>

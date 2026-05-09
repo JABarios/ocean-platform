@@ -265,6 +265,7 @@ router.get('/download/:caseId', authMiddleware, async (req: AuthenticatedRequest
       id: caseId,
       OR: [
         { ownerId: req.user!.id },
+        { statusTeaching: { in: ['Proposed', 'Recommended', 'Validated'] } },
         {
           reviewRequests: {
             some: {

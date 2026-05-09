@@ -81,6 +81,7 @@ router.get('/proposals/case/:caseId', async (req: AuthenticatedRequest, res) => 
       id: caseId,
       OR: [
         { ownerId: req.user!.id },
+        { statusTeaching: { in: ['Proposed', 'Recommended', 'Validated'] } },
         {
           reviewRequests: {
             some: {

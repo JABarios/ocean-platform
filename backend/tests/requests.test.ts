@@ -67,6 +67,56 @@ describe('POST /requests', () => {
 
     expect(caseRes.body.status).toBe('Requested')
   })
+
+  it('permite solicitar acceso a la revisión de un caso propuesto', async () => {
+    const owner = await createUser({ email: 'acc-prop-own@ocean.local', displayName: 'AccPropOwn', password: 'pass' })
+    const outsider = await createUser({ email: 'acc-prop-out@ocean.local', displayName: 'AccPropOut', password: 'pass' })
+    const c = await createCase(owner.id, { statusTeaching: 'Proposed' })
+    const token = generateToken(outsider.id, outsider.email, outsider.role)
+
+    const res = await request(app)
+      .post('/requests/request-access')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ caseId: c.id, message: 'Me interesa revisar este caso' })
+
+    expect(res.status).toBe(201)
+    expect(res.body.status).toBe('Pending')
+    expect(res.body.targetUserId).toBe(owner.id)
+    expect(res.body.requestedBy).toBe(outsider.id)
+  })
+
+  it('rechaza solicitar acceso si el caso no está propuesto o recomendado', async () => {
+    const owner = await createUser({ email: 'acc-draft-own@ocean.local', displayName: 'AccDraftOwn', password: 'pass' })
+    const outsider = await createUser({ email: 'acc-draft-out@ocean.local', displayName: 'AccDraftOut', password: 'pass' })
+    const c = await createCase(owner.id, { statusTeaching: 'None' })
+    const token = generateToken(outsider.id, outsider.email, outsider.role)
+
+    const res = await request(app)
+      .post('/requests/request-access')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ caseId: c.id })
+
+    expect(res.status).toBe(400)
+  })
+
+  it('rechaza duplicar una solicitud de acceso a revisión', async () => {
+    const owner = await createUser({ email: 'acc-dup-own@ocean.local', displayName: 'AccDupOwn', password: 'pass' })
+    const outsider = await createUser({ email: 'acc-dup-out@ocean.local', displayName: 'AccDupOut', password: 'pass' })
+    const c = await createCase(owner.id, { statusTeaching: 'Proposed' })
+    const token = generateToken(outsider.id, outsider.email, outsider.role)
+
+    await request(app)
+      .post('/requests/request-access')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ caseId: c.id })
+
+    const res = await request(app)
+      .post('/requests/request-access')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ caseId: c.id })
+
+    expect(res.status).toBe(409)
+  })
 })
 
 describe('POST /requests/:id/accept', () => {

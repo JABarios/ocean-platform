@@ -56,6 +56,8 @@ export default function CaseDetail() {
   const [targetUserId, setTargetUserId] = useState('')
   const [requestMessage, setRequestMessage] = useState('')
   const [requesting, setRequesting] = useState(false)
+  const [accessRequestMessage, setAccessRequestMessage] = useState('')
+  const [requestingAccess, setRequestingAccess] = useState(false)
 
   const [commentText, setCommentText] = useState('')
   const [sendingComment, setSendingComment] = useState(false)
@@ -163,6 +165,26 @@ export default function CaseDetail() {
       alert(friendlyError(err))
     } finally {
       setSendingComment(false)
+    }
+  }
+
+  const requestReviewAccess = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!id) return
+    setRequestingAccess(true)
+    try {
+      await api.post('/requests/request-access', {
+        caseId: id,
+        message: accessRequestMessage,
+      })
+      setAccessRequestMessage('')
+      alert('Solicitud de acceso enviada')
+      const updatedCase = await api.get<CaseItem>(`/cases/${id}`)
+      setCaseItem(updatedCase)
+    } catch (err) {
+      alert(friendlyError(err))
+    } finally {
+      setRequestingAccess(false)
     }
   }
 
@@ -330,6 +352,24 @@ export default function CaseDetail() {
     && teachingProposal?.status !== 'Rejected'
     && teachingProposal?.proposerId !== user?.id
     && !teachingProposal?.recommendations?.some((r) => r.authorId === user?.id)
+  const currentUserReviewLink = caseItem.reviewRequests?.find((request) =>
+    request.requestedBy === user?.id || request.targetUserId === user?.id
+  )
+  const hasReviewRelationship = Boolean(currentUserReviewLink)
+  const canRequestReviewAccess =
+    !isOwner
+    && ['Proposed', 'Recommended'].includes(caseItem.teachingStatus)
+    && !hasReviewRelationship
+  const reviewAccessStatusLabel =
+    currentUserReviewLink?.status === 'Pending'
+      ? 'Has solicitado acceso a la revisión'
+      : currentUserReviewLink?.status === 'Accepted'
+        ? 'Ya participas en la revisión'
+        : currentUserReviewLink?.status === 'Rejected'
+          ? 'Tu solicitud de acceso fue rechazada'
+          : currentUserReviewLink?.status === 'Expired'
+            ? 'Tu solicitud de acceso expiró'
+            : null
 
   return (
     <div className="case-detail">
@@ -513,34 +553,60 @@ export default function CaseDetail() {
         )}
       </section>
 
-      <section className="section card">
-        <h3>Solicitar revisión</h3>
-        <form onSubmit={sendRequest} className="inline-form">
-          <select
-            value={targetUserId}
-            onChange={(e) => setTargetUserId(e.target.value)}
-            required
-          >
-            <option value="">Selecciona usuario…</option>
-            {users
-              .filter((u) => u.id !== user?.id)
-              .map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.displayName} ({u.email})
-                </option>
-              ))}
-          </select>
-          <input
-            type="text"
-            placeholder="Mensaje opcional"
-            value={requestMessage}
-            onChange={(e) => setRequestMessage(e.target.value)}
-          />
-          <button className="btn-primary" disabled={requesting}>
-            {requesting ? 'Enviando…' : 'Solicitar'}
-          </button>
-        </form>
-      </section>
+      {isOwner ? (
+        <section className="section card">
+          <h3>Solicitar revisión</h3>
+          <form onSubmit={sendRequest} className="inline-form">
+            <select
+              value={targetUserId}
+              onChange={(e) => setTargetUserId(e.target.value)}
+              required
+            >
+              <option value="">Selecciona usuario…</option>
+              {users
+                .filter((u) => u.id !== user?.id)
+                .map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.displayName} ({u.email})
+                  </option>
+                ))}
+            </select>
+            <input
+              type="text"
+              placeholder="Mensaje opcional"
+              value={requestMessage}
+              onChange={(e) => setRequestMessage(e.target.value)}
+            />
+            <button className="btn-primary" disabled={requesting}>
+              {requesting ? 'Enviando…' : 'Solicitar'}
+            </button>
+          </form>
+        </section>
+      ) : (
+        (canRequestReviewAccess || reviewAccessStatusLabel) && (
+          <section className="section card">
+            <h3>Acceso a la revisión</h3>
+            {canRequestReviewAccess ? (
+              <form onSubmit={requestReviewAccess} className="access-request-form">
+                <p className="ops-subtle">
+                  Si quieres participar en la discusión clínica original, puedes solicitar acceso al propietario del caso.
+                </p>
+                <input
+                  type="text"
+                  placeholder="Mensaje opcional"
+                  value={accessRequestMessage}
+                  onChange={(e) => setAccessRequestMessage(e.target.value)}
+                />
+                <button className="btn-primary" disabled={requestingAccess}>
+                  {requestingAccess ? 'Enviando…' : 'Solicitar acceso a la revisión'}
+                </button>
+              </form>
+            ) : reviewAccessStatusLabel ? (
+              <p className="ops-subtle">{reviewAccessStatusLabel}</p>
+            ) : null}
+          </section>
+        )
+      )}
 
       {caseItem.package && (
         <section className="section card">

@@ -294,4 +294,34 @@ describe('GET /teaching/library', () => {
     const res = await request(app).get('/teaching/proposals')
     expect(res.status).toBe(401)
   })
+
+  it('usuario autenticado puede consultar la propuesta de un caso propuesto aunque no haya sido invitado', async () => {
+    const owner = await createUser({ email: 'tp-public-own@ocean.local', displayName: 'TpPublicOwn', password: 'pass' })
+    const outsider = await createUser({ email: 'tp-public-out@ocean.local', displayName: 'TpPublicOut', password: 'pass' })
+    const c = await createCase(owner.id, { statusClinical: 'Resolved' })
+    const ownerToken = generateToken(owner.id, owner.email, owner.role)
+
+    const proposalRes = await request(app)
+      .post('/teaching/proposals')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({
+        caseId: c.id,
+        summary: 'Caso visible para toda la comunidad',
+        keyFindings: 'Hallazgo',
+        learningPoints: 'Aprendizaje',
+        difficulty: 'Intermediate',
+        tags: ['visible'],
+      })
+
+    expect(proposalRes.status).toBe(201)
+
+    const token = generateToken(outsider.id, outsider.email, outsider.role)
+    const res = await request(app)
+      .get(`/teaching/proposals/case/${c.id}`)
+      .set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.summary).toBe('Caso visible para toda la comunidad')
+    expect(res.body.case.id).toBe(c.id)
+  })
 })

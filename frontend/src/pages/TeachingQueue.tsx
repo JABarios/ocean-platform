@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import { useAuthStore } from '../store/authStore'
 import type { TeachingProposal } from '../types'
@@ -124,6 +125,11 @@ export default function TeachingQueue() {
               )}
 
               <div className="item-actions">
+                {item.case?.id && (
+                  <Link to={`/cases/${item.case.id}`} className="btn-secondary">
+                    Ver caso
+                  </Link>
+                )}
                 {item.proposerId === user?.id ? (
                   <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                     Eres el proponente

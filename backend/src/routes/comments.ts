@@ -15,6 +15,25 @@ function canSeeAllCases(req: AuthenticatedRequest) {
   return req.user?.role === 'Admin'
 }
 
+function caseReadAccessWhere(userId: string) {
+  return {
+    OR: [
+      { ownerId: userId },
+      { statusTeaching: { in: ['Proposed', 'Recommended', 'Validated'] } },
+      {
+        reviewRequests: {
+          some: {
+            OR: [
+              { targetUserId: userId },
+              { requestedBy: userId },
+            ],
+          },
+        },
+      },
+    ],
+  }
+}
+
 router.use(authMiddleware)
 
 // Listar comentarios de un caso
@@ -24,21 +43,7 @@ router.get('/case/:caseId', async (req: AuthenticatedRequest, res) => {
       id: req.params.caseId,
       ...(canSeeAllCases(req)
         ? {}
-        : {
-            OR: [
-              { ownerId: req.user!.id },
-              {
-                reviewRequests: {
-                  some: {
-                    OR: [
-                      { targetUserId: req.user!.id },
-                      { requestedBy: req.user!.id },
-                    ],
-                  },
-                },
-              },
-            ],
-          }),
+        : caseReadAccessWhere(req.user!.id)),
     },
   })
 

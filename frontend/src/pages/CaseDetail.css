@@ -194,6 +194,25 @@
   min-width: 180px;
 }
 
+.access-request-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.access-request-form input {
+  width: 100%;
+  max-width: 32rem;
+}
+
+.ops-subtle {
+  color: var(--text-secondary);
+  font-size: 0.84rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
 .comment-list {
   list-style: none;
   display: flex;

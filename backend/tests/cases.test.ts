@@ -169,6 +169,17 @@ describe('GET /cases/:id', () => {
     expect(res.status).toBe(200)
   })
 
+  it('usuario autenticado puede ver un caso propuesto aunque no haya sido invitado', async () => {
+    const owner = await createUser({ email: 'public-own@ocean.local', displayName: 'PublicOwn', password: 'pass' })
+    const outsider = await createUser({ email: 'public-out@ocean.local', displayName: 'PublicOut', password: 'pass' })
+    const c = await createCase(owner.id, { statusTeaching: 'Proposed', title: 'Caso propuesto visible' })
+    const token = generateToken(outsider.id, outsider.email, outsider.role)
+
+    const res = await request(app).get(`/cases/${c.id}`).set('Authorization', `Bearer ${token}`)
+    expect(res.status).toBe(200)
+    expect(res.body.title).toBe('Caso propuesto visible')
+  })
+
   it('crea auditEvent al crear caso', async () => {
     const user = await createUser({ email: 'audit@ocean.local', displayName: 'Audit', password: 'pass' })
     const token = generateToken(user.id, user.email, user.role)

@@ -112,6 +112,21 @@ describe('GET /comments/case/:caseId', () => {
     expect(res.status).toBe(404)
   })
 
+  it('usuario autenticado puede leer comentarios de un caso propuesto', async () => {
+    const owner = await createUser({ email: 'cm-pub-own@ocean.local', displayName: 'CmPubOwn', password: 'pass' })
+    const outsider = await createUser({ email: 'cm-pub-out@ocean.local', displayName: 'CmPubOut', password: 'pass' })
+    const c = await createCase(owner.id, { statusTeaching: 'Proposed' })
+    const ownerToken = generateToken(owner.id, owner.email, owner.role)
+    await request(app).post(`/comments/case/${c.id}`).set('Authorization', `Bearer ${ownerToken}`).send({ body: 'Comentario visible' })
+
+    const token = generateToken(outsider.id, outsider.email, outsider.role)
+    const res = await request(app).get(`/comments/case/${c.id}`).set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body).toHaveLength(1)
+    expect(res.body[0].content).toBe('Comentario visible')
+  })
+
   it('admin puede leer comentarios de cualquier caso', async () => {
     const owner = await createUser({ email: 'cm-admin-own@ocean.local', displayName: 'CmAdminOwn', password: 'pass' })
     const admin = await createUser({

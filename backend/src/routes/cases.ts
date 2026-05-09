@@ -26,6 +26,25 @@ function canSeeAllCases(req: AuthenticatedRequest) {
   return req.user?.role === 'Admin'
 }
 
+function caseReadAccessWhere(userId: string) {
+  return {
+    OR: [
+      { ownerId: userId },
+      { statusTeaching: { in: ['Proposed', 'Recommended', 'Validated'] } },
+      {
+        reviewRequests: {
+          some: {
+            OR: [
+              { targetUserId: userId },
+              { requestedBy: userId },
+            ],
+          },
+        },
+      },
+    ],
+  }
+}
+
 function safeParseJson(value: any): any {
   if (typeof value !== 'string') return value
   try {
@@ -179,21 +198,7 @@ router.get('/:id', async (req: AuthenticatedRequest, res) => {
       id: req.params.id,
       ...(canSeeAllCases(req)
         ? {}
-        : {
-            OR: [
-              { ownerId: req.user!.id },
-              {
-                reviewRequests: {
-                  some: {
-                    OR: [
-                      { targetUserId: req.user!.id },
-                      { requestedBy: req.user!.id },
-                    ],
-                  },
-                },
-              },
-            ],
-          }),
+        : caseReadAccessWhere(req.user!.id)),
     },
     include: {
       owner: { select: { id: true, displayName: true, email: true } },

@@ -12,7 +12,32 @@ const createRequestSchema = z.object({
   message: z.string().optional(),
 })
 
+const requestAccessSchema = z.object({
+  caseId: z.string().uuid(),
+  message: z.string().optional(),
+})
+
 router.use(authMiddleware)
+
+async function createPendingRequest(params: {
+  caseId: string
+  requestedBy: string
+  targetUserId?: string
+  targetGroupId?: string
+  message?: string
+}) {
+  return prisma.reviewRequest.create({
+    data: {
+      caseId: params.caseId,
+      requestedBy: params.requestedBy,
+      targetUserId: params.targetUserId,
+      targetGroupId: params.targetGroupId,
+      message: params.message,
+      status: 'Pending',
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    },
+  })
+}
 
 // Listar solicitudes donde el usuario es destinatario (pendientes)
 router.get('/pending', async (req: AuthenticatedRequest, res) => {
@@ -108,16 +133,12 @@ router.post('/', async (req: AuthenticatedRequest, res) => {
     return
   }
 
-  const request = await prisma.reviewRequest.create({
-    data: {
-      caseId,
-      requestedBy: req.user!.id,
-      targetUserId,
-      targetGroupId,
-      message,
-      status: 'Pending',
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 días
-    },
+  const request = await createPendingRequest({
+    caseId,
+    requestedBy: req.user!.id,
+    targetUserId,
+    targetGroupId,
+    message,
   })
 
   // Si el caso estaba en Draft, pasar a Requested
@@ -138,6 +159,74 @@ router.post('/', async (req: AuthenticatedRequest, res) => {
   })
 
   res.status(201).json(request)
+})
+
+// Solicitar acceso a la revisión de un caso propuesto
+router.post('/request-access', async (req: AuthenticatedRequest, res) => {
+  const parsed = requestAccessSchema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Datos inválidos' })
+    return
+  }
+
+  const { caseId, message } = parsed.data
+  const caseItem = await prisma.case.findUnique({
+    where: { id: caseId },
+    select: {
+      id: true,
+      ownerId: true,
+      statusTeaching: true,
+      reviewRequests: {
+        select: {
+          id: true,
+          requestedBy: true,
+          targetUserId: true,
+          status: true,
+        },
+      },
+    },
+  })
+
+  if (!caseItem) {
+    res.status(404).json({ error: 'Caso no encontrado' })
+    return
+  }
+
+  if (!['Proposed', 'Recommended'].includes(caseItem.statusTeaching)) {
+    res.status(400).json({ error: 'Solo puedes solicitar acceso a casos propuestos o recomendados' })
+    return
+  }
+
+  if (caseItem.ownerId === req.user!.id) {
+    res.status(400).json({ error: 'Ya eres el propietario del caso' })
+    return
+  }
+
+  const alreadyLinked = caseItem.reviewRequests.some((item) =>
+    item.requestedBy === req.user!.id || item.targetUserId === req.user!.id
+  )
+  if (alreadyLinked) {
+    res.status(409).json({ error: 'Ya existe una relación de revisión con este caso' })
+    return
+  }
+
+  const accessRequest = await createPendingRequest({
+    caseId,
+    requestedBy: req.user!.id,
+    targetUserId: caseItem.ownerId,
+    message,
+  })
+
+  await prisma.auditEvent.create({
+    data: {
+      actorId: req.user!.id,
+      caseId,
+      action: 'ReviewAccessRequested',
+      target: accessRequest.id,
+    },
+  })
+
+  res.status(201).json(accessRequest)
 })
 
 // Aceptar solicitud

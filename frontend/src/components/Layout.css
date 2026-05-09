@@ -58,13 +58,119 @@
   gap: 0.75rem;
 }
 
-.user-name {
-  font-size: 0.84rem;
-  color: var(--text-secondary);
-  max-width: 170px;
+.account-menu {
+  position: relative;
+}
+
+.account-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0.55rem 0.8rem;
+  border-radius: 14px;
+  background: rgba(237, 243, 255, 0.92);
+  border: 1px solid rgba(191, 208, 247, 0.9);
+  min-width: 0;
+}
+
+.account-chip-button {
+  appearance: none;
+  cursor: pointer;
+  text-align: right;
+}
+
+.account-chip-button.open {
+  background: rgba(229, 238, 255, 0.98);
+  border-color: rgba(149, 181, 245, 0.95);
+}
+
+.account-chip-name {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text);
+  max-width: 240px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.account-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.45rem);
+  min-width: 240px;
+  padding: 0.45rem;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid rgba(217, 222, 234, 0.96);
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.14);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  z-index: 20;
+}
+
+.account-dropdown-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.45rem 0.5rem 0.55rem;
+  border-bottom: 1px solid rgba(229, 232, 240, 0.95);
+}
+
+.account-dropdown-copy strong {
+  font-size: 0.92rem;
+  color: var(--text);
+}
+
+.account-dropdown-copy span {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.account-dropdown-action {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  padding: 0.62rem 0.7rem;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.account-dropdown-action:hover {
+  background: #edf3ff;
+}
+
+.subnav-shell {
+  border-top: 1px solid rgba(217, 222, 234, 0.7);
+  background: rgba(248, 250, 255, 0.9);
+}
+
+.subnav {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0.55rem 1.25rem 0.65rem;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.subnav-link {
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 0.38rem 0.72rem;
+  border-radius: 999px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.subnav-link:hover,
+.subnav-link.active {
+  color: var(--text);
+  background: #e9f0ff;
 }
 
 .main-content {
@@ -100,11 +206,16 @@
   .header-actions {
     margin-left: auto;
     width: 100%;
-    justify-content: space-between;
+    justify-content: flex-end;
   }
 
   .main-content {
     padding-top: 1.25rem;
+  }
+
+  .subnav {
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
   }
 }
 
@@ -137,13 +248,39 @@
     padding: 0.48rem 0.8rem;
   }
 
-  .user-name {
-    max-width: 120px;
+  .account-chip {
+    padding: 0.48rem 0.68rem;
+  }
+
+  .account-chip-name {
+    max-width: 160px;
+  }
+
+  .account-dropdown {
+    right: auto;
+    left: 0;
+    min-width: 220px;
   }
 
   .main-content {
     padding-left: 0.9rem;
     padding-right: 0.9rem;
     padding-bottom: 1.5rem;
+  }
+
+  .subnav {
+    padding-left: 0.9rem;
+    padding-right: 0.9rem;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
+  }
+
+  .subnav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .subnav-link {
+    white-space: nowrap;
   }
 }

@@ -93,7 +93,7 @@ export default function Galleries() {
     <div className="galleries-page">
       <PageHeader
         title="Galerías"
-        subtitle="Colecciones de EEGs anonimizados o de libre distribución, separadas del flujo clínico de casos."
+        subtitle="Colecciones de EEGs preparadas para revisar, reutilizar o consultar dentro de OCEAN."
         aside={(
           <div className="gallery-summary card">
             <strong>{galleries.length}</strong>

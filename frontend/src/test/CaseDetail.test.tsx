@@ -49,6 +49,7 @@ function mockLoad(caseData = BASE_CASE, comments: unknown[] = [], users: unknown
     { data: caseData },   // GET /cases/case-1
     { data: comments },   // GET /comments/case/case-1
     { data: users },      // GET /users
+    { data: null },       // GET /teaching/proposals/case/case-1
   ])
 }
 
@@ -94,6 +95,7 @@ describe('CaseDetail — carga inicial', () => {
       { data: { error: 'Token inválido' }, status: 401 },
       { data: [] },
       { data: [] },
+      { data: null },
     ])
     renderDetail()
     // El client.ts redirige en 401 (window.location.reload), el componente no llega a cargar
@@ -108,6 +110,7 @@ describe('CaseDetail — carga inicial', () => {
       { data: { error: 'Caso no encontrado' }, status: 404 },
       { data: [] },
       { data: [] },
+      { data: null },
     ])
     renderDetail()
     await waitFor(() => {
@@ -163,19 +166,19 @@ describe('CaseDetail — acceso por rol (owner vs no-owner)', () => {
     expect(await screen.findByRole('button', { name: /Marcar como Resuelto/i })).toBeInTheDocument()
   })
 
-  it('en estado Resolved, owner ve botón Proponer para docencia', async () => {
+  it('en estado Resolved, owner ve botón Proponer para biblioteca', async () => {
     mockAuthState = { ...mockAuthState, user: { ...mockAuthState.user, id: 'owner-1' } }
     mockLoad({ ...BASE_CASE, status: 'Resolved', ownerId: 'owner-1' })
     renderDetail()
-    expect(await screen.findByRole('button', { name: /Proponer para docencia/i })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /Proponer para biblioteca/i })).toBeInTheDocument()
   })
 
-  it('en estado Draft, no aparece "Proponer para docencia"', async () => {
+  it('en estado Draft, no aparece "Proponer para biblioteca"', async () => {
     mockAuthState = { ...mockAuthState, user: { ...mockAuthState.user, id: 'owner-1' } }
     mockLoad({ ...BASE_CASE, status: 'Draft', ownerId: 'owner-1' })
     renderDetail()
     await screen.findByText('EEG Caso Test')
-    expect(screen.queryByRole('button', { name: /Proponer para docencia/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Proponer para biblioteca/i })).not.toBeInTheDocument()
   })
 })
 
@@ -193,6 +196,7 @@ describe('CaseDetail — cambio de estado', () => {
       { data: BASE_CASE },
       { data: [] },
       { data: [OTHER_USER] },
+      { data: null },
       { data: { ...BASE_CASE, status: 'Requested' } }, // PATCH response
     ])
 
@@ -214,6 +218,7 @@ describe('CaseDetail — cambio de estado', () => {
       { data: BASE_CASE },
       { data: [] },
       { data: [OTHER_USER] },
+      { data: null },
       { data: { ...BASE_CASE, status: 'Requested' } },
     ])
 
@@ -244,6 +249,7 @@ describe('CaseDetail — comentarios', () => {
       { data: BASE_CASE },
       { data: [] },
       { data: [OTHER_USER] },
+      { data: null },
       { data: newComment }, // POST comment response
     ])
 
@@ -269,6 +275,7 @@ describe('CaseDetail — comentarios', () => {
       { data: BASE_CASE },
       { data: [] },
       { data: [OTHER_USER] },
+      { data: null },
       {
         data: {
           id: 'c-new', caseId: 'case-1', authorId: 'owner-1', type: 'Comment',
@@ -294,6 +301,7 @@ describe('CaseDetail — comentarios', () => {
       { data: BASE_CASE },
       { data: [] },
       { data: [OTHER_USER] },
+      { data: null },
       {
         data: {
           id: 'c-x', caseId: 'case-1', authorId: 'owner-1', type: 'Comment',
@@ -377,6 +385,7 @@ describe('CaseDetail — sección de paquete EEG', () => {
       },
       { data: [] },
       { data: [OTHER_USER] },
+      { data: null },
       { data: { keyBase64: 'stored-base64-key' } },
     ])
 
@@ -414,6 +423,7 @@ describe('CaseDetail — sección de paquete EEG', () => {
       },
       { data: [] },
       { data: [OTHER_USER] },
+      { data: null },
       { data: { keyBase64: 'share-this-key' } },
     ])
 

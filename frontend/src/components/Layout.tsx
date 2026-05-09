@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import './Layout.css'
@@ -7,8 +8,21 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user)
   const location = useLocation()
   const navigate = useNavigate()
+  const [accountOpen, setAccountOpen] = useState(false)
+  const accountRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const onPointerDown = (event: MouseEvent) => {
+      if (!accountRef.current?.contains(event.target as Node)) {
+        setAccountOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    return () => document.removeEventListener('mousedown', onPointerDown)
+  }, [])
 
   const handleLogout = () => {
+    setAccountOpen(false)
     logout()
     navigate('/login')
   }
@@ -21,6 +35,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       ? 'nav-link active'
       : 'nav-link'
 
+  const exploreLinkClass = (...paths: string[]) =>
+    paths.some((path) => location.pathname === path || location.pathname.startsWith(`${path}/`))
+      ? 'subnav-link active'
+      : 'subnav-link'
+
+  const showExploreSubnav = ['/explore', '/galleries', '/library', '/eegs', '/queue'].some((path) =>
+    location.pathname === path || location.pathname.startsWith(`${path}/`)
+  )
+
   return (
     <div className="layout">
       <header className="app-header">
@@ -30,28 +53,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </Link>
           <nav className="main-nav">
             <Link to="/" className={navLinkClass('/')}>
-              Inicio
+              Mis casos
             </Link>
-            <Link to="/cases/new" className={navLinkClass('/cases/new')}>
-              Nuevo Caso
+            <Link to="/explore" className={navLinkClass('/explore', '/galleries', '/eegs', '/library', '/queue')}>
+              Explorar
             </Link>
             <Link to="/share/new" className={navLinkClass('/share/new', '/shared/new')}>
-              Shared Link
-            </Link>
-            <Link to="/cases" className={navLinkClass('/cases', '/cases/manage')}>
-              Casos
-            </Link>
-            <Link to="/galleries" className={navLinkClass('/galleries')}>
-              Galerías
-            </Link>
-            <Link to="/eegs" className={navLinkClass('/eegs')}>
-              EEGs
-            </Link>
-            <Link to="/library" className={navLinkClass('/library')}>
-              Biblioteca
-            </Link>
-            <Link to="/queue" className={navLinkClass('/queue')}>
-              Cola docente
+              Compartir EEG
             </Link>
             {user?.role === 'Admin' && (
               <Link to="/admin" className={navLinkClass('/admin')}>
@@ -61,15 +69,50 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </nav>
           <div className="header-actions">
             {user && (
-              <span className="user-name" title={user.email}>
-                {user.displayName}
-              </span>
+              <div className="account-menu" ref={accountRef}>
+                <button
+                  type="button"
+                  className={`account-chip account-chip-button${accountOpen ? ' open' : ''}`}
+                  title={user.email}
+                  onClick={() => setAccountOpen((current) => !current)}
+                >
+                  <span className="account-chip-name">{user.displayName}</span>
+                </button>
+                {accountOpen && (
+                  <div className="account-dropdown">
+                    <div className="account-dropdown-copy">
+                      <strong>{user.displayName}</strong>
+                      <span>{user.email}</span>
+                    </div>
+                    <button className="account-dropdown-action" onClick={handleLogout}>
+                      Cerrar sesión
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
-            <button className="btn-secondary" onClick={handleLogout}>
-              Cerrar sesión
-            </button>
           </div>
         </div>
+        {showExploreSubnav && (
+          <div className="subnav-shell">
+            <div className="subnav explore-subnav">
+              <Link to="/galleries" className={exploreLinkClass('/galleries', '/explore')}>
+                Galerías
+              </Link>
+              <Link to="/library" className={exploreLinkClass('/library')}>
+                Biblioteca
+              </Link>
+              <Link to="/eegs" className={exploreLinkClass('/eegs')}>
+                EEG
+              </Link>
+              {(user?.role === 'Admin' || user?.role === 'Curator') && (
+                <Link to="/queue" className={exploreLinkClass('/queue')}>
+                  Cola docente
+                </Link>
+              )}
+            </div>
+          </div>
+        )}
       </header>
       <main className="main-content">{children}</main>
     </div>

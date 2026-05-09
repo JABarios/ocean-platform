@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom'
 import { api, friendlyError } from '../api/client'
 import { useAuthStore } from '../store/authStore'
 import { useCrypto } from '../hooks/useCrypto'
-import type { CaseItem, Comment, User } from '../types'
+import type { CaseItem, Comment, TeachingProposal, User } from '../types'
 import PageHeader from '../components/PageHeader'
 import './CaseDetail.css'
 
@@ -24,6 +24,23 @@ function statusBadgeClass(status: CaseItem['status']) {
   }
 }
 
+function teachingStatusLabel(status: CaseItem['teachingStatus']) {
+  switch (status) {
+    case 'None':
+      return 'Sin propuesta'
+    case 'Proposed':
+      return 'Propuesto'
+    case 'Recommended':
+      return 'Recomendado'
+    case 'Validated':
+      return 'En biblioteca'
+    case 'Rejected':
+      return 'Rechazado'
+    default:
+      return status
+  }
+}
+
 export default function CaseDetail() {
   const { id } = useParams<{ id: string }>()
   const user = useAuthStore((s) => s.user)
@@ -32,6 +49,7 @@ export default function CaseDetail() {
   const [caseItem, setCaseItem] = useState<CaseItem | null>(null)
   const [comments, setComments] = useState<Comment[]>([])
   const [users, setUsers] = useState<User[]>([])
+  const [teachingProposal, setTeachingProposal] = useState<TeachingProposal | null>(null)
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState('')
 
@@ -49,6 +67,7 @@ export default function CaseDetail() {
   const [difficulty, setDifficulty] = useState('')
   const [tagsText, setTagsText] = useState('')
   const [proposing, setProposing] = useState(false)
+  const [recommending, setRecommending] = useState(false)
 
   const [statusBusy, setStatusBusy] = useState(false)
 
@@ -82,6 +101,13 @@ export default function CaseDetail() {
         setCaseItem(c)
         setComments(com)
         setUsers(u)
+        try {
+          const tp = await api.get<TeachingProposal | null>(`/teaching/proposals/case/${id}`)
+          setTeachingProposal(tp)
+        } catch (err) {
+          console.warn('[OCEAN] No se pudo cargar la propuesta docente del caso', err)
+          setTeachingProposal(null)
+        }
       } catch (err) {
         setFetchError(err instanceof Error ? err.message : 'Error al cargar el caso')
       } finally {
@@ -152,6 +178,9 @@ export default function CaseDetail() {
         difficulty,
         tags: tagsText.split(',').map((t) => t.trim()).filter(Boolean),
       })
+      const updatedProposal = await api.get<TeachingProposal | null>(`/teaching/proposals/case/${id}`)
+      setTeachingProposal(updatedProposal)
+      setCaseItem((prev) => (prev ? { ...prev, teachingStatus: 'Proposed' } : prev))
       setShowModal(false)
       setSummary('')
       setKeyFindings('')
@@ -162,6 +191,23 @@ export default function CaseDetail() {
       alert(friendlyError(err))
     } finally {
       setProposing(false)
+    }
+  }
+
+  const recommendTeaching = async () => {
+    if (!teachingProposal) return
+    setRecommending(true)
+    try {
+      await api.post(`/teaching/proposals/${teachingProposal.id}/recommend`)
+      const updatedProposal = await api.get<TeachingProposal | null>(`/teaching/proposals/case/${id}`)
+      setTeachingProposal(updatedProposal)
+      if (updatedProposal) {
+        setCaseItem((prev) => (prev ? { ...prev, teachingStatus: updatedProposal.status as CaseItem['teachingStatus'] } : prev))
+      }
+    } catch (err) {
+      alert(friendlyError(err))
+    } finally {
+      setRecommending(false)
     }
   }
 
@@ -275,6 +321,14 @@ export default function CaseDetail() {
 
   const canPropose =
     isOwner && (caseItem.status === 'Resolved' || caseItem.status === 'Archived')
+  const ownerCanPrepareProposalLater =
+    isOwner && !canPropose && !teachingProposal
+  const canRecommendProposal =
+    Boolean(teachingProposal)
+    && teachingProposal?.status !== 'Validated'
+    && teachingProposal?.status !== 'Rejected'
+    && teachingProposal?.proposerId !== user?.id
+    && !teachingProposal?.recommendations?.some((r) => r.authorId === user?.id)
 
   return (
     <div className="case-detail">
@@ -350,13 +404,86 @@ export default function CaseDetail() {
         )}
       </div>
 
-      {canPropose && (
-        <div className="teaching-action">
-          <button className="btn-secondary" onClick={() => setShowModal(true)}>
-            Proponer para docencia
-          </button>
+      <section className="card teaching-panel">
+        <div className="teaching-panel-header">
+          <div>
+            <span className="field-label">Biblioteca</span>
+            <h3>Estado docente del caso</h3>
+          </div>
+          <span className="badge">{teachingStatusLabel(caseItem.teachingStatus)}</span>
         </div>
-      )}
+
+        {!teachingProposal ? (
+          <div className="teaching-panel-empty">
+            <div className="teaching-panel-empty-copy">
+              <p>Este caso todavía no tiene propuesta para biblioteca.</p>
+              {ownerCanPrepareProposalLater && (
+                <span className="ops-subtle">
+                  Podrás proponerlo cuando el caso esté resuelto o archivado.
+                </span>
+              )}
+            </div>
+            <div className="teaching-panel-empty-actions">
+              {canPropose && (
+                <button className="btn-secondary" onClick={() => setShowModal(true)}>
+                  Proponer para biblioteca
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="teaching-proposal-card">
+            <div className="teaching-proposal-top">
+              <div>
+                <div className="teaching-proposal-meta">
+                  <span>Propuesto por {teachingProposal.proposer?.displayName || '—'}</span>
+                  <span>{teachingProposal._count?.recommendations ?? 0} recomendaciones</span>
+                  {teachingProposal.difficulty && <span>{teachingProposal.difficulty}</span>}
+                </div>
+                <p className="teaching-summary">{teachingProposal.summary}</p>
+              </div>
+              <div className="teaching-proposal-actions">
+                {canRecommendProposal ? (
+                  <button className="btn-secondary" onClick={recommendTeaching} disabled={recommending}>
+                    {recommending ? 'Recomendando…' : 'Recomendar para biblioteca'}
+                  </button>
+                ) : teachingProposal.proposerId === user?.id ? (
+                  <span className="ops-subtle">Eres quien propuso este caso.</span>
+                ) : teachingProposal.recommendations?.some((r) => r.authorId === user?.id) ? (
+                  <span className="ops-subtle">Ya lo has recomendado.</span>
+                ) : teachingProposal.status === 'Validated' ? (
+                  <span className="ops-subtle">Ya forma parte de la biblioteca.</span>
+                ) : null}
+              </div>
+            </div>
+
+            {(teachingProposal.keyFindings || teachingProposal.learningPoints) && (
+              <div className="teaching-proposal-body">
+                {teachingProposal.keyFindings && (
+                  <div className="field">
+                    <span className="field-label">Hallazgos clave</span>
+                    <p>{teachingProposal.keyFindings}</p>
+                  </div>
+                )}
+                {teachingProposal.learningPoints && (
+                  <div className="field">
+                    <span className="field-label">Puntos de aprendizaje</span>
+                    <p>{teachingProposal.learningPoints}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {teachingProposal.tags && teachingProposal.tags.length > 0 && (
+              <div className="case-tags">
+                {teachingProposal.tags.map((tag) => (
+                  <span key={tag} className="badge">{tag}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
 
       <section className="section card">
         <h3>Solicitar revisión</h3>

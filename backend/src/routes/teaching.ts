@@ -25,6 +25,21 @@ const validateSchema = z.object({
 
 router.use(authMiddleware)
 
+function serializeProposal(item: any) {
+  return {
+    ...item,
+    tags: item.tags ? JSON.parse(item.tags) : [],
+    case: item.case
+      ? {
+          ...item.case,
+          tags: item.case.tags ? JSON.parse(item.case.tags) : [],
+          status: item.case.statusClinical,
+          statusClinical: undefined,
+        }
+      : item.case,
+  }
+}
+
 // Listar propuestas docentes (cola de curación)
 router.get('/proposals', async (req: AuthenticatedRequest, res) => {
   const status = req.query.status as string | undefined
@@ -54,19 +69,71 @@ router.get('/proposals', async (req: AuthenticatedRequest, res) => {
     orderBy: { createdAt: 'desc' },
   })
 
-  const response = items.map((item) => ({
-    ...item,
-    tags: item.tags ? JSON.parse(item.tags) : [],
-    case: item.case
-      ? {
-          ...item.case,
-          tags: item.case.tags ? JSON.parse(item.case.tags) : [],
-          status: item.case.statusClinical,
-          statusClinical: undefined,
-        }
-      : item.case,
-  }))
+  const response = items.map(serializeProposal)
   res.json(response)
+})
+
+router.get('/proposals/case/:caseId', async (req: AuthenticatedRequest, res) => {
+  const caseId = req.params.caseId
+
+  const accessibleCase = await prisma.case.findFirst({
+    where: {
+      id: caseId,
+      OR: [
+        { ownerId: req.user!.id },
+        {
+          reviewRequests: {
+            some: {
+              OR: [
+                { targetUserId: req.user!.id, status: 'Accepted' },
+                { requestedBy: req.user!.id },
+              ],
+            },
+          },
+        },
+      ],
+    },
+    select: { id: true },
+  })
+
+  if (!accessibleCase) {
+    res.status(404).json({ error: 'Propuesta no encontrada' })
+    return
+  }
+
+  const item = await prisma.teachingProposal.findFirst({
+    where: {
+      caseId,
+      status: { in: ['Proposed', 'Recommended', 'Validated'] },
+    },
+    include: {
+      case: {
+        select: {
+          id: true,
+          title: true,
+          clinicalContext: true,
+          ageRange: true,
+          modality: true,
+          tags: true,
+          statusClinical: true,
+          owner: { select: { displayName: true } },
+        },
+      },
+      proposer: { select: { id: true, displayName: true } },
+      recommendations: {
+        include: { author: { select: { id: true, displayName: true } } },
+      },
+      _count: { select: { recommendations: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+  })
+
+  if (!item) {
+    res.json(null)
+    return
+  }
+
+  res.json(serializeProposal(item))
 })
 
 // Listar biblioteca docente (casos validados) — acceso público a usuarios autenticados
@@ -107,13 +174,7 @@ router.get('/library', async (req: AuthenticatedRequest, res) => {
     },
     orderBy: { validatedAt: 'desc' },
   })
-  let response = items.map((item) => ({
-    ...item,
-    tags: item.tags ? JSON.parse(item.tags) : [],
-    case: item.case
-      ? { ...item.case, tags: item.case.tags ? JSON.parse(item.case.tags) : [] }
-      : item.case,
-  }))
+  let response = items.map(serializeProposal)
 
   // Filtro por tags (post-query, SQLite no soporta JSON contains nativo)
   if (tags) {

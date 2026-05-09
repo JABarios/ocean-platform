@@ -55,6 +55,90 @@
   justify-content: flex-end;
 }
 
+.teaching-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.teaching-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+}
+
+.teaching-panel-header h3 {
+  margin: 0;
+  font-size: 1.02rem;
+}
+
+.teaching-panel-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.teaching-panel-empty-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.teaching-panel-empty p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.teaching-panel-empty-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.teaching-proposal-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.teaching-proposal-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.teaching-proposal-meta {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  font-size: 0.84rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.4rem;
+}
+
+.teaching-summary {
+  margin: 0;
+  line-height: 1.55;
+}
+
+.teaching-proposal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.teaching-proposal-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
 .section h3 {
   font-size: 1.02rem;
   font-weight: 700;
@@ -258,6 +342,32 @@
 
   .teaching-action {
     justify-content: stretch;
+  }
+
+  .teaching-panel-empty,
+  .teaching-proposal-top {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .teaching-panel-empty-actions {
+    justify-content: stretch;
+  }
+
+  .teaching-panel-empty-actions .btn-secondary {
+    width: 100%;
+  }
+
+  .teaching-proposal-actions {
+    justify-content: stretch;
+  }
+
+  .teaching-proposal-actions .btn-secondary {
+    width: 100%;
+  }
+
+  .teaching-proposal-body {
+    grid-template-columns: 1fr;
   }
 
   .teaching-action .btn-secondary,

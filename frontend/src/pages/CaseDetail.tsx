@@ -5,10 +5,8 @@ import { useAuthStore } from '../store/authStore'
 import { useCrypto } from '../hooks/useCrypto'
 import type { CaseItem, Comment, TeachingProposal, User } from '../types'
 import {
-  canProposeTeachingCase,
-  canRecommendTeachingProposal,
-  canRequestTeachingReviewAccess,
   getTeachingSupportCount,
+  hasAvailableAction,
 } from '../utils/teachingState'
 import PageHeader from '../components/PageHeader'
 import './CaseDetail.css'
@@ -348,25 +346,21 @@ export default function CaseDetail() {
     return <div className="card">Caso no encontrado.</div>
   }
 
-  const canPropose = canProposeTeachingCase({
-    caseItem,
-    isOwner,
-    hasTeachingProposal: Boolean(teachingProposal),
-  }) || caseItem.availableActions?.includes('propose_teaching')
+  const canPropose = hasAvailableAction(caseItem.availableActions, 'propose_teaching')
   const ownerCanPrepareProposalLater =
     isOwner && !canPropose && !teachingProposal
-  const canRecommendProposal = canRecommendTeachingProposal({
-    proposal: teachingProposal,
-    userId: user?.id,
-  }) || caseItem.availableActions?.includes('recommend_teaching')
+  const canRecommendProposal = hasAvailableAction(teachingProposal?.availableActions, 'recommend_teaching')
+    || hasAvailableAction(caseItem.availableActions, 'recommend_teaching')
   const currentUserReviewLink = caseItem.reviewRequests?.find((request) =>
     request.requestedBy === user?.id || request.targetUserId === user?.id
   )
-  const canRequestReviewAccess = canRequestTeachingReviewAccess({
-    caseItem,
-    isOwner,
-    userId: user?.id,
-  }) || caseItem.availableActions?.includes('request_review_access')
+  const canRequestReviewAccess = hasAvailableAction(caseItem.availableActions, 'request_review_access')
+  const canSendReviewRequest = hasAvailableAction(caseItem.availableActions, 'send_review_request')
+  const canRequestReview = hasAvailableAction(caseItem.availableActions, 'request_review')
+  const canStartReview = hasAvailableAction(caseItem.availableActions, 'start_review')
+  const canResolveCase = hasAvailableAction(caseItem.availableActions, 'resolve_case')
+  const canArchiveCase = hasAvailableAction(caseItem.availableActions, 'archive_case')
+  const canComment = hasAvailableAction(caseItem.availableActions, 'comment_case')
   const reviewAccessStatusLabel =
     currentUserReviewLink?.status === 'Pending'
       ? 'Has solicitado acceso a la revisión'
@@ -440,7 +434,7 @@ export default function CaseDetail() {
 
         {isOwner && (
           <div className="status-actions">
-            {caseItem.status === 'Draft' && (
+            {canRequestReview && (
               <button
                 className="btn-primary"
                 onClick={() => changeStatus('Requested')}
@@ -449,7 +443,7 @@ export default function CaseDetail() {
                 Enviar solicitud
               </button>
             )}
-            {caseItem.status === 'Requested' && (
+            {canStartReview && (
               <button
                 className="btn-primary"
                 onClick={() => changeStatus('InReview')}
@@ -458,7 +452,7 @@ export default function CaseDetail() {
                 Iniciar revisión
               </button>
             )}
-            {caseItem.status === 'InReview' && (
+            {canResolveCase && (
               <button
                 className="btn-primary"
                 onClick={() => changeStatus('Resolved')}
@@ -467,7 +461,7 @@ export default function CaseDetail() {
                 Marcar como Resuelto
               </button>
             )}
-            {caseItem.status === 'Resolved' && (
+            {canArchiveCase && (
               <button
                 className="btn-secondary"
                 onClick={() => changeStatus('Archived')}
@@ -561,7 +555,7 @@ export default function CaseDetail() {
         )}
       </section>
 
-      {isOwner ? (
+      {canSendReviewRequest ? (
         <section className="section card">
           <h3>Solicitar revisión</h3>
           <form onSubmit={sendRequest} className="inline-form">
@@ -730,18 +724,24 @@ export default function CaseDetail() {
             ))}
           </ul>
         )}
-        <form onSubmit={sendComment} className="comment-form">
-          <textarea
-            rows={2}
-            placeholder="Escribe un comentario…"
-            value={commentText}
-            onChange={(e) => setCommentText(e.target.value)}
-            required
-          />
-          <button className="btn-primary" disabled={sendingComment}>
-            {sendingComment ? 'Enviando…' : 'Comentar'}
-          </button>
-        </form>
+        {canComment ? (
+          <form onSubmit={sendComment} className="comment-form">
+            <textarea
+              rows={2}
+              placeholder="Escribe un comentario…"
+              value={commentText}
+              onChange={(e) => setCommentText(e.target.value)}
+              required
+            />
+            <button className="btn-primary" disabled={sendingComment}>
+              {sendingComment ? 'Enviando…' : 'Comentar'}
+            </button>
+          </form>
+        ) : (
+          <p className="ops-subtle">
+            Solo pueden comentar el propietario del caso y quienes ya participan en la revisión.
+          </p>
+        )}
       </section>
 
       {showModal && (

@@ -133,13 +133,13 @@ describe('CaseDetail — carga inicial', () => {
   })
 
   it('muestra "No hay comentarios" cuando no hay ninguno', async () => {
-    mockLoad(BASE_CASE, [])
+    mockLoad({ ...BASE_CASE, availableActions: ['send_review_request', 'comment_case', 'request_review'] }, [])
     renderDetail()
     expect(await screen.findByText('No hay comentarios.')).toBeInTheDocument()
   })
 
   it('muestra comentarios cuando existen', async () => {
-    mockLoad(BASE_CASE, [
+    mockLoad({ ...BASE_CASE, availableActions: ['send_review_request', 'comment_case', 'request_review'] }, [
       {
         id: 'c1', caseId: 'case-1', authorId: 'other-1', type: 'Comment',
         content: 'Patrón sugestivo de epilepsia focal',
@@ -161,14 +161,14 @@ describe('CaseDetail — acceso por rol (owner vs no-owner)', () => {
 
   it('el owner ve el botón de cambio de estado (Draft → Enviar solicitud)', async () => {
     mockAuthState = { ...mockAuthState, user: { ...mockAuthState.user, id: 'owner-1' } }
-    mockLoad({ ...BASE_CASE, status: 'Draft', ownerId: 'owner-1' })
+    mockLoad({ ...BASE_CASE, status: 'Draft', ownerId: 'owner-1', availableActions: ['send_review_request', 'comment_case', 'request_review'] })
     renderDetail()
     expect(await screen.findByRole('button', { name: /Enviar solicitud/i })).toBeInTheDocument()
   })
 
   it('el no-owner no ve botones de cambio de estado', async () => {
     mockAuthState = { ...mockAuthState, user: { ...mockAuthState.user, id: 'intruder-99' } }
-    mockLoad({ ...BASE_CASE, status: 'Draft', ownerId: 'owner-1' })
+    mockLoad({ ...BASE_CASE, status: 'Draft', ownerId: 'owner-1', availableActions: [] })
     renderDetail()
     await screen.findByText('EEG Caso Test')
     expect(screen.queryByRole('button', { name: /Enviar solicitud/i })).not.toBeInTheDocument()
@@ -176,23 +176,32 @@ describe('CaseDetail — acceso por rol (owner vs no-owner)', () => {
     expect(screen.queryByRole('button', { name: /Marcar como Resuelto/i })).not.toBeInTheDocument()
   })
 
+  it('sin acción comment_case muestra el comentario como solo lectura', async () => {
+    mockAuthState = { ...mockAuthState, user: { ...mockAuthState.user, id: 'intruder-99' } }
+    mockLoad({ ...BASE_CASE, status: 'Draft', ownerId: 'owner-1', availableActions: [] })
+    renderDetail()
+    await screen.findByText('EEG Caso Test')
+    expect(screen.queryByPlaceholderText(/Escribe un comentario/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/Solo pueden comentar el propietario del caso/i)).toBeInTheDocument()
+  })
+
   it('en estado InReview, owner ve "Marcar como Resuelto"', async () => {
     mockAuthState = { ...mockAuthState, user: { ...mockAuthState.user, id: 'owner-1' } }
-    mockLoad({ ...BASE_CASE, status: 'InReview', ownerId: 'owner-1' })
+    mockLoad({ ...BASE_CASE, status: 'InReview', ownerId: 'owner-1', availableActions: ['send_review_request', 'comment_case', 'resolve_case'] })
     renderDetail()
     expect(await screen.findByRole('button', { name: /Marcar como Resuelto/i })).toBeInTheDocument()
   })
 
   it('en estado Resolved, owner ve botón Proponer para biblioteca', async () => {
     mockAuthState = { ...mockAuthState, user: { ...mockAuthState.user, id: 'owner-1' } }
-    mockLoad({ ...BASE_CASE, status: 'Resolved', ownerId: 'owner-1' })
+    mockLoad({ ...BASE_CASE, status: 'Resolved', ownerId: 'owner-1', availableActions: ['send_review_request', 'comment_case', 'propose_teaching', 'archive_case'] })
     renderDetail()
     expect(await screen.findByRole('button', { name: /Proponer para biblioteca/i })).toBeInTheDocument()
   })
 
   it('en estado Draft, no aparece "Proponer para biblioteca"', async () => {
     mockAuthState = { ...mockAuthState, user: { ...mockAuthState.user, id: 'owner-1' } }
-    mockLoad({ ...BASE_CASE, status: 'Draft', ownerId: 'owner-1' })
+    mockLoad({ ...BASE_CASE, status: 'Draft', ownerId: 'owner-1', availableActions: ['send_review_request', 'comment_case', 'request_review'] })
     renderDetail()
     await screen.findByText('EEG Caso Test')
     expect(screen.queryByRole('button', { name: /Proponer para biblioteca/i })).not.toBeInTheDocument()
@@ -228,6 +237,7 @@ describe('CaseDetail — flujo docente visible', () => {
         status: 'Proposed',
         summary: 'Caso muy ilustrativo',
         supportCount: 1,
+        availableActions: [],
         proposer: { id: 'owner-1', displayName: 'Dr. Owner' },
         recommendations: [],
       },
@@ -264,6 +274,7 @@ describe('CaseDetail — flujo docente visible', () => {
         status: 'Proposed',
         summary: 'Caso abierto a revisión comunitaria',
         supportCount: 1,
+        availableActions: [],
         proposer: { id: 'owner-1', displayName: 'Dr. Owner' },
         recommendations: [],
       },
@@ -302,6 +313,7 @@ describe('CaseDetail — flujo docente visible', () => {
           status: 'Proposed',
           summary: 'Caso abierto a revisión comunitaria',
           supportCount: 1,
+          availableActions: [],
           proposer: { id: 'owner-1', displayName: 'Dr. Owner' },
           recommendations: [],
         },
@@ -355,11 +367,11 @@ describe('CaseDetail — cambio de estado', () => {
 
   it('clic en "Enviar solicitud" llama a PATCH /cases/case-1/status con Draft→Requested', async () => {
     const fetchMock = mockFetchSequence([
-      { data: BASE_CASE },
+      { data: { ...BASE_CASE, availableActions: ['send_review_request', 'comment_case', 'request_review'] } },
       { data: [] },
       { data: [OTHER_USER] },
       { data: null },
-      { data: { ...BASE_CASE, status: 'Requested' } }, // PATCH response
+      { data: { ...BASE_CASE, status: 'Requested', availableActions: ['send_review_request', 'comment_case', 'start_review'] } }, // PATCH response
     ])
 
     renderDetail()
@@ -377,11 +389,11 @@ describe('CaseDetail — cambio de estado', () => {
 
   it('tras cambio exitoso, el badge muestra el nuevo estado', async () => {
     mockFetchSequence([
-      { data: BASE_CASE },
+      { data: { ...BASE_CASE, availableActions: ['send_review_request', 'comment_case', 'request_review'] } },
       { data: [] },
       { data: [OTHER_USER] },
       { data: null },
-      { data: { ...BASE_CASE, status: 'Requested' } },
+      { data: { ...BASE_CASE, status: 'Requested', availableActions: ['send_review_request', 'comment_case', 'start_review'] } },
     ])
 
     renderDetail()
@@ -409,7 +421,7 @@ describe('CaseDetail — comentarios', () => {
       author: { id: 'owner-1', displayName: 'Dr. Owner' },
     }
     const fetchMock = mockFetchSequence([
-      { data: BASE_CASE },
+      { data: { ...BASE_CASE, availableActions: ['send_review_request', 'comment_case', 'request_review'] } },
       { data: [] },
       { data: [OTHER_USER] },
       { data: null },
@@ -435,7 +447,7 @@ describe('CaseDetail — comentarios', () => {
 
   it('el comentario aparece en la lista tras submit exitoso', async () => {
     mockFetchSequence([
-      { data: BASE_CASE },
+      { data: { ...BASE_CASE, availableActions: ['send_review_request', 'comment_case', 'request_review'] } },
       { data: [] },
       { data: [OTHER_USER] },
       { data: null },
@@ -461,7 +473,7 @@ describe('CaseDetail — comentarios', () => {
 
   it('el textarea se vacía tras submit exitoso', async () => {
     mockFetchSequence([
-      { data: BASE_CASE },
+      { data: { ...BASE_CASE, availableActions: ['send_review_request', 'comment_case', 'request_review'] } },
       { data: [] },
       { data: [OTHER_USER] },
       { data: null },

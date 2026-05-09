@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import { useAuthStore } from '../store/authStore'
 import type { TeachingProposal } from '../types'
-import { getTeachingSupportCount } from '../utils/teachingState'
+import { getTeachingSupportCount, hasAvailableAction } from '../utils/teachingState'
 import PageHeader from '../components/PageHeader'
 import './TeachingQueue.css'
 
@@ -12,8 +12,6 @@ export default function TeachingQueue() {
   const [items, setItems] = useState<TeachingProposal[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | 'Proposed' | 'Recommended'>('all')
-
-  const isCurator = user?.role === 'Curator' || user?.role === 'Admin'
 
   useEffect(() => {
     api.get<TeachingProposal[]>('/teaching/proposals')
@@ -131,23 +129,28 @@ export default function TeachingQueue() {
                     Ver caso
                   </Link>
                 )}
-                {item.proposerId === user?.id ? (
-                  <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                    Eres el proponente
-                  </span>
-                ) : (
+                {hasAvailableAction(item.availableActions, 'recommend_teaching') ? (
                   <button
                     className="btn-secondary"
                     onClick={() => recommend(item.id)}
-                    disabled={item.recommendations?.some((r: any) => r.authorId === user?.id)}
                   >
-                    {item.recommendations?.some((r: any) => r.authorId === user?.id)
-                      ? 'Ya recomendado'
-                      : 'Recomendar'}
+                    Recomendar
                   </button>
+                ) : item.proposerId === user?.id ? (
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                    Eres el proponente
+                  </span>
+                ) : item.recommendations?.some((r: any) => r.authorId === user?.id) ? (
+                  <button className="btn-secondary" disabled>
+                    Ya recomendado
+                  </button>
+                ) : (
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                    Sin acciones disponibles
+                  </span>
                 )}
 
-                {isCurator && (
+                {hasAvailableAction(item.availableActions, 'validate_teaching') && (
                   <>
                     <button
                       className="btn-primary"

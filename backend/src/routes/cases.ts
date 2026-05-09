@@ -5,7 +5,7 @@ import { authMiddleware, AuthenticatedRequest } from '../middleware/auth'
 import { deleteBlob } from '../utils/storage'
 import { buildCaseReadAccessWhere } from '../utils/teachingState'
 import { getAllowedClinicalEvents, getNextClinicalState } from '../domain/workflows/clinicalWorkflow'
-import { getTeachingAvailableActions } from '../domain/workflows/teachingWorkflow'
+import { getCaseAvailableActions } from '../domain/workflows/caseWorkflow'
 
 const router = Router()
 
@@ -67,46 +67,6 @@ function getCaseInclude() {
   }
 }
 
-function deriveAvailableActions(caseObj: any, viewer?: { id: string; role: string }) {
-  if (!viewer) return []
-
-  const reviewRequests = caseObj.reviewRequests ?? []
-  const activeTeachingProposal = caseObj.teachingProposals?.[0] ?? null
-  const isOwner = caseObj.ownerId === viewer.id
-  const isReviewer = reviewRequests.some((request: any) =>
-    (request.targetUserId === viewer.id && request.status === 'Accepted') || request.requestedBy === viewer.id,
-  )
-  const hasReviewRelationship = reviewRequests.some((request: any) =>
-    request.targetUserId === viewer.id || request.requestedBy === viewer.id,
-  )
-
-  const clinicalActions: string[] = []
-  if (isOwner) {
-    for (const event of getAllowedClinicalEvents(caseObj.statusClinical)) {
-      const nextState = getNextClinicalState(caseObj.statusClinical, event)
-      if (nextState === 'Requested') clinicalActions.push('request_review')
-      if (nextState === 'InReview') clinicalActions.push('start_review')
-      if (nextState === 'Resolved') clinicalActions.push('resolve_case')
-      if (nextState === 'Archived') clinicalActions.push('archive_case')
-    }
-  }
-
-  const teachingActions = getTeachingAvailableActions({
-    clinicalStatus: caseObj.statusClinical,
-    teachingStatus: caseObj.statusTeaching,
-    isOwner,
-    isReviewer,
-    isCurator: viewer.role === 'Curator' || viewer.role === 'Admin',
-    hasTeachingProposal: Boolean(activeTeachingProposal),
-    hasRecommended: Boolean(activeTeachingProposal?.recommendations?.some((item: any) => item.authorId === viewer.id)),
-    isProposer: activeTeachingProposal?.proposerId === viewer.id,
-    hasReviewRelationship,
-    isAuthenticated: true,
-  })
-
-  return [...clinicalActions, ...teachingActions]
-}
-
 function toCaseResponse(caseObj: any, viewer?: { id: string; role: string }) {
   const plain = JSON.parse(JSON.stringify(caseObj))
   plain.status = plain.statusClinical
@@ -114,7 +74,7 @@ function toCaseResponse(caseObj: any, viewer?: { id: string; role: string }) {
   plain.tags = safeParseJson(plain.tags) ?? []
   plain.summaryMetrics = safeParseJson(plain.summaryMetrics)
   plain.storedKeyAvailable = !!plain.accessSecret
-  plain.availableActions = deriveAvailableActions(caseObj, viewer)
+  plain.availableActions = getCaseAvailableActions(caseObj, viewer)
   delete plain.accessSecret
   return plain
 }

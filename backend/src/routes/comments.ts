@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { prisma } from '../utils/prisma'
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth'
 import { buildCaseReadAccessWhere } from '../utils/teachingState'
+import { canCommentOnCase } from '../domain/workflows/caseWorkflow'
 
 const router = Router()
 
@@ -60,23 +61,22 @@ router.post('/case/:caseId', async (req: AuthenticatedRequest, res) => {
   const caseItem = await prisma.case.findFirst({
     where: {
       id: req.params.caseId,
-      OR: [
-        { ownerId: req.user!.id },
-        {
-          reviewRequests: {
-            some: {
-              OR: [
-                { targetUserId: req.user!.id, status: 'Accepted' },
-                { requestedBy: req.user!.id },
-              ],
-            },
-          },
+    },
+    select: {
+      ownerId: true,
+      statusClinical: true,
+      statusTeaching: true,
+      reviewRequests: {
+        select: {
+          requestedBy: true,
+          targetUserId: true,
+          status: true,
         },
-      ],
+      },
     },
   })
 
-  if (!caseItem) {
+  if (!caseItem || !canCommentOnCase(caseItem, req.user!)) {
     res.status(404).json({ error: 'Caso no encontrado o sin acceso' })
     return
   }

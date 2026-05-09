@@ -141,6 +141,23 @@ export interface SharedLinkBlobInfo {
   createdAt: string
 }
 
+export type ClinicalAvailableAction =
+  | 'send_review_request'
+  | 'comment_case'
+  | 'request_review'
+  | 'start_review'
+  | 'resolve_case'
+  | 'archive_case'
+
+export type TeachingAvailableAction =
+  | 'propose_teaching'
+  | 'recommend_teaching'
+  | 'request_review_access'
+  | 'validate_teaching'
+  | 'reject_teaching'
+
+export type AvailableAction = ClinicalAvailableAction | TeachingAvailableAction
+
 export interface CaseItem {
   id: string
   title: string
@@ -159,7 +176,7 @@ export interface CaseItem {
   package?: CasePackage
   reviewRequests?: ReviewRequest[]
   storedKeyAvailable?: boolean
-  availableActions?: string[]
+  availableActions?: AvailableAction[]
 }
 
 export interface ReviewRequest {
@@ -215,4 +232,5 @@ export interface TeachingProposal {
   proposer?: Pick<User, 'id' | 'displayName'>
   recommendations?: Array<{ authorId: string; author?: Pick<User, 'id' | 'displayName'>; rationale?: string }>
   _count?: { recommendations: number }
+  availableActions?: TeachingAvailableAction[]
 }

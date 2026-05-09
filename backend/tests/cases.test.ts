@@ -195,6 +195,7 @@ describe('GET /cases/:id', () => {
     expect(res.status).toBe(200)
     expect(Array.isArray(res.body.availableActions)).toBe(true)
     expect(res.body.availableActions).toContain('request_review_access')
+    expect(res.body.availableActions).not.toContain('comment_case')
   })
 
   it('owner de un caso resuelto sin propuesta puede proponer para biblioteca', async () => {
@@ -210,6 +211,8 @@ describe('GET /cases/:id', () => {
 
     expect(res.status).toBe(200)
     expect(res.body.availableActions).toContain('propose_teaching')
+    expect(res.body.availableActions).toContain('send_review_request')
+    expect(res.body.availableActions).toContain('comment_case')
   })
 
   it('usuario autenticado no proponente puede recomendar un caso propuesto visible', async () => {
@@ -236,6 +239,7 @@ describe('GET /cases/:id', () => {
     expect(res.status).toBe(200)
     expect(res.body.availableActions).toContain('recommend_teaching')
     expect(res.body.availableActions).toContain('request_review_access')
+    expect(res.body.availableActions).not.toContain('comment_case')
   })
 
   it('curator ve acciones curatoriales en un caso recomendado', async () => {

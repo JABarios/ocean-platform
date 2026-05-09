@@ -8,6 +8,7 @@ import {
   nextTeachingProposalStatus,
   proposalSupportCount,
 } from '../utils/teachingState'
+import { getTeachingAvailableActions } from '../domain/workflows/teachingWorkflow'
 
 const router = Router()
 
@@ -31,14 +32,36 @@ const validateSchema = z.object({
 
 router.use(authMiddleware)
 
-function serializeProposal(item: any) {
+function serializeProposal(item: any, viewer?: { id: string; role: string }) {
   const explicitRecommendationCount = item._count?.recommendations ?? item.recommendations?.length ?? 0
   const supportCount = proposalSupportCount({
     proposerId: item.proposerId,
     recommendationsCount: explicitRecommendationCount,
   })
+  const reviewRequests = item.case?.reviewRequests ?? []
+  const availableActions = viewer
+    ? getTeachingAvailableActions({
+        clinicalStatus: item.case?.statusClinical ?? 'Resolved',
+        teachingStatus: item.status,
+        isOwner: item.case?.ownerId === viewer.id,
+        isReviewer: reviewRequests.some((request: any) =>
+          (request.targetUserId === viewer.id && request.status === 'Accepted') || request.requestedBy === viewer.id,
+        ),
+        isCurator: viewer.role === 'Curator' || viewer.role === 'Admin',
+        hasTeachingProposal: true,
+        hasRecommended: Boolean(item.recommendations?.some((recommendation: any) => recommendation.authorId === viewer.id)),
+        isProposer: item.proposerId === viewer.id,
+        hasReviewRelationship: reviewRequests.some((request: any) =>
+          request.targetUserId === viewer.id || request.requestedBy === viewer.id,
+        ),
+        isAuthenticated: true,
+        supportCount,
+      })
+    : []
+
   return {
     ...item,
+    availableActions,
     supportCount,
     tags: item.tags ? JSON.parse(item.tags) : [],
     case: item.case
@@ -69,7 +92,15 @@ router.get('/proposals', async (req: AuthenticatedRequest, res) => {
           modality: true,
           tags: true,
           statusClinical: true,
+          ownerId: true,
           owner: { select: { displayName: true } },
+          reviewRequests: {
+            select: {
+              requestedBy: true,
+              targetUserId: true,
+              status: true,
+            },
+          },
         },
       },
       proposer: { select: { id: true, displayName: true } },
@@ -81,7 +112,7 @@ router.get('/proposals', async (req: AuthenticatedRequest, res) => {
     orderBy: { createdAt: 'desc' },
   })
 
-  const response = items.map(serializeProposal)
+  const response = items.map((item) => serializeProposal(item, req.user!))
   res.json(response)
 })
 
@@ -116,7 +147,15 @@ router.get('/proposals/case/:caseId', async (req: AuthenticatedRequest, res) => 
           modality: true,
           tags: true,
           statusClinical: true,
+          ownerId: true,
           owner: { select: { displayName: true } },
+          reviewRequests: {
+            select: {
+              requestedBy: true,
+              targetUserId: true,
+              status: true,
+            },
+          },
         },
       },
       proposer: { select: { id: true, displayName: true } },
@@ -133,7 +172,7 @@ router.get('/proposals/case/:caseId', async (req: AuthenticatedRequest, res) => 
     return
   }
 
-  res.json(serializeProposal(item))
+  res.json(serializeProposal(item, req.user!))
 })
 
 // Listar biblioteca docente (casos validados) — acceso público a usuarios autenticados
@@ -166,7 +205,16 @@ router.get('/library', async (req: AuthenticatedRequest, res) => {
           ageRange: true,
           modality: true,
           tags: true,
+          statusClinical: true,
+          ownerId: true,
           owner: { select: { displayName: true } },
+          reviewRequests: {
+            select: {
+              requestedBy: true,
+              targetUserId: true,
+              status: true,
+            },
+          },
         },
       },
       proposer: { select: { displayName: true } },
@@ -174,7 +222,7 @@ router.get('/library', async (req: AuthenticatedRequest, res) => {
     },
     orderBy: { validatedAt: 'desc' },
   })
-  let response = items.map(serializeProposal)
+  let response = items.map((item) => serializeProposal(item, req.user!))
 
   // Filtro por tags (post-query, SQLite no soporta JSON contains nativo)
   if (tags) {

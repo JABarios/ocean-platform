@@ -4671,7 +4671,7 @@ export default function EEGViewer() {
           ageRange: caseItem.ageRange || undefined,
           sizeBytes: caseItem.package?.sizeBytes,
           storedKeyAvailable: !!caseItem.storedKeyAvailable,
-          encryptionMode: caseItem.package ? 'AES256-GCM' : undefined,
+          encryptionMode: caseItem.package?.encryptionMode,
           label: caseItem.title || `Caso ${sourceId}`,
         }))
       : sourceKind === 'shared'
@@ -5042,7 +5042,7 @@ export default function EEGViewer() {
               cacheKey: caseItem.package?.blobHash,
               ageRange: caseItem.ageRange || undefined,
               sizeBytes: caseItem.package?.sizeBytes,
-              encryptionMode: caseItem.package ? 'AES256-GCM' : undefined,
+              encryptionMode: caseItem.package?.encryptionMode,
               label: caseItem.title || `Caso ${sourceId}`,
             }))
           } else if (sourceKind === 'gallery') {
@@ -5280,7 +5280,7 @@ export default function EEGViewer() {
       }
       return
     }
-    if (sourceKind === 'gallery' && caseHoverMeta?.encryptionMode === 'NONE') {
+    if ((sourceKind === 'gallery' || sourceKind === 'case') && caseHoverMeta?.encryptionMode === 'NONE') {
       startViewer('')
       return
     }

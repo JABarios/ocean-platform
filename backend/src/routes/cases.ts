@@ -13,6 +13,7 @@ const createCaseSchema = z.object({
   studyReason: z.string().optional(),
   modality: z.string().default('EEG'),
   tags: z.array(z.string()).default([]),
+  galleryRecordId: z.string().uuid().optional(),
 })
 
 const updateStatusSchema = z.object({
@@ -107,18 +108,53 @@ router.post('/', async (req: AuthenticatedRequest, res) => {
   }
 
   const data = parsed.data
-  const newCase = await prisma.case.create({
-    data: {
-      title: data.title,
-      clinicalContext: data.clinicalContext,
-      ageRange: data.ageRange,
-      studyReason: data.studyReason,
-      modality: data.modality,
-      tags: JSON.stringify(data.tags),
-      ownerId: req.user!.id,
-      statusClinical: 'Draft',
-      statusTeaching: 'None',
-    },
+  let galleryRecord: any = null
+  if (data.galleryRecordId) {
+    galleryRecord = await prisma.galleryRecord.findUnique({
+      where: { id: data.galleryRecordId },
+      include: {
+        eegRecord: true,
+      },
+    })
+    if (!galleryRecord) {
+      res.status(404).json({ error: 'Registro de galería no encontrado' })
+      return
+    }
+  }
+
+  const newCase = await prisma.$transaction(async (tx) => {
+    const createdCase = await tx.case.create({
+      data: {
+        title: data.title,
+        clinicalContext: data.clinicalContext,
+        ageRange: data.ageRange,
+        studyReason: data.studyReason,
+        modality: data.modality,
+        tags: JSON.stringify(data.tags),
+        ownerId: req.user!.id,
+        statusClinical: 'Draft',
+        statusTeaching: 'None',
+      },
+    })
+
+    if (galleryRecord) {
+      await tx.casePackage.create({
+        data: {
+          caseId: createdCase.id,
+          eegRecordId: galleryRecord.eegRecord.id,
+          packageFormatVersion: '1.0',
+          encryptionMode: galleryRecord.eegRecord.encryptionMode,
+          blobLocation: galleryRecord.eegRecord.blobLocation,
+          blobHash: galleryRecord.eegRecord.blobHash,
+          sizeBytes: galleryRecord.eegRecord.sizeBytes,
+          uploadStatus: 'Ready',
+          retentionPolicy: 'Teaching',
+          expiresAt: null,
+        },
+      })
+    }
+
+    return createdCase
   })
 
   await prisma.auditEvent.create({
@@ -127,6 +163,9 @@ router.post('/', async (req: AuthenticatedRequest, res) => {
       caseId: newCase.id,
       action: 'CaseCreated',
       target: newCase.id,
+      metadata: JSON.stringify({
+        galleryRecordId: data.galleryRecordId ?? null,
+      }),
     },
   })
 

@@ -1,6 +1,8 @@
+import { useEffect } from 'react'
 import { Navigate, Routes, Route } from 'react-router-dom'
 import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
+import { useAuthStore } from './store/authStore'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
@@ -20,7 +22,16 @@ import SharedLinkNew from './pages/SharedLinkNew'
 import OpenLocalEeg from './pages/OpenLocalEeg'
 
 export default function App() {
+  const token = useAuthStore((s) => s.token)
+  const user = useAuthStore((s) => s.user)
+  const fetchMe = useAuthStore((s) => s.fetchMe)
   const isShareHost = typeof window !== 'undefined' && window.location.hostname.startsWith('share.')
+
+  useEffect(() => {
+    if (token && !user) {
+      fetchMe()
+    }
+  }, [token, user, fetchMe])
 
   return (
     <Routes>

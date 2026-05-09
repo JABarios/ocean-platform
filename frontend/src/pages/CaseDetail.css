@@ -22,6 +22,43 @@
   gap: 0.95rem;
 }
 
+.eeg-access-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  border-color: rgba(15, 91, 216, 0.14);
+  background:
+    radial-gradient(circle at top right, rgba(15, 91, 216, 0.08), transparent 14rem),
+    linear-gradient(180deg, rgba(15, 91, 216, 0.03), rgba(15, 91, 216, 0.01));
+}
+
+.eeg-access-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.eeg-access-copy h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.eeg-access-copy p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  max-width: 56rem;
+}
+
+.eeg-access-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
 .field-row {
   display: grid;
   grid-template-columns: 1fr 1fr;

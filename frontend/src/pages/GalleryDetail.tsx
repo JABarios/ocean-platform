@@ -293,6 +293,9 @@ export default function GalleryDetail() {
                 )}
 
                 <div className="case-links">
+                  <Link to={`/cases/new?source=gallery&galleryId=${gallery.id}&recordId=${record.id}`}>
+                    Crear caso con este EEG
+                  </Link>
                   <Link to={`/galleries/records/${record.id}/eeg`} target="_blank" rel="noreferrer">
                     Abrir EEG
                   </Link>

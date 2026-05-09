@@ -45,9 +45,7 @@ describe('CaseNew', () => {
     expect(screen.queryByText('Error')).not.toBeInTheDocument()
   })
 
-  it('crea un caso correctamente', async () => {
-    mockFetch({ id: 'new-case-id', title: 'Test', status: 'Draft' })
-
+  it('mantiene deshabilitada la creación local hasta que haya un EEG preparado', () => {
     render(
       <BrowserRouter>
         <CaseNew />
@@ -70,13 +68,114 @@ describe('CaseNew', () => {
       target: { value: 'EEG' },
     })
 
+    expect(screen.getByRole('button', { name: /Crear caso/i })).toBeDisabled()
+  })
+
+  it('no permite crear un caso local sin haber seleccionado un EEG', () => {
+    render(
+      <BrowserRouter>
+        <CaseNew />
+      </BrowserRouter>
+    )
+
+    fireEvent.change(screen.getByLabelText(/Título/i), {
+      target: { value: 'Caso Test' },
+    })
+    fireEvent.change(screen.getByLabelText(/Contexto clínico/i), {
+      target: { value: 'Contexto' },
+    })
+    fireEvent.change(screen.getByLabelText(/Rango de edad/i), {
+      target: { value: 'Adulto' },
+    })
+    fireEvent.change(screen.getByLabelText(/Motivo del estudio/i), {
+      target: { value: 'Motivo' },
+    })
+    fireEvent.change(screen.getByLabelText(/Modalidad/i), {
+      target: { value: 'EEG' },
+    })
+
+    expect(screen.getByRole('button', { name: /Crear caso/i })).toBeDisabled()
+  })
+
+  it('permite crear un caso enlazando un EEG de galería', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => [{ id: 'g1', title: 'Galería A', recordCount: 2 }],
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: 'g1',
+          title: 'Galería A',
+          recordCount: 2,
+          records: [
+            { id: 'r1', label: 'EEG 1', metadata: { originalFilename: 'a.edf' } },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        json: async () => ({ id: 'new-case-id', title: 'Caso desde galería', status: 'Draft' }),
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <BrowserRouter>
+        <CaseNew />
+      </BrowserRouter>
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Elegir EEG desde una galería/i }))
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/galleries'),
+        expect.objectContaining({ method: 'GET' })
+      )
+    })
+
+    fireEvent.change(screen.getByLabelText(/Título/i), {
+      target: { value: 'Caso desde galería' },
+    })
+    fireEvent.change(screen.getByLabelText(/Contexto clínico/i), {
+      target: { value: 'Contexto' },
+    })
+    fireEvent.change(screen.getByLabelText(/Rango de edad/i), {
+      target: { value: 'Adulto' },
+    })
+    fireEvent.change(screen.getByLabelText(/Motivo del estudio/i), {
+      target: { value: 'Motivo' },
+    })
+    fireEvent.change(screen.getByLabelText(/Modalidad/i), {
+      target: { value: 'EEG' },
+    })
+    fireEvent.change(document.getElementById('gallery-select') as HTMLSelectElement, {
+      target: { value: 'g1' },
+    })
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/galleries/g1'),
+        expect.objectContaining({ method: 'GET' })
+      )
+    })
+
+    fireEvent.change(document.getElementById('gallery-record-select') as HTMLSelectElement, {
+      target: { value: 'r1' },
+    })
     fireEvent.click(screen.getByRole('button', { name: /Crear caso/i }))
 
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/cases'),
-        expect.objectContaining({ method: 'POST' })
+      const postCall = fetchMock.mock.calls.find(([url, opts]) =>
+        String(url).includes('/cases') && opts?.method === 'POST'
       )
+      expect(postCall).toBeDefined()
+      const body = JSON.parse(postCall![1].body as string)
+      expect(body.galleryRecordId).toBe('r1')
     })
   })
 })

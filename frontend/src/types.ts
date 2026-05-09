@@ -22,6 +22,9 @@ export interface CasePackage {
   id: string
   caseId: string
   eegRecordId?: string
+  packageFormatVersion?: string
+  encryptionMode?: string
+  blobLocation?: string
   blobHash?: string
   sizeBytes?: number
   uploadStatus: string

@@ -127,6 +127,7 @@ export default function CaseDetail() {
   }, [id])
 
   const isOwner = caseItem ? caseItem.ownerId === user?.id : false
+  const packageIsEncrypted = caseItem ? caseItem.package?.encryptionMode !== 'NONE' : true
 
   const sendRequest = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -238,7 +239,7 @@ export default function CaseDetail() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${id}.enc`
+    a.download = `${id}.${packageIsEncrypted ? 'enc' : 'edf'}`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -337,6 +338,33 @@ export default function CaseDetail() {
         subtitle="Caso clínico, discusión entre revisores y acceso seguro al paquete EEG."
         actions={<span className={statusBadgeClass(caseItem.status)}>{caseItem.status}</span>}
       />
+
+      <section className="card eeg-access-card">
+        <div className="eeg-access-copy">
+          <span className="field-label">EEG</span>
+          <h3>{caseItem.package ? 'Este caso tiene un EEG adjunto' : 'Este caso todavía no tiene un EEG adjunto'}</h3>
+          <p>
+            {caseItem.package
+              ? packageIsEncrypted
+                ? 'Puedes abrir el visor de OCEAN o descargar el paquete cifrado del caso.'
+                : 'Puedes abrir directamente el visor de OCEAN con el EEG enlazado desde la galería.'
+              : 'Cuando el caso tenga un paquete EEG asociado, aparecerá aquí el acceso directo al visor.'}
+          </p>
+        </div>
+        {caseItem.package && (
+          <div className="eeg-access-actions">
+            <button
+              className="btn-primary"
+              onClick={() => window.open(`/cases/${id}/eeg`, '_blank')}
+            >
+              Ver EEG
+            </button>
+            <button className="btn-secondary" onClick={downloadEncrypted}>
+              {packageIsEncrypted ? 'Descargar .enc' : 'Descargar .edf'}
+            </button>
+          </div>
+        )}
+      </section>
 
       <div className="case-fields card">
         <div className="field">
@@ -523,7 +551,7 @@ export default function CaseDetail() {
           </div>
           <div className="package-actions">
             <button className="btn-secondary" onClick={downloadEncrypted}>
-              Descargar .enc (cifrado)
+              {packageIsEncrypted ? 'Descargar .enc (cifrado)' : 'Descargar .edf'}
             </button>
             <button
               className="btn-primary"
@@ -532,73 +560,79 @@ export default function CaseDetail() {
               Ver EEG
             </button>
           </div>
-          <div className="decrypt-box">
-            <input
-              type="text"
-              placeholder="Pega la clave de descifrado…"
-              value={decryptKey}
-              onChange={(e) => {
-                setDecryptKey(e.target.value)
-                if (e.target.value) setStoredDecryptKey('')
-              }}
-            />
-            <button
-              className="btn-primary"
-              onClick={handleDecrypt}
-              disabled={decrypting || (!decryptKey.trim() && !storedDecryptKey)}
-            >
-              {decrypting ? 'Descifrando…' : 'Descifrar y descargar .edf'}
-            </button>
-            {caseItem.storedKeyAvailable && (
-              <>
-                <button
-                  className="btn-secondary"
-                  type="button"
-                  onClick={() => {
-                    setPasswordAction('use')
-                    setShowPasswordModal(true)
+          {packageIsEncrypted ? (
+            <>
+              <div className="decrypt-box">
+                <input
+                  type="text"
+                  placeholder="Pega la clave de descifrado…"
+                  value={decryptKey}
+                  onChange={(e) => {
+                    setDecryptKey(e.target.value)
+                    if (e.target.value) setStoredDecryptKey('')
                   }}
+                />
+                <button
+                  className="btn-primary"
+                  onClick={handleDecrypt}
+                  disabled={decrypting || (!decryptKey.trim() && !storedDecryptKey)}
                 >
-                  Usar clave guardada en OCEAN
+                  {decrypting ? 'Descifrando…' : 'Descifrar y descargar .edf'}
                 </button>
-                {isOwner && (
-                  <button
-                    className="btn-secondary"
-                    type="button"
-                    onClick={() => {
-                      setPasswordAction('reveal')
-                      setShowPasswordModal(true)
-                    }}
-                  >
-                    Mostrar clave
-                  </button>
+                {caseItem.storedKeyAvailable && (
+                  <>
+                    <button
+                      className="btn-secondary"
+                      type="button"
+                      onClick={() => {
+                        setPasswordAction('use')
+                        setShowPasswordModal(true)
+                      }}
+                    >
+                      Usar clave guardada en OCEAN
+                    </button>
+                    {isOwner && (
+                      <button
+                        className="btn-secondary"
+                        type="button"
+                        onClick={() => {
+                          setPasswordAction('reveal')
+                          setShowPasswordModal(true)
+                        }}
+                      >
+                        Mostrar clave
+                      </button>
+                    )}
+                  </>
                 )}
-              </>
-            )}
-          </div>
-          {storedDecryptKey && (
-            <div className="stored-key-banner">Clave recuperada desde OCEAN y lista para usar en este caso.</div>
-          )}
-          {revealedStoredKey && isOwner && (
-            <div className="revealed-key-box">
-              <div className="revealed-key-header">
-                <strong>Clave custodiada revelada</strong>
-                <button type="button" className="btn-secondary" onClick={copyRevealedKey}>
-                  Copiar clave
-                </button>
               </div>
-              <div className="revealed-key-value">{revealedStoredKey}</div>
-              <div className="revealed-key-hint">Compártela solo si necesitas dar acceso manual fuera del flujo confiado de OCEAN.</div>
-            </div>
-          )}
-          {decryptedUrl && (
-            <a
-              className="btn-primary"
-              href={decryptedUrl}
-              download={`${caseItem.title || 'caso'}.edf`}
-            >
-              Guardar .edf descifrado
-            </a>
+              {storedDecryptKey && (
+                <div className="stored-key-banner">Clave recuperada desde OCEAN y lista para usar en este caso.</div>
+              )}
+              {revealedStoredKey && isOwner && (
+                <div className="revealed-key-box">
+                  <div className="revealed-key-header">
+                    <strong>Clave custodiada revelada</strong>
+                    <button type="button" className="btn-secondary" onClick={copyRevealedKey}>
+                      Copiar clave
+                    </button>
+                  </div>
+                  <div className="revealed-key-value">{revealedStoredKey}</div>
+                  <div className="revealed-key-hint">Compártela solo si necesitas dar acceso manual fuera del flujo confiado de OCEAN.</div>
+                </div>
+              )}
+              {decryptedUrl && (
+                <a
+                  className="btn-primary"
+                  href={decryptedUrl}
+                  download={`${caseItem.title || 'caso'}.edf`}
+                >
+                  Guardar .edf descifrado
+                </a>
+              )}
+            </>
+          ) : (
+            <div className="stored-key-banner">Este EEG procede de una galería de OCEAN y no requiere clave de descifrado.</div>
           )}
         </section>
       )}

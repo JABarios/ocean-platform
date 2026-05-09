@@ -34,6 +34,11 @@ const uploadSchema = z.object({
   originalFilename: z.string().trim().min(1).max(255).optional(),
 })
 
+const shareFromGallerySchema = z.object({
+  galleryRecordId: z.string().uuid(),
+  label: z.string().trim().min(1).max(160).optional(),
+})
+
 function applyNoStoreHeaders(res: Response) {
   res.setHeader('Cache-Control', 'no-store, max-age=0')
   res.setHeader('Pragma', 'no-cache')
@@ -112,6 +117,64 @@ router.post('/upload', upload.single('blob'), async (req: AuthenticatedRequest, 
     expiresAt: sharedLink.expiresAt.toISOString(),
     sizeBytes: sharedLink.sizeBytes,
     label: sharedLink.label,
+  })
+})
+
+router.post('/from-gallery', authMiddleware, async (req: AuthenticatedRequest, res) => {
+  const parsed = shareFromGallerySchema.safeParse(req.body ?? {})
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Payload de shared link inválido', issues: parsed.error.issues })
+    return
+  }
+
+  const galleryRecord = await prisma.galleryRecord.findUnique({
+    where: { id: parsed.data.galleryRecordId },
+    include: {
+      gallery: true,
+      eegRecord: true,
+    },
+  })
+
+  if (!galleryRecord || !galleryRecord.eegRecord) {
+    res.status(404).json({ error: 'Registro de galería no encontrado' })
+    return
+  }
+
+  const id = crypto.randomUUID()
+  const expiresAt = new Date(Date.now() + SHARED_LINK_HOURS * 60 * 60 * 1000)
+  const originalFilename =
+    typeof galleryRecord.metadata === 'string'
+      ? (() => {
+          try {
+            const parsedMetadata = JSON.parse(galleryRecord.metadata)
+            return typeof parsedMetadata?.originalFilename === 'string' ? parsedMetadata.originalFilename : undefined
+          } catch {
+            return undefined
+          }
+        })()
+      : undefined
+
+  const sharedLink = await prisma.sharedLinkBlob.create({
+    data: {
+      id,
+      createdBy: req.user!.id,
+      blobLocation: galleryRecord.eegRecord.blobLocation,
+      blobHash: galleryRecord.eegRecord.blobHash,
+      ivBase64: null,
+      sizeBytes: galleryRecord.eegRecord.sizeBytes,
+      originalFilename,
+      label: parsed.data.label || galleryRecord.label || originalFilename || `EEG compartido ${id.slice(0, 8)}`,
+      encryptionMode: galleryRecord.eegRecord.encryptionMode,
+      expiresAt,
+    },
+  })
+
+  res.status(201).json({
+    id: sharedLink.id,
+    expiresAt: sharedLink.expiresAt.toISOString(),
+    sizeBytes: sharedLink.sizeBytes,
+    label: sharedLink.label,
+    encryptionMode: sharedLink.encryptionMode,
   })
 })
 

@@ -5285,6 +5285,10 @@ export default function EEGViewer() {
       return
     }
     if (sourceKind === 'shared') {
+      if (caseHoverMeta?.encryptionMode === 'NONE') {
+        startViewer('')
+        return
+      }
       const fromHash = location.hash.startsWith('#')
         ? decodeURIComponent(location.hash.slice(1))
         : ''

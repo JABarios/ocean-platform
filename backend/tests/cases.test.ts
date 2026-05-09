@@ -215,6 +215,14 @@ describe('PATCH /cases/:id/status', () => {
   it('Requested → InReview es transición válida', async () => {
     const user = await createUser({ email: 'sm1@ocean.local', displayName: 'SM1', password: 'pass' })
     const c = await createCase(user.id, { statusClinical: 'Requested' })
+    await prisma.casePackage.create({
+      data: {
+        caseId: c.id,
+        blobLocation: `${c.id}/status-transition.enc`,
+        blobHash: 'hash-status-transition',
+        uploadStatus: 'Ready',
+      },
+    })
     const token = generateToken(user.id, user.email, user.role)
 
     const res = await request(app)
@@ -223,6 +231,8 @@ describe('PATCH /cases/:id/status', () => {
       .send({ statusClinical: 'InReview' })
     expect(res.status).toBe(200)
     expect(res.body.status).toBe('InReview')
+    expect(res.body.package).toBeTruthy()
+    expect(res.body.package.blobHash).toBe('hash-status-transition')
   })
 
   it('InReview → Resolved es transición válida y registra resolvedAt', async () => {

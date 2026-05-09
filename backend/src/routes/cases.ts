@@ -264,7 +264,26 @@ router.patch('/:id/status', async (req: AuthenticatedRequest, res) => {
     },
   })
 
-  res.json(toCaseResponse(updated))
+  const hydrated = await prisma.case.findUnique({
+    where: { id: updated.id },
+    include: {
+      owner: { select: { id: true, displayName: true, email: true } },
+      package: true,
+      accessSecret: { select: { id: true } },
+      reviewRequests: {
+        include: {
+          requester: { select: { id: true, displayName: true } },
+          targetUser: { select: { id: true, displayName: true } },
+        },
+      },
+      comments: {
+        orderBy: { createdAt: 'asc' },
+        include: { author: { select: { id: true, displayName: true } } },
+      },
+    },
+  })
+
+  res.json(toCaseResponse(hydrated ?? updated))
 })
 
 // Borrar caso del propietario

@@ -1,6 +1,7 @@
 import { getAllowedClinicalEvents, getNextClinicalState } from './clinicalWorkflow'
 import { getReviewRequestAvailableActions } from './reviewRequestWorkflow'
 import { getTeachingAvailableActions } from './teachingWorkflow'
+import { hasAppAction } from './appWorkflow'
 
 interface CaseWorkflowViewer {
   id: string
@@ -79,7 +80,7 @@ export function getCaseAvailableActions(caseObj: CaseWorkflowCase, viewer?: Case
     teachingStatus: caseObj.statusTeaching,
     isOwner,
     isReviewer,
-    isCurator: viewer.role === 'Curator' || viewer.role === 'Admin',
+    isCurator: hasAppAction(viewer.role, 'view_teaching_queue'),
     hasTeachingProposal: Boolean(activeTeachingProposal),
     hasRecommended: Boolean(activeTeachingProposal?.recommendations?.some((item) => item.authorId === viewer.id)),
     isProposer: activeTeachingProposal?.proposerId === viewer.id,

@@ -3,12 +3,15 @@ import { z } from 'zod'
 import { prisma } from '../utils/prisma'
 import { authMiddleware, AuthenticatedRequest, requireAppAction } from '../middleware/auth'
 import {
-  buildTeachingContributorAccessWhere,
-  buildTeachingProposalReadAccessWhere,
   nextTeachingProposalStatus,
   proposalSupportCount,
 } from '../utils/teachingState'
+import {
+  buildTeachingContributorAccessWhere,
+  buildTeachingProposalReadAccessWhere,
+} from '../domain/workflows/caseAccessWorkflow'
 import { getTeachingAvailableActions } from '../domain/workflows/teachingWorkflow'
+import { hasAppAction } from '../domain/workflows/appWorkflow'
 
 const router = Router()
 
@@ -47,7 +50,7 @@ function serializeProposal(item: any, viewer?: { id: string; role: string }) {
         isReviewer: reviewRequests.some((request: any) =>
           (request.targetUserId === viewer.id && request.status === 'Accepted') || request.requestedBy === viewer.id,
         ),
-        isCurator: viewer.role === 'Curator' || viewer.role === 'Admin',
+        isCurator: hasAppAction(viewer.role, 'view_teaching_queue'),
         hasTeachingProposal: true,
         hasRecommended: Boolean(item.recommendations?.some((recommendation: any) => recommendation.authorId === viewer.id)),
         isProposer: item.proposerId === viewer.id,

@@ -1,4 +1,5 @@
 import { hasAcceptedReviewRelationship, OPEN_TEACHING_STATUSES } from './caseAccessWorkflow'
+import { hasAppAction } from './appWorkflow'
 
 export type CasePackageAction =
   | 'upload_case_package'
@@ -26,7 +27,7 @@ interface CasePackageWorkflowInput {
 export function getCasePackageAvailableActions(input: CasePackageWorkflowInput): CasePackageAction[] {
   const actions: CasePackageAction[] = []
   const isOwner = input.ownerId === input.viewerId
-  const isAdmin = input.viewerRole === 'Admin'
+  const isAdmin = input.viewerRole ? hasAppAction(input.viewerRole, 'access_admin') : false
   const hasOpenTeachingVisibility = OPEN_TEACHING_STATUSES.includes(
     input.statusTeaching as typeof OPEN_TEACHING_STATUSES[number],
   )

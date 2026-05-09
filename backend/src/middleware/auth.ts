@@ -43,20 +43,6 @@ export async function authMiddleware(req: AuthenticatedRequest, res: Response, n
   next()
 }
 
-export function requireRole(roles: string[]) {
-  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-    if (!req.user) {
-      res.status(401).json({ error: 'Autenticación requerida' })
-      return
-    }
-    if (!roles.includes(req.user.role)) {
-      res.status(403).json({ error: 'Permiso insuficiente' })
-      return
-    }
-    next()
-  }
-}
-
 export function requireAppAction(action: AppAvailableAction) {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     if (!req.user) {

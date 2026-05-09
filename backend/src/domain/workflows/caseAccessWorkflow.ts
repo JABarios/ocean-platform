@@ -1,3 +1,5 @@
+import { hasAppAction } from './appWorkflow'
+
 interface ReviewRequestAccessLike {
   requestedBy?: string | null
   targetUserId?: string | null
@@ -100,21 +102,21 @@ export function hasAcceptedReviewRelationship(caseItem: CaseAccessLike, userId: 
 }
 
 export function canReadCase(caseItem: CaseAccessLike, userId: string, role?: string) {
-  if (role === 'Admin') return true
+  if (role && hasAppAction(role, 'access_admin')) return true
   if (caseItem.ownerId === userId) return true
   if (OPEN_TEACHING_STATUSES.includes(caseItem.statusTeaching as typeof OPEN_TEACHING_STATUSES[number])) return true
   return hasReviewRelationship(caseItem, userId)
 }
 
 export function canReadTeachingProposal(caseItem: CaseAccessLike, userId: string, role?: string) {
-  if (role === 'Admin') return true
+  if (role && hasAppAction(role, 'access_admin')) return true
   if (caseItem.ownerId === userId) return true
   if (OPEN_TEACHING_STATUSES.includes(caseItem.statusTeaching as typeof OPEN_TEACHING_STATUSES[number])) return true
   return hasAcceptedReviewRelationship(caseItem, userId)
 }
 
 export function canContributeTeaching(caseItem: CaseAccessLike, userId: string, role?: string) {
-  if (role === 'Admin') return true
+  if (role && hasAppAction(role, 'access_admin')) return true
   if (caseItem.ownerId === userId) return true
   return hasAcceptedReviewRelationship(caseItem, userId)
 }

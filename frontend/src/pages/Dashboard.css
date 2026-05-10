@@ -95,6 +95,10 @@
   gap: 0.7rem;
 }
 
+.request-list-compact {
+  gap: 0.55rem;
+}
+
 .case-row,
 .request-row {
   display: flex;
@@ -163,6 +167,17 @@
   gap: 0.25rem;
 }
 
+.request-info-compact {
+  gap: 0.2rem;
+}
+
+.request-compact-top {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
 .request-message {
   font-size: 0.85rem;
   color: var(--text-secondary);
@@ -172,6 +187,24 @@
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+
+.request-row-compact {
+  align-items: center;
+  padding: 0.8rem 0.95rem;
+}
+
+.request-inline-links {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.request-inline-links a {
+  font-size: 0.92rem;
+  font-weight: 600;
 }
 
 .request-row-emphasis {
@@ -218,6 +251,10 @@
   }
 
   .case-side {
+    align-items: flex-start;
+  }
+
+  .request-row-compact {
     align-items: flex-start;
   }
 

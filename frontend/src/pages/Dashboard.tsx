@@ -24,6 +24,23 @@ function statusBadgeClass(status: CaseItem['status']) {
   }
 }
 
+function statusLabel(status: CaseItem['status']) {
+  switch (status) {
+    case 'Draft':
+      return 'Borrador'
+    case 'Requested':
+      return 'Solicitado'
+    case 'InReview':
+      return 'En revisión'
+    case 'Resolved':
+      return 'Resuelto'
+    case 'Archived':
+      return 'Archivado'
+    default:
+      return status
+  }
+}
+
 export default function Dashboard() {
   const currentUser = useAuthStore((s) => s.user)
   const seeingAllCases = hasAvailableAction(currentUser?.availableActions, 'access_admin')
@@ -180,18 +197,31 @@ export default function Dashboard() {
           {active.length === 0 ? (
             <p className="empty">No tienes revisiones activas.</p>
           ) : (
-            <ul className="request-list">
+            <ul className="request-list request-list-compact">
               {active.map((r) => (
-                <li key={r.id} className="request-row card">
-                  <div className="request-info">
-                    <div className="request-case">
-                      {r.case ? r.case.title : `Caso ${r.caseId}`}
+                <li key={r.id} className="request-row card request-row-compact">
+                  <div className="request-info request-info-compact">
+                    <div className="request-compact-top">
+                      <div className="request-case">
+                        {r.case ? r.case.title : `Caso ${r.caseId}`}
+                      </div>
+                      {r.case?.status && (
+                        <span className={statusBadgeClass(r.case.status as CaseItem['status'])}>
+                          {statusLabel(r.case.status as CaseItem['status'])}
+                        </span>
+                      )}
                     </div>
-                    {r.message && (
-                      <div className="request-message">{r.message}</div>
-                    )}
+                    <div className="request-subline">
+                      {r.requester?.displayName ? `Solicita: ${r.requester.displayName}` : 'Revisión activa'}
+                    </div>
                   </div>
-                  <Link to={`/cases/${r.caseId}`}>Ver caso</Link>
+                  <div className="request-inline-links">
+                    <Link to={`/cases/${r.caseId}`}>Caso</Link>
+                    <a href={`/cases/${r.caseId}/eeg`} target="_blank" rel="noreferrer">
+                      EEG
+                    </a>
+                    <Link to={`/cases/${r.caseId}#comments`}>Comentarios</Link>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -215,7 +245,7 @@ export default function Dashboard() {
                     <Link to={`/cases/${c.id}`} className="case-title">
                       {c.title}
                     </Link>
-                    <span className={statusBadgeClass(c.status)}>{c.status}</span>
+                    <span className={statusBadgeClass(c.status)}>{statusLabel(c.status)}</span>
                   </div>
                   <div className="case-secondary">
                     {seeingAllCases && c.owner && (

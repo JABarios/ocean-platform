@@ -572,7 +572,7 @@ export default function CaseDetail() {
             )}
           </div>
 
-          <section className="section card comments-card">
+          <section id="comments" className="section card comments-card">
             <h3>Comentarios</h3>
             {comments.length === 0 ? (
               <p className="empty">No hay comentarios.</p>

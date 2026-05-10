@@ -100,4 +100,36 @@ describe('Notifications', () => {
       expect(readAllCall).toBeDefined()
     })
   })
+
+  it('abre el grupo concreto cuando la notificación no tiene caseId', async () => {
+    mockFetchSequence([
+      {
+        data: [
+          {
+            id: 'n-group',
+            kind: 'group_invitation_received',
+            title: 'Nueva invitación a grupo',
+            body: 'Te han invitado a un grupo.',
+            groupId: 'group-42',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      },
+      {
+        data: {
+          configured: false,
+          botUsername: null,
+          linked: false,
+          username: null,
+          linkedAt: null,
+          notificationsEnabled: false,
+        },
+      },
+    ])
+
+    renderNotifications()
+
+    const link = await screen.findByRole('link', { name: /Abrir/i })
+    expect(link.getAttribute('href')).toBe('/groups?groupId=group-42')
+  })
 })

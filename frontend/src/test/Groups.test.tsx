@@ -41,6 +41,8 @@ describe('Groups', () => {
     expect((await screen.findAllByText('Epilepsia')).length).toBeGreaterThan(0)
     expect(screen.getByText('Sueño')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Aceptar/i })).toBeInTheDocument()
+    expect(screen.getByText('3')).toBeInTheDocument()
+    expect(screen.getByText('miembros en tus grupos')).toBeInTheDocument()
     expect(screen.queryByText(/Cannot read properties of undefined/i)).not.toBeInTheDocument()
   })
 

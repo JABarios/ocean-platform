@@ -13,6 +13,7 @@ export async function createNotification(params: {
   title: string
   body: string
   caseId?: string
+  groupId?: string
   reviewRequestId?: string
   commentId?: string
   actorUserId?: string
@@ -24,6 +25,7 @@ export async function createNotification(params: {
       title: params.title,
       body: params.body,
       caseId: params.caseId,
+      groupId: params.groupId,
       reviewRequestId: params.reviewRequestId,
       commentId: params.commentId,
       actorUserId: params.actorUserId,
@@ -37,6 +39,7 @@ export async function createNotificationsForUsers(params: {
   title: string
   body: string
   caseId?: string
+  groupId?: string
   reviewRequestId?: string
   commentId?: string
   actorUserId?: string
@@ -51,6 +54,7 @@ export async function createNotificationsForUsers(params: {
       title: params.title,
       body: params.body,
       caseId: params.caseId,
+      groupId: params.groupId,
       reviewRequestId: params.reviewRequestId,
       commentId: params.commentId,
       actorUserId: params.actorUserId,
@@ -65,6 +69,7 @@ export function serializeNotification(item: any) {
     title: item.title,
     body: item.body,
     caseId: item.caseId,
+    groupId: item.groupId,
     reviewRequestId: item.reviewRequestId,
     commentId: item.commentId,
     readAt: item.readAt,
@@ -79,6 +84,11 @@ export function serializeNotification(item: any) {
     case: item.caseId
       ? {
           id: item.caseId,
+        }
+      : undefined,
+    group: item.groupId
+      ? {
+          id: item.groupId,
         }
       : undefined,
     reviewRequest: item.reviewRequestId

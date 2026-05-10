@@ -8,6 +8,7 @@ import {
   getTeachingSupportCount,
   hasAvailableAction,
 } from '../utils/teachingState'
+import { statusLabel } from '../utils/caseStatus'
 import PageHeader from '../components/PageHeader'
 import './CaseDetail.css'
 
@@ -25,23 +26,6 @@ function statusBadgeClass(status: CaseItem['status']) {
       return 'badge badge-archived'
     default:
       return 'badge'
-  }
-}
-
-function statusLabel(status: CaseItem['status']) {
-  switch (status) {
-    case 'Draft':
-      return 'Borrador'
-    case 'Requested':
-      return 'Solicitado'
-    case 'InReview':
-      return 'En revisión'
-    case 'Resolved':
-      return 'Resuelto'
-    case 'Archived':
-      return 'Archivado'
-    default:
-      return status
   }
 }
 
@@ -421,6 +405,7 @@ export default function CaseDetail() {
   const canArchiveCase = hasAvailableAction(caseItem.availableActions, 'archive_case')
   const canComment = hasAvailableAction(caseItem.availableActions, 'comment_case')
   const canManageVisibility = isOwner || hasAvailableAction(user?.availableActions, 'access_admin')
+  const canChangeStatus = isOwner && (canRequestReview || canStartReview || canResolveCase || canArchiveCase)
   const reviewAccessStatusLabel =
     currentUserReviewLink?.status === 'Pending'
       ? 'Has solicitado acceso a la revisión'
@@ -438,7 +423,7 @@ export default function CaseDetail() {
       <PageHeader
         title={caseItem.title}
         subtitle="Caso clínico, discusión entre revisores y acceso seguro al paquete EEG."
-        actions={<span className={statusBadgeClass(caseItem.status)}>{caseItem.status}</span>}
+        actions={<span className={statusBadgeClass(caseItem.status)}>{statusLabel(caseItem.status)}</span>}
       />
 
       <section className="case-summary-grid">
@@ -529,47 +514,6 @@ export default function CaseDetail() {
                     : 'Solo visible para el perímetro privado del caso.'}
               </span>
             </div>
-
-            {isOwner && (
-              <div className="status-actions">
-                {canRequestReview && (
-                  <button
-                    className="btn-primary"
-                    onClick={() => changeStatus('Requested')}
-                    disabled={statusBusy}
-                  >
-                    Enviar solicitud
-                  </button>
-                )}
-                {canStartReview && (
-                  <button
-                    className="btn-primary"
-                    onClick={() => changeStatus('InReview')}
-                    disabled={statusBusy}
-                  >
-                    Iniciar revisión
-                  </button>
-                )}
-                {canResolveCase && (
-                  <button
-                    className="btn-primary"
-                    onClick={() => changeStatus('Resolved')}
-                    disabled={statusBusy}
-                  >
-                    Marcar como Resuelto
-                  </button>
-                )}
-                {canArchiveCase && (
-                  <button
-                    className="btn-secondary"
-                    onClick={() => changeStatus('Archived')}
-                    disabled={statusBusy}
-                  >
-                    Archivar
-                  </button>
-                )}
-              </div>
-            )}
           </div>
 
           <section id="comments" className="section card comments-card">
@@ -615,32 +559,279 @@ export default function CaseDetail() {
         </div>
 
         <aside className="case-side-column">
+          <section className="card action-priority-card">
+            <div className="case-section-head">
+              <div>
+                <span className="field-label">Por dónde empezar</span>
+                <h3>Qué puedes hacer ahora</h3>
+              </div>
+            </div>
+
+            <div className="action-priority-list">
+              {caseItem.package ? (
+                <div className="action-priority-item">
+                  <strong>Abrir el EEG</strong>
+                  <span>Entra al visor de OCEAN para revisar la señal y navegar el caso.</span>
+                </div>
+              ) : (
+                <div className="action-priority-item">
+                  <strong>Esperar EEG adjunto</strong>
+                  <span>Cuando el caso tenga paquete asociado, el acceso al visor aparecerá aquí.</span>
+                </div>
+              )}
+
+              {canSendReviewRequest && (
+                <div className="action-priority-item">
+                  <strong>Pedir otra revisión</strong>
+                  <span>Envía este caso a un colega o a un grupo desde la sección de revisión.</span>
+                </div>
+              )}
+
+              {(canRequestReviewAccess || reviewAccessStatusLabel) && (
+                <div className="action-priority-item">
+                  <strong>Acceso a la revisión</strong>
+                  <span>{reviewAccessStatusLabel || 'Puedes solicitar acceso si quieres entrar en la discusión clínica original.'}</span>
+                </div>
+              )}
+
+              {(canPropose || Boolean(teachingProposal)) && (
+                <div className="action-priority-item">
+                  <strong>Valorar docencia</strong>
+                  <span>{teachingProposal ? 'Este caso ya tiene estado docente y apoyos visibles.' : 'Cuando corresponda, puedes proponerlo a biblioteca.'}</span>
+                </div>
+              )}
+            </div>
+
+            {canChangeStatus && (
+              <div className="status-actions">
+                {canRequestReview && (
+                  <button
+                    className="btn-primary"
+                    onClick={() => changeStatus('Requested')}
+                    disabled={statusBusy}
+                  >
+                    Enviar solicitud
+                  </button>
+                )}
+                {canStartReview && (
+                  <button
+                    className="btn-primary"
+                    onClick={() => changeStatus('InReview')}
+                    disabled={statusBusy}
+                  >
+                    Iniciar revisión
+                  </button>
+                )}
+                {canResolveCase && (
+                  <button
+                    className="btn-primary"
+                    onClick={() => changeStatus('Resolved')}
+                    disabled={statusBusy}
+                  >
+                    Marcar como Resuelto
+                  </button>
+                )}
+                {canArchiveCase && (
+                  <button
+                    className="btn-secondary"
+                    onClick={() => changeStatus('Archived')}
+                    disabled={statusBusy}
+                  >
+                    Archivar
+                  </button>
+                )}
+              </div>
+            )}
+          </section>
+
           <section className="card eeg-access-card">
             <div className="eeg-access-copy">
               <span className="field-label">EEG</span>
-              <h3>{caseItem.package ? 'Este caso tiene un EEG adjunto' : 'Este caso todavía no tiene un EEG adjunto'}</h3>
+              <h3>{caseItem.package ? 'Acceso al EEG del caso' : 'Este caso todavía no tiene un EEG adjunto'}</h3>
               <p>
                 {caseItem.package
                   ? packageIsEncrypted
-                    ? 'Puedes abrir el visor de OCEAN o descargar el paquete cifrado del caso.'
+                    ? 'Empieza por el visor. Si necesitas trabajar fuera de OCEAN, descarga el paquete cifrado y descífralo aquí mismo.'
                     : 'Puedes abrir directamente el visor de OCEAN con el EEG enlazado desde la galería.'
                   : 'Cuando el caso tenga un paquete EEG asociado, aparecerá aquí el acceso directo al visor.'}
               </p>
             </div>
             {caseItem.package && (
-              <div className="eeg-access-actions">
-                <button
-                  className="btn-primary"
-                  onClick={() => window.open(`/cases/${id}/eeg`, '_blank')}
-                >
-                  Ver EEG
-                </button>
-                <button className="btn-secondary" onClick={downloadEncrypted}>
-                  {packageIsEncrypted ? 'Descargar .enc' : 'Descargar .edf'}
-                </button>
+              <div className="eeg-access-stack">
+                <div className="eeg-access-actions">
+                  <button
+                    className="btn-primary"
+                    onClick={() => window.open(`/cases/${id}/eeg`, '_blank')}
+                  >
+                    Ver EEG
+                  </button>
+                  <button className="btn-secondary" onClick={downloadEncrypted}>
+                    {packageIsEncrypted ? 'Descargar .enc' : 'Descargar .edf'}
+                  </button>
+                </div>
+
+                <div className="package-meta">
+                  <span>Tamaño: {(caseItem.package.sizeBytes! / 1024 / 1024).toFixed(1)} MB</span>
+                  <span>Hash: {caseItem.package.blobHash?.slice(0, 16)}…</span>
+                </div>
+
+                {packageIsEncrypted ? (
+                  <>
+                    <div className="decrypt-box">
+                      <input
+                        type="text"
+                        placeholder="Pega la clave de descifrado…"
+                        value={decryptKey}
+                        onChange={(e) => {
+                          setDecryptKey(e.target.value)
+                          if (e.target.value) setStoredDecryptKey('')
+                        }}
+                      />
+                      <button
+                        className="btn-primary"
+                        onClick={handleDecrypt}
+                        disabled={decrypting || (!decryptKey.trim() && !storedDecryptKey)}
+                      >
+                        {decrypting ? 'Descifrando…' : 'Descifrar y descargar .edf'}
+                      </button>
+                    </div>
+                    {caseItem.storedKeyAvailable && (
+                      <div className="stored-key-actions">
+                        <button
+                          className="btn-secondary"
+                          type="button"
+                          onClick={() => {
+                            setPasswordAction('use')
+                            setShowPasswordModal(true)
+                          }}
+                        >
+                          Usar clave guardada en OCEAN
+                        </button>
+                        {isOwner && (
+                          <button
+                            className="btn-secondary"
+                            type="button"
+                            onClick={() => {
+                              setPasswordAction('reveal')
+                              setShowPasswordModal(true)
+                            }}
+                          >
+                            Mostrar clave
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {storedDecryptKey && (
+                      <div className="stored-key-banner">Clave recuperada desde OCEAN y lista para usar en este caso.</div>
+                    )}
+                    {revealedStoredKey && isOwner && (
+                      <div className="revealed-key-box">
+                        <div className="revealed-key-header">
+                          <strong>Clave custodiada revelada</strong>
+                          <button type="button" className="btn-secondary" onClick={copyRevealedKey}>
+                            Copiar clave
+                          </button>
+                        </div>
+                        <div className="revealed-key-value">{revealedStoredKey}</div>
+                        <div className="revealed-key-hint">Compártela solo si necesitas dar acceso manual fuera del flujo confiado de OCEAN.</div>
+                      </div>
+                    )}
+                    {decryptedUrl && (
+                      <a
+                        className="btn-primary"
+                        href={decryptedUrl}
+                        download={`${caseItem.title || 'caso'}.edf`}
+                      >
+                        Guardar .edf descifrado
+                      </a>
+                    )}
+                  </>
+                ) : (
+                  <div className="stored-key-banner">Este EEG procede de una galería de OCEAN y no requiere clave de descifrado.</div>
+                )}
               </div>
             )}
           </section>
+
+          {canSendReviewRequest ? (
+            <section className="section card">
+              <h3>Solicitar revisión</h3>
+              <p className="ops-subtle">
+                Envía este caso directamente a una persona o a uno de tus grupos de trabajo.
+              </p>
+              <form onSubmit={sendRequest} className="inline-form">
+                <select
+                  value={requestTargetMode}
+                  onChange={(e) => setRequestTargetMode(e.target.value as 'user' | 'group')}
+                >
+                  <option value="user">A usuario</option>
+                  <option value="group">A grupo</option>
+                </select>
+                {requestTargetMode === 'user' ? (
+                <select
+                  value={targetUserId}
+                  onChange={(e) => setTargetUserId(e.target.value)}
+                  required
+                >
+                  <option value="">Selecciona usuario…</option>
+                  {users
+                    .filter((u) => u.id !== user?.id)
+                    .map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.displayName} ({u.email})
+                      </option>
+                    ))}
+                </select>
+                ) : (
+                  <select
+                    value={targetGroupId}
+                    onChange={(e) => setTargetGroupId(e.target.value)}
+                    required
+                  >
+                    <option value="">Selecciona grupo…</option>
+                    {groups.map((group) => (
+                      <option key={group.id} value={group.id}>
+                        {group.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <input
+                  type="text"
+                  placeholder="Mensaje opcional"
+                  value={requestMessage}
+                  onChange={(e) => setRequestMessage(e.target.value)}
+                />
+                <button className="btn-primary" disabled={requesting}>
+                  {requesting ? 'Enviando…' : 'Solicitar'}
+                </button>
+              </form>
+            </section>
+          ) : (
+            (canRequestReviewAccess || reviewAccessStatusLabel) && (
+              <section className="section card">
+                <h3>Acceso a la revisión</h3>
+                {canRequestReviewAccess ? (
+                  <form onSubmit={requestReviewAccess} className="access-request-form">
+                    <p className="ops-subtle">
+                      Si quieres participar en la discusión clínica original, puedes solicitar acceso al propietario del caso.
+                    </p>
+                    <input
+                      type="text"
+                      placeholder="Mensaje opcional"
+                      value={accessRequestMessage}
+                      onChange={(e) => setAccessRequestMessage(e.target.value)}
+                    />
+                    <button className="btn-primary" disabled={requestingAccess}>
+                      {requestingAccess ? 'Enviando…' : 'Solicitar acceso a la revisión'}
+                    </button>
+                  </form>
+                ) : reviewAccessStatusLabel ? (
+                  <p className="ops-subtle">{reviewAccessStatusLabel}</p>
+                ) : null}
+              </section>
+            )
+          )}
 
           <section className="card teaching-panel teaching-panel-side">
             <div className="teaching-panel-header">
@@ -722,172 +913,6 @@ export default function CaseDetail() {
               </div>
             )}
           </section>
-
-          {canSendReviewRequest ? (
-            <section className="section card">
-              <h3>Solicitar revisión</h3>
-              <form onSubmit={sendRequest} className="inline-form">
-                <select
-                  value={requestTargetMode}
-                  onChange={(e) => setRequestTargetMode(e.target.value as 'user' | 'group')}
-                >
-                  <option value="user">A usuario</option>
-                  <option value="group">A grupo</option>
-                </select>
-                {requestTargetMode === 'user' ? (
-                <select
-                  value={targetUserId}
-                  onChange={(e) => setTargetUserId(e.target.value)}
-                  required
-                >
-                  <option value="">Selecciona usuario…</option>
-                  {users
-                    .filter((u) => u.id !== user?.id)
-                    .map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.displayName} ({u.email})
-                      </option>
-                    ))}
-                </select>
-                ) : (
-                  <select
-                    value={targetGroupId}
-                    onChange={(e) => setTargetGroupId(e.target.value)}
-                    required
-                  >
-                    <option value="">Selecciona grupo…</option>
-                    {groups.map((group) => (
-                      <option key={group.id} value={group.id}>
-                        {group.name}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                <input
-                  type="text"
-                  placeholder="Mensaje opcional"
-                  value={requestMessage}
-                  onChange={(e) => setRequestMessage(e.target.value)}
-                />
-                <button className="btn-primary" disabled={requesting}>
-                  {requesting ? 'Enviando…' : 'Solicitar'}
-                </button>
-              </form>
-            </section>
-          ) : (
-            (canRequestReviewAccess || reviewAccessStatusLabel) && (
-              <section className="section card">
-                <h3>Acceso a la revisión</h3>
-                {canRequestReviewAccess ? (
-                  <form onSubmit={requestReviewAccess} className="access-request-form">
-                    <p className="ops-subtle">
-                      Si quieres participar en la discusión clínica original, puedes solicitar acceso al propietario del caso.
-                    </p>
-                    <input
-                      type="text"
-                      placeholder="Mensaje opcional"
-                      value={accessRequestMessage}
-                      onChange={(e) => setAccessRequestMessage(e.target.value)}
-                    />
-                    <button className="btn-primary" disabled={requestingAccess}>
-                      {requestingAccess ? 'Enviando…' : 'Solicitar acceso a la revisión'}
-                    </button>
-                  </form>
-                ) : reviewAccessStatusLabel ? (
-                  <p className="ops-subtle">{reviewAccessStatusLabel}</p>
-                ) : null}
-              </section>
-            )
-          )}
-
-          {caseItem.package && (
-            <section className="section card">
-              <h3>Paquete EEG</h3>
-              <div className="package-meta">
-                <span>Tamaño: {(caseItem.package.sizeBytes! / 1024 / 1024).toFixed(1)} MB</span>
-                <span>Hash: {caseItem.package.blobHash?.slice(0, 16)}…</span>
-              </div>
-              <div className="package-actions">
-                <button className="btn-secondary" onClick={downloadEncrypted}>
-                  {packageIsEncrypted ? 'Descargar .enc (cifrado)' : 'Descargar .edf'}
-                </button>
-              </div>
-              {packageIsEncrypted ? (
-                <>
-                  <div className="decrypt-box">
-                    <input
-                      type="text"
-                      placeholder="Pega la clave de descifrado…"
-                      value={decryptKey}
-                      onChange={(e) => {
-                        setDecryptKey(e.target.value)
-                        if (e.target.value) setStoredDecryptKey('')
-                      }}
-                    />
-                    <button
-                      className="btn-primary"
-                      onClick={handleDecrypt}
-                      disabled={decrypting || (!decryptKey.trim() && !storedDecryptKey)}
-                    >
-                      {decrypting ? 'Descifrando…' : 'Descifrar y descargar .edf'}
-                    </button>
-                    {caseItem.storedKeyAvailable && (
-                      <>
-                        <button
-                          className="btn-secondary"
-                          type="button"
-                          onClick={() => {
-                            setPasswordAction('use')
-                            setShowPasswordModal(true)
-                          }}
-                        >
-                          Usar clave guardada en OCEAN
-                        </button>
-                        {isOwner && (
-                          <button
-                            className="btn-secondary"
-                            type="button"
-                            onClick={() => {
-                              setPasswordAction('reveal')
-                              setShowPasswordModal(true)
-                            }}
-                          >
-                            Mostrar clave
-                          </button>
-                        )}
-                      </>
-                    )}
-                  </div>
-                  {storedDecryptKey && (
-                    <div className="stored-key-banner">Clave recuperada desde OCEAN y lista para usar en este caso.</div>
-                  )}
-                  {revealedStoredKey && isOwner && (
-                    <div className="revealed-key-box">
-                      <div className="revealed-key-header">
-                        <strong>Clave custodiada revelada</strong>
-                        <button type="button" className="btn-secondary" onClick={copyRevealedKey}>
-                          Copiar clave
-                        </button>
-                      </div>
-                      <div className="revealed-key-value">{revealedStoredKey}</div>
-                      <div className="revealed-key-hint">Compártela solo si necesitas dar acceso manual fuera del flujo confiado de OCEAN.</div>
-                    </div>
-                  )}
-                  {decryptedUrl && (
-                    <a
-                      className="btn-primary"
-                      href={decryptedUrl}
-                      download={`${caseItem.title || 'caso'}.edf`}
-                    >
-                      Guardar .edf descifrado
-                    </a>
-                  )}
-                </>
-              ) : (
-                <div className="stored-key-banner">Este EEG procede de una galería de OCEAN y no requiere clave de descifrado.</div>
-              )}
-            </section>
-          )}
         </aside>
       </div>
 

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import type { CaseItem } from '../types'
 import PageHeader from '../components/PageHeader'
+import { statusLabel } from '../utils/caseStatus'
 import './OpenCasesFeed.css'
 
 function statusBadgeClass(status: CaseItem['status']) {
@@ -85,11 +86,11 @@ export default function OpenCasesFeed() {
           <span className="field-label">Estado clínico</span>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'All' | CaseItem['status'])}>
             <option value="All">Todos</option>
-            <option value="Draft">Draft</option>
-            <option value="Requested">Requested</option>
-            <option value="InReview">InReview</option>
-            <option value="Resolved">Resolved</option>
-            <option value="Archived">Archived</option>
+            <option value="Draft">Borrador</option>
+            <option value="Requested">Solicitado</option>
+            <option value="InReview">En revisión</option>
+            <option value="Resolved">Resuelto</option>
+            <option value="Archived">Archivado</option>
           </select>
         </label>
         <div className="open-cases-metrics">
@@ -112,8 +113,8 @@ export default function OpenCasesFeed() {
                     {item.title}
                   </Link>
                   <div className="open-case-badges">
-                    <span className="badge badge-public">Public</span>
-                    <span className={statusBadgeClass(item.status)}>{item.status}</span>
+                    <span className="badge badge-public">Público</span>
+                    <span className={statusBadgeClass(item.status)}>{statusLabel(item.status)}</span>
                   </div>
                 </div>
                 <p className="open-case-context">{item.clinicalContext}</p>

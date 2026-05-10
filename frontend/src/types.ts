@@ -66,6 +66,7 @@ export interface NotificationItem {
   title: string
   body: string
   caseId?: string
+  groupId?: string
   reviewRequestId?: string
   commentId?: string
   readAt?: string
@@ -75,6 +76,10 @@ export interface NotificationItem {
     id: string
     title?: string
     status?: string
+  }
+  group?: {
+    id: string
+    name?: string
   }
   reviewRequest?: {
     id: string

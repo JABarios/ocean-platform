@@ -103,7 +103,7 @@ describe('CaseDetail — carga inicial', () => {
     mockLoad()
     renderDetail()
     await screen.findByText('EEG Caso Test')
-    expect(screen.getByText('Draft')).toBeInTheDocument()
+    expect(screen.getAllByText('Borrador').length).toBeGreaterThan(0)
   })
 
   it('muestra error cuando la API devuelve 401', async () => {
@@ -366,7 +366,7 @@ describe('CaseDetail — flujo docente visible', () => {
       expect(JSON.parse(postCall![1].body as string)).toEqual({ caseId: 'case-1', message: '' })
     })
 
-    expect(await screen.findByText('Has solicitado acceso a la revisión')).toBeInTheDocument()
+    expect((await screen.findAllByText('Has solicitado acceso a la revisión')).length).toBeGreaterThan(0)
   })
 })
 
@@ -414,9 +414,9 @@ describe('CaseDetail — cambio de estado', () => {
     ])
 
     renderDetail()
-    await screen.findByText('Draft')
+    expect((await screen.findAllByText('Borrador')).length).toBeGreaterThan(0)
     fireEvent.click(screen.getByRole('button', { name: /Enviar solicitud/i }))
-    expect(await screen.findByText('Requested')).toBeInTheDocument()
+    expect((await screen.findAllByText('Solicitado')).length).toBeGreaterThan(0)
   })
 })
 
@@ -547,7 +547,8 @@ describe('CaseDetail — sección de paquete EEG', () => {
       },
     })
     renderDetail()
-    expect(await screen.findAllByRole('button', { name: /Descargar .enc/i })).toHaveLength(2)
+    expect(await screen.findByRole('button', { name: /^Ver EEG$/i })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /Descargar .enc/i })).toHaveLength(1)
     expect(screen.getByPlaceholderText(/Pega la clave de descifrado/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Usar clave guardada en OCEAN/i })).toBeInTheDocument()
   })

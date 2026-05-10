@@ -14,7 +14,6 @@ import TeachingLibrary from './pages/TeachingLibrary'
 import TeachingQueue from './pages/TeachingQueue'
 import UserAdmin from './pages/UserAdmin'
 import CleanupAdmin from './pages/CleanupAdmin'
-import CaseOperations from './pages/CaseOperations'
 import EegRecords from './pages/EegRecords'
 import Galleries from './pages/Galleries'
 import GalleryDetail from './pages/GalleryDetail'
@@ -115,9 +114,7 @@ export default function App() {
         path="/cases"
         element={
           <ProtectedRoute>
-            <Layout>
-              <CaseOperations />
-            </Layout>
+            <Navigate to="/" replace />
           </ProtectedRoute>
         }
       />
@@ -125,9 +122,7 @@ export default function App() {
         path="/cases/manage"
         element={
           <ProtectedRoute>
-            <Layout>
-              <CaseOperations />
-            </Layout>
+            <Navigate to="/" replace />
           </ProtectedRoute>
         }
       />

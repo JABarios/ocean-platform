@@ -174,6 +174,7 @@ export async function createNotification(data: {
   title?: string
   body?: string
   caseId?: string
+  groupId?: string
   reviewRequestId?: string
   commentId?: string
   actorUserId?: string
@@ -186,6 +187,7 @@ export async function createNotification(data: {
       title: data.title || 'Nueva notificación',
       body: data.body || 'Tienes actividad nueva',
       caseId: data.caseId,
+      groupId: data.groupId,
       reviewRequestId: data.reviewRequestId,
       commentId: data.commentId,
       actorUserId: data.actorUserId,

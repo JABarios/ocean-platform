@@ -45,6 +45,19 @@
   gap: 0.85rem;
 }
 
+.notifications-view-switcher {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.notifications-view-switcher .btn-secondary.active {
+  background: #e7eefc;
+  border-color: #bfd0f7;
+  color: var(--primary);
+}
+
 .notification-policy-card,
 .notification-events-card {
   display: flex;

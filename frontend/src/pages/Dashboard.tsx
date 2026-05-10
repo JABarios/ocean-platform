@@ -5,6 +5,7 @@ import type { CaseItem, ReviewRequest } from '../types'
 import PageHeader from '../components/PageHeader'
 import { useAuthStore } from '../store/authStore'
 import { hasAvailableAction } from '../utils/teachingState'
+import { statusLabel } from '../utils/caseStatus'
 import './Dashboard.css'
 
 function statusBadgeClass(status: CaseItem['status']) {
@@ -21,23 +22,6 @@ function statusBadgeClass(status: CaseItem['status']) {
       return 'badge badge-archived'
     default:
       return 'badge'
-  }
-}
-
-function statusLabel(status: CaseItem['status']) {
-  switch (status) {
-    case 'Draft':
-      return 'Borrador'
-    case 'Requested':
-      return 'Solicitado'
-    case 'InReview':
-      return 'En revisión'
-    case 'Resolved':
-      return 'Resuelto'
-    case 'Archived':
-      return 'Archivado'
-    default:
-      return status
   }
 }
 

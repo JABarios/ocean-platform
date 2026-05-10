@@ -53,7 +53,7 @@ describe('OpenCasesFeed', () => {
     renderFeed()
 
     expect(await screen.findByText('Caso público A')).toBeInTheDocument()
-    expect(screen.getByText('Public')).toBeInTheDocument()
+    expect(screen.getByText('Público')).toBeInTheDocument()
     expect(screen.getByText(/Propietario:\s*Dra\. López/i)).toBeInTheDocument()
   })
 

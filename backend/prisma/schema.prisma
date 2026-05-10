@@ -81,6 +81,7 @@ model Notification {
   title           String
   body            String
   caseId          String?   @map("case_id")
+  groupId         String?   @map("group_id")
   reviewRequestId String?   @map("review_request_id")
   commentId       String?   @map("comment_id")
   actorUserId     String?   @map("actor_user_id")

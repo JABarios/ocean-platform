@@ -323,6 +323,7 @@ async function createReviewRequestNotifications(params: {
       title,
       body,
       caseId: params.caseId,
+      groupId: params.targetGroupId,
       reviewRequestId: params.requestId,
       actorUserId: params.requestedBy,
     })

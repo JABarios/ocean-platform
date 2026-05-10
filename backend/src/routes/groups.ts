@@ -282,6 +282,7 @@ router.post('/:id/members', async (req: AuthenticatedRequest, res) => {
       kind: 'group_invitation_received',
       title: 'Nueva invitación a grupo',
       body: `${inviter.displayName} te ha invitado al grupo ${group.name}.`,
+      groupId: req.params.id,
       actorUserId: req.user!.id,
     }).catch((err) => {
       console.warn('[OCEAN notifications] No se pudo crear la notificación de invitación al grupo', err)

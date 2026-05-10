@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { api, friendlyError } from '../api/client'
 import type { Group, GroupInvitation, User } from '../types'
 import PageHeader from '../components/PageHeader'
@@ -6,6 +7,7 @@ import { useAuthStore } from '../store/authStore'
 import './Groups.css'
 
 export default function Groups() {
+  const location = useLocation()
   const currentUser = useAuthStore((s) => s.user)
   const [groups, setGroups] = useState<Group[]>([])
   const [invitations, setInvitations] = useState<GroupInvitation[]>([])
@@ -47,7 +49,8 @@ export default function Groups() {
   useEffect(() => {
     const load = async () => {
       try {
-        await loadDashboard()
+        const preferredGroupId = new URLSearchParams(location.search).get('groupId')
+        await loadDashboard(preferredGroupId)
       } catch (err) {
         setError(friendlyError(err))
       } finally {
@@ -56,7 +59,7 @@ export default function Groups() {
     }
     load()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [location.search])
 
   useEffect(() => {
     if (!selectedGroupId) return
@@ -96,6 +99,7 @@ export default function Groups() {
   const currentMembership = selectedGroup?.members?.find((member) => member.userId === currentUser?.id) || null
   const memberCount = selectedGroup?.members?.length ?? 0
   const pendingCount = selectedGroup?.pendingInvitations?.length ?? 0
+  const totalAcceptedMembers = groups.reduce((sum, group) => sum + (group._count?.members ?? 0), 0)
 
   const createGroup = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -187,8 +191,8 @@ export default function Groups() {
           <span className="group-summary-label">invitaciones pendientes</span>
         </article>
         <article className="card group-summary-card">
-          <span className="group-summary-value">{selectedGroup ? memberCount : '—'}</span>
-          <span className="group-summary-label">miembros del grupo actual</span>
+          <span className="group-summary-value">{totalAcceptedMembers}</span>
+          <span className="group-summary-label">miembros en tus grupos</span>
         </article>
       </section>
 

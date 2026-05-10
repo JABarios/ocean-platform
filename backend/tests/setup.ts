@@ -61,6 +61,7 @@ CREATE TABLE "notifications" (
     "title" TEXT NOT NULL,
     "body" TEXT NOT NULL,
     "case_id" TEXT,
+    "group_id" TEXT,
     "review_request_id" TEXT,
     "comment_id" TEXT,
     "actor_user_id" TEXT,
@@ -71,6 +72,7 @@ CREATE TABLE "notifications" (
 );
 CREATE INDEX "notifications_user_id_created_at_idx" ON "notifications"("user_id", "created_at");
 CREATE INDEX "notifications_user_id_read_at_idx" ON "notifications"("user_id", "read_at");
+CREATE INDEX "notifications_user_id_group_id_idx" ON "notifications"("user_id", "group_id");
 
 CREATE TABLE "push_subscriptions" (
     "id" TEXT NOT NULL PRIMARY KEY,

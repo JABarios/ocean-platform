@@ -28,6 +28,27 @@ describe('GET /notifications', () => {
     expect(res.body[0].actor.displayName).toBe('NotifActor')
     expect(res.body[0].case.id).toBe(caseItem.id)
   })
+
+  it('serializa groupId para notificaciones de grupo', async () => {
+    const user = await createUser({ email: 'notif-group@ocean.local', displayName: 'NotifGroup', password: 'pass' })
+    const token = generateToken(user.id, user.email, user.role)
+
+    await createNotification({
+      userId: user.id,
+      kind: 'group_invitation_received',
+      title: 'Invitación a grupo',
+      body: 'Te han invitado a un grupo.',
+      groupId: 'group-42',
+    })
+
+    const res = await request(app)
+      .get('/notifications')
+      .set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body[0].groupId).toBe('group-42')
+    expect(res.body[0].group.id).toBe('group-42')
+  })
 })
 
 describe('GET /notifications/unread-count', () => {

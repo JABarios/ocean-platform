@@ -23,6 +23,7 @@ function formatTimestamp(value?: string) {
 
 function destinationForNotification(item: NotificationItem) {
   if (item.caseId) return `/cases/${item.caseId}`
+  if (item.groupId) return `/groups?groupId=${item.groupId}`
   return '/groups'
 }
 
@@ -34,6 +35,7 @@ const eventRows = [
 ] as const
 
 export default function Notifications() {
+  const [view, setView] = useState<'activity' | 'channels' | 'diagnostic'>('activity')
   const [items, setItems] = useState<NotificationItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -235,6 +237,20 @@ export default function Notifications() {
         </div>
       </section>
 
+      <section className="card notifications-view-switcher">
+        <button className={`btn-secondary${view === 'activity' ? ' active' : ''}`} onClick={() => setView('activity')}>
+          Actividad
+        </button>
+        <button className={`btn-secondary${view === 'channels' ? ' active' : ''}`} onClick={() => setView('channels')}>
+          Canales
+        </button>
+        <button className={`btn-secondary${view === 'diagnostic' ? ' active' : ''}`} onClick={() => setView('diagnostic')}>
+          Diagnóstico
+        </button>
+      </section>
+
+      {view === 'channels' && (
+        <>
       <section className="card notification-policy-card">
         <div className="notification-policy-copy">
           <h2>Canales de aviso</h2>
@@ -382,10 +398,12 @@ export default function Notifications() {
           )}
         </div>
       </section>
+        </>
+      )}
 
       {error && <div className="alert error">{error}</div>}
 
-      {pushDiagnostics && (
+      {view === 'diagnostic' && pushDiagnostics && (
         <details className="card notifications-debug-card">
           <div className="notifications-debug-head">
             <div>
@@ -417,7 +435,7 @@ export default function Notifications() {
         </details>
       )}
 
-      {loading ? (
+      {view === 'activity' && (loading ? (
         <div className="card muted">Cargando notificaciones…</div>
       ) : items.length === 0 ? (
         <div className="card muted">No tienes notificaciones todavía.</div>
@@ -452,7 +470,7 @@ export default function Notifications() {
             </article>
           ))}
         </div>
-      )}
+      ))}
     </div>
   )
 }

@@ -184,6 +184,7 @@
 
 .request-info-inline {
   display: flex;
+  flex-direction: row;
   align-items: center;
   gap: 0.8rem;
   min-width: 0;

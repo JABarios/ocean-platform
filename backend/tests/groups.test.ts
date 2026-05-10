@@ -76,6 +76,11 @@ describe('GET /groups/:id', () => {
 })
 
 describe('POST /groups/:id/members', () => {
+  afterEach(() => {
+    delete process.env.RESEND_API_KEY
+    ;(global as any).fetch = undefined
+  })
+
   it('admin puede invitar un miembro', async () => {
     const owner = await createUser({ email: 'grp-adm@ocean.local', displayName: 'GrpAdm', password: 'pass' })
     const newMember = await createUser({ email: 'grp-mem@ocean.local', displayName: 'GrpMem', password: 'pass' })
@@ -90,6 +95,34 @@ describe('POST /groups/:id/members', () => {
     expect(res.status).toBe(201)
     expect(res.body.user.id).toBe(newMember.id)
     expect(res.body.status).toBe('Pending')
+  })
+
+  it('envía correo de invitación si Resend está configurado', async () => {
+    process.env.RESEND_API_KEY = 'test-key'
+    ;(global as any).fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => '',
+    })
+
+    const owner = await createUser({ email: 'grp-mail-owner@ocean.local', displayName: 'GrpMailOwner', password: 'pass' })
+    const newMember = await createUser({ email: 'grp-mail-member@ocean.local', displayName: 'GrpMailMember', password: 'pass' })
+    const token = generateToken(owner.id, owner.email, owner.role)
+
+    const created = await request(app).post('/groups').set('Authorization', `Bearer ${token}`).send({ name: 'Grupo correo' })
+    const res = await request(app)
+      .post(`/groups/${created.body.id}/members`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ userId: newMember.id })
+
+    expect(res.status).toBe(201)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect((global as any).fetch).toHaveBeenCalledWith(
+      'https://api.resend.com/emails',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('Grupo correo'),
+      }),
+    )
   })
 
   it('no-admin no puede invitar miembros', async () => {

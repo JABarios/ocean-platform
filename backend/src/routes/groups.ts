@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { prisma } from '../utils/prisma'
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth'
 import { canManageGroupMembers } from '../domain/workflows/groupWorkflow'
+import { buildGroupsUrl, sendGroupInvitationEmail } from '../utils/email'
 
 const router = Router()
 
@@ -217,6 +218,15 @@ router.post('/:id/members', async (req: AuthenticatedRequest, res) => {
     return
   }
 
+  const group = await prisma.group.findUnique({
+    where: { id: req.params.id },
+    select: { name: true },
+  })
+  if (!group) {
+    res.status(404).json({ error: 'Grupo no encontrado' })
+    return
+  }
+
   const targetUser = await prisma.user.findUnique({ where: { id: parsed.data.userId } })
   if (!targetUser) {
     res.status(404).json({ error: 'Usuario no encontrado' })
@@ -257,6 +267,23 @@ router.post('/:id/members', async (req: AuthenticatedRequest, res) => {
         },
         include: { user: { select: { id: true, displayName: true, email: true } } },
       })
+
+  const inviter = await prisma.user.findUnique({
+    where: { id: req.user!.id },
+    select: { displayName: true },
+  })
+
+  if (member.user && inviter) {
+    sendGroupInvitationEmail({
+      to: member.user.email,
+      displayName: member.user.displayName,
+      inviterName: inviter.displayName,
+      groupName: group.name,
+      groupsUrl: buildGroupsUrl(),
+    }).catch((err) => {
+      console.warn('[OCEAN email] No se pudo enviar la invitación al grupo', err)
+    })
+  }
 
   res.status(201).json(serializeMembership(member))
 })

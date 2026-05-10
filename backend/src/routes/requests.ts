@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../utils/prisma'
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth'
+import { buildCaseUrl, sendReviewRequestEmail } from '../utils/email'
 import {
   getNextReviewRequestState,
   getReviewRequestAvailableActions,
@@ -125,6 +126,82 @@ async function createReviewRequestForCase(params: {
   })
 
   return request
+}
+
+async function notifyReviewRequest(params: {
+  caseId: string
+  requestedBy: string
+  targetUserId?: string
+  targetGroupId?: string
+  message?: string
+}) {
+  const caseItem = await prisma.case.findUnique({
+    where: { id: params.caseId },
+    select: { id: true, title: true },
+  })
+  const requester = await prisma.user.findUnique({
+    where: { id: params.requestedBy },
+    select: { id: true, displayName: true },
+  })
+
+  if (!caseItem || !requester) return
+
+  const caseTitle = caseItem.title?.trim() || `Caso ${caseItem.id.slice(0, 8)}`
+  const caseUrl = buildCaseUrl(caseItem.id)
+
+  if (params.targetUserId) {
+    const targetUser = await prisma.user.findUnique({
+      where: { id: params.targetUserId },
+      select: { email: true, displayName: true, status: true },
+    })
+    if (!targetUser || targetUser.status !== 'Active') return
+
+    await sendReviewRequestEmail({
+      to: targetUser.email,
+      displayName: targetUser.displayName,
+      requesterName: requester.displayName,
+      caseTitle,
+      caseUrl,
+      message: params.message,
+    })
+    return
+  }
+
+  if (params.targetGroupId) {
+    const group = await prisma.group.findUnique({
+      where: { id: params.targetGroupId },
+      select: {
+        name: true,
+        members: {
+          where: { status: 'Accepted' },
+          select: {
+            user: {
+              select: { id: true, email: true, displayName: true, status: true },
+            },
+          },
+        },
+      },
+    })
+    if (!group) return
+
+    const recipients = group.members
+      .map((member) => member.user)
+      .filter((user): user is NonNullable<typeof user> =>
+        Boolean(user && user.id !== params.requestedBy && user.status === 'Active'),
+      )
+
+    await Promise.allSettled(recipients.map((user) =>
+      sendReviewRequestEmail({
+        to: user.email,
+        displayName: user.displayName,
+        requesterName: requester.displayName,
+        caseTitle,
+        caseUrl,
+        message: params.message,
+        groupName: group.name,
+      }),
+    ))
+  }
 }
 
 // Listar solicitudes donde el usuario es destinatario (pendientes)
@@ -272,6 +349,16 @@ router.post('/', async (req: AuthenticatedRequest, res) => {
     auditAction: 'RequestSent',
   })
 
+  notifyReviewRequest({
+    caseId,
+    requestedBy: req.user!.id,
+    targetUserId,
+    targetGroupId,
+    message,
+  }).catch((err) => {
+    console.warn('[OCEAN email] No se pudo notificar la solicitud de revisión', err)
+  })
+
   res.status(201).json(request)
 })
 
@@ -337,6 +424,15 @@ router.post('/request-access', async (req: AuthenticatedRequest, res) => {
     targetUserId: caseItem.ownerId,
     message,
     auditAction: 'ReviewAccessRequested',
+  })
+
+  notifyReviewRequest({
+    caseId,
+    requestedBy: req.user!.id,
+    targetUserId: caseItem.ownerId,
+    message,
+  }).catch((err) => {
+    console.warn('[OCEAN email] No se pudo notificar la solicitud de acceso a revisión', err)
   })
 
   res.status(201).json(accessRequest)

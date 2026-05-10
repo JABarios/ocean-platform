@@ -34,6 +34,11 @@ describe('POST /requests — validaciones', () => {
 })
 
 describe('POST /requests', () => {
+  afterEach(() => {
+    delete process.env.RESEND_API_KEY
+    ;(global as any).fetch = undefined
+  })
+
   it('crea una solicitud de revisión', async () => {
     const owner = await createUser({ email: 'req-owner@ocean.local', displayName: 'ReqOwner', password: 'pass' })
     const reviewer = await createUser({ email: 'req-rev@ocean.local', displayName: 'ReqRev', password: 'pass' })
@@ -48,6 +53,34 @@ describe('POST /requests', () => {
     expect(res.status).toBe(201)
     expect(res.body.status).toBe('Pending')
     expect(res.body.message).toBe('Revisa esto')
+  })
+
+  it('envía correo al destinatario directo si hay Resend configurado', async () => {
+    process.env.RESEND_API_KEY = 'test-key'
+    ;(global as any).fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => '',
+    })
+
+    const owner = await createUser({ email: 'req-mail-owner@ocean.local', displayName: 'ReqMailOwner', password: 'pass' })
+    const reviewer = await createUser({ email: 'req-mail-rev@ocean.local', displayName: 'ReqMailRev', password: 'pass' })
+    const c = await createCase(owner.id, { title: 'Caso correo' })
+    const token = generateToken(owner.id, owner.email, owner.role)
+
+    const res = await request(app)
+      .post('/requests')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ caseId: c.id, targetUserId: reviewer.id, message: 'Revísalo cuando puedas' })
+
+    expect(res.status).toBe(201)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect((global as any).fetch).toHaveBeenCalledWith(
+      'https://api.resend.com/emails',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('Caso correo'),
+      }),
+    )
   })
 
   it('cambia caso a Requested si estaba en Draft', async () => {

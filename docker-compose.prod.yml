@@ -17,6 +17,9 @@ services:
       UPLOAD_DIR: /app/uploads/cases
       GALLERY_IMPORT_ROOT: /app/gallery-imports
       CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      APP_ORIGIN: ${APP_ORIGIN:-https://app.ocean-eeg.org}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-OCEAN EEG <ocean@ndg.report>}
     volumes:
       - ./backend/data:/app/data
       - ./backend/uploads:/app/uploads/cases

@@ -118,6 +118,42 @@ describe('POST /requests', () => {
     )
   })
 
+  it('respeta la preferencia de no enviar email para revisión directa', async () => {
+    process.env.RESEND_API_KEY = 'test-key'
+    ;(global as any).fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => '',
+    })
+
+    const owner = await createUser({ email: 'req-no-mail-owner@ocean.local', displayName: 'ReqNoMailOwner', password: 'pass' })
+    const reviewer = await createUser({ email: 'req-no-mail-rev@ocean.local', displayName: 'ReqNoMailRev', password: 'pass' })
+    await prisma.user.update({
+      where: { id: reviewer.id },
+      data: {
+        preferences: JSON.stringify({
+          review_request_direct: { email: false, telegram: true, push: true },
+          review_request_group: { email: true, telegram: true, push: true },
+          group_invitation: { email: true, telegram: true, push: true },
+          comment_on_case: { email: false, telegram: false, push: false },
+        }),
+      },
+    })
+    const c = await createCase(owner.id, { title: 'Caso sin correo' })
+    const token = generateToken(owner.id, owner.email, owner.role)
+
+    const res = await request(app)
+      .post('/requests')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ caseId: c.id, targetUserId: reviewer.id })
+
+    expect(res.status).toBe(201)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect((global as any).fetch).not.toHaveBeenCalledWith(
+      'https://api.resend.com/emails',
+      expect.anything(),
+    )
+  })
+
   it('envía push al destinatario si hay VAPID configurado y está suscrito', async () => {
     process.env.VAPID_PUBLIC_KEY = 'BEl7fakePublicKey1234567890abcdefghijklmnopqrstuv'
     process.env.VAPID_PRIVATE_KEY = 'fakePrivateKey1234567890abcdefghijklmnopqrstuv'
@@ -137,6 +173,38 @@ describe('POST /requests', () => {
     expect(res.status).toBe(201)
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(webpush.sendNotification).toHaveBeenCalled()
+  })
+
+  it('respeta la preferencia de no enviar push para revisión directa', async () => {
+    process.env.VAPID_PUBLIC_KEY = 'BEl7fakePublicKey1234567890abcdefghijklmnopqrstuv'
+    process.env.VAPID_PRIVATE_KEY = 'fakePrivateKey1234567890abcdefghijklmnopqrstuv'
+    process.env.VAPID_SUBJECT = 'mailto:test@ocean.local'
+
+    const owner = await createUser({ email: 'req-no-push-owner@ocean.local', displayName: 'ReqNoPushOwner', password: 'pass' })
+    const reviewer = await createUser({ email: 'req-no-push-rev@ocean.local', displayName: 'ReqNoPushRev', password: 'pass' })
+    await prisma.user.update({
+      where: { id: reviewer.id },
+      data: {
+        preferences: JSON.stringify({
+          review_request_direct: { email: true, telegram: true, push: false },
+          review_request_group: { email: true, telegram: true, push: true },
+          group_invitation: { email: true, telegram: true, push: true },
+          comment_on_case: { email: false, telegram: false, push: false },
+        }),
+      },
+    })
+    await createPushSubscription({ userId: reviewer.id, endpoint: 'https://push.example/reviewer-disabled' })
+    const c = await createCase(owner.id, { title: 'Caso sin push' })
+    const token = generateToken(owner.id, owner.email, owner.role)
+
+    const res = await request(app)
+      .post('/requests')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ caseId: c.id, targetUserId: reviewer.id })
+
+    expect(res.status).toBe(201)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(webpush.sendNotification).not.toHaveBeenCalled()
   })
 
   it('cambia caso a Requested si estaba en Draft', async () => {

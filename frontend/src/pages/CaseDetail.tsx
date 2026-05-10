@@ -8,7 +8,7 @@ import {
   getTeachingSupportCount,
   hasAvailableAction,
 } from '../utils/teachingState'
-import { statusLabel } from '../utils/caseStatus'
+import { statusLabel, teachingStatusLabel, visibilityLabel } from '../utils/caseStatus'
 import PageHeader from '../components/PageHeader'
 import './CaseDetail.css'
 
@@ -26,35 +26,6 @@ function statusBadgeClass(status: CaseItem['status']) {
       return 'badge badge-archived'
     default:
       return 'badge'
-  }
-}
-
-function teachingStatusLabel(status: CaseItem['teachingStatus']) {
-  switch (status) {
-    case 'None':
-      return 'Sin propuesta'
-    case 'Proposed':
-      return 'Propuesto'
-    case 'Recommended':
-      return 'Recomendado'
-    case 'Validated':
-      return 'En biblioteca'
-    case 'Rejected':
-      return 'Rechazado'
-    default:
-      return status
-  }
-}
-
-function visibilityLabel(visibility?: 'Private' | 'Institutional' | 'Public') {
-  switch (visibility) {
-    case 'Institutional':
-      return 'Grupo'
-    case 'Public':
-      return 'Público'
-    case 'Private':
-    default:
-      return 'Privado'
   }
 }
 

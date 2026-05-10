@@ -50,6 +50,13 @@ export default function CaseNew() {
 
   const ageOptions = ['Neonato', 'Lactante', 'Niño', 'Adolescente', 'Adulto', '>65']
   const modalityOptions = ['EEG', 'V-EEG', 'cEEG']
+  const canSubmit =
+    !saving
+    && !encrypting
+    && !(sourceMode === 'upload' && !encryptedBlob)
+    && !(sourceMode === 'upload' && (!!anonymizationReport && !reviewConfirmed))
+    && !(sourceMode === 'upload' && (!!anonymizationReport?.annotationReview.requiresManualReview && !annotationReviewConfirmed))
+    && !(sourceMode === 'gallery' && !selectedGalleryRecordId)
 
   useEffect(() => {
     if (sourceMode !== 'gallery' || galleries.length > 0) return
@@ -194,326 +201,390 @@ export default function CaseNew() {
     <div className="case-new">
       <PageHeader
         title="Nuevo caso"
-        subtitle="Desidentificación local verificable antes del cifrado: revisa la copia que se subirá y deja trazabilidad del proceso."
+        subtitle="Crea el caso, enlaza o sube su EEG y deja claro qué copia se guarda realmente en OCEAN."
       />
-      <form onSubmit={handleSubmit} className="case-form card">
-        <section className="source-selector">
-          <div className="field-label">Origen del EEG</div>
-          <div className="source-selector-row">
-            <button
-              type="button"
-              className={sourceMode === 'upload' ? 'source-chip active' : 'source-chip'}
-              onClick={() => {
-                setSourceMode('upload')
-                setSelectedGalleryId('')
-                setSelectedGalleryRecordId('')
-                setGalleryRecords([])
-              }}
-            >
-              Subir desde mi ordenador
-            </button>
-            <button
-              type="button"
-              className={sourceMode === 'gallery' ? 'source-chip active' : 'source-chip'}
-              onClick={() => {
-                setSourceMode('gallery')
-                setSelectedFile(null)
-                setEncryptedBlob(null)
-                setDecryptionKey('')
-                setAnonymizationReport(null)
-                setReviewConfirmed(false)
-                setAnnotationReviewConfirmed(false)
-                if (fileInputRef.current) fileInputRef.current.value = ''
-              }}
-            >
-              Elegir EEG desde una galería
-            </button>
-          </div>
-        </section>
+      <div className="case-new-overview">
+        <article className="card case-new-kpi">
+          <strong>1</strong>
+          <span>Describe el caso</span>
+        </article>
+        <article className="card case-new-kpi">
+          <strong>2</strong>
+          <span>Prepara el EEG</span>
+        </article>
+        <article className="card case-new-kpi">
+          <strong>3</strong>
+          <span>Verifica y crea</span>
+        </article>
+      </div>
 
-        <label>
-          Título
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            required
-          />
-        </label>
-
-        <label>
-          Contexto clínico
-          <textarea
-            rows={4}
-            value={clinicalContext}
-            onChange={(e) => setClinicalContext(e.target.value)}
-            required
-          />
-        </label>
-
-        <label>
-          Rango de edad
-          <select
-            value={ageRange}
-            onChange={(e) => setAgeRange(e.target.value)}
-            required
-          >
-            <option value="">Selecciona…</option>
-            {ageOptions.map((opt) => (
-              <option key={opt} value={opt}>
-                {opt}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label>
-          Motivo del estudio
-          <textarea
-            rows={3}
-            value={studyReason}
-            onChange={(e) => setStudyReason(e.target.value)}
-            required
-          />
-        </label>
-
-        <label>
-          Modalidad
-          <select
-            value={modality}
-            onChange={(e) => setModality(e.target.value)}
-            required
-          >
-            <option value="">Selecciona…</option>
-            {modalityOptions.map((opt) => (
-              <option key={opt} value={opt}>
-                {opt}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <div className={isCryptoAvailable() ? 'crypto-badge crypto-native' : 'crypto-badge crypto-fallback'}>
-          {isCryptoAvailable()
-            ? '🔒 Cifrado nativo del navegador (Web Crypto API)'
-            : '⚠️ Cifrado de compatibilidad (node-forge) — para máxima seguridad usa HTTPS'}
-        </div>
-
-        {sourceMode === 'upload' ? (
-          <>
-            <label>
-              Archivo EEG (.edf / EDF+)
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".edf"
-                onChange={handleFileChange}
-              />
-              <span className="file-hint">
-                {selectedFile
-                  ? `${selectedFile.name} (${(selectedFile.size / 1024 / 1024).toFixed(1)} MB)`
-                  : encrypting
-                  ? 'Cifrando…'
-                  : 'Selecciona un archivo .edf. OCEAN genera una copia desidentificada local y solo esa copia se cifra y se sube.'}
-              </span>
-            </label>
-
-            <label>
-              Tratamiento de anotaciones EDF+
-              <select
-                value={annotationMode}
-                onChange={(e) => setAnnotationMode(e.target.value as EdfAnnotationMode)}
-              >
-                <option value="remove">Quitar todas las anotaciones EDF+</option>
-                <option value="clinical">Conservar solo etiquetas clínicas conocidas</option>
-                <option value="replace">Sustituir el texto por “ANOTACION ELIMINADA”</option>
-              </select>
-              <span className="file-hint">
-                Las anotaciones pueden contener texto libre con identificadores. Por defecto se eliminan antes del cifrado; el modo clínico conserva solo marcas cortas conocidas como HV, HPV, ELI, EO, EC o photic.
-              </span>
-            </label>
-          </>
-        ) : (
-          <div className="gallery-picker card">
-            <div className="gallery-picker-copy">
-              <strong>Reutilizar un EEG de galería</strong>
-              <span>Este caso enlazará un EEG ya disponible en OCEAN, sin volver a subirlo desde tu ordenador.</span>
-            </div>
-            <label htmlFor="gallery-select">
-              Galería
-              <select
-                id="gallery-select"
-                value={selectedGalleryId}
-                onChange={(e) => setSelectedGalleryId(e.target.value)}
-                required={sourceMode === 'gallery'}
-              >
-                <option value="">Selecciona una galería…</option>
-                {galleries.map((gallery) => (
-                  <option key={gallery.id} value={gallery.id}>
-                    {gallery.title} ({gallery.recordCount} EEGs)
-                  </option>
-                ))}
-              </select>
-              <span className="file-hint">
-                {loadingGalleries ? 'Cargando galerías…' : 'Elige primero la colección de origen.'}
-              </span>
-            </label>
-            <label htmlFor="gallery-record-select">
-              EEG de la galería
-              <select
-                id="gallery-record-select"
-                value={selectedGalleryRecordId}
-                onChange={(e) => setSelectedGalleryRecordId(e.target.value)}
-                required={sourceMode === 'gallery'}
-                disabled={!selectedGalleryId || loadingGalleryRecords}
-              >
-                <option value="">Selecciona un registro…</option>
-                {galleryRecords.map((record) => (
-                  <option key={record.id} value={record.id}>
-                    {record.label}
-                    {record.metadata?.originalFilename ? ` · ${record.metadata.originalFilename}` : ''}
-                  </option>
-                ))}
-              </select>
-              <span className="file-hint">
-                {loadingGalleryRecords
-                  ? 'Cargando EEGs de la galería…'
-                  : selectedGalleryId
-                  ? 'Ese EEG quedará enlazado al nuevo caso tal como está almacenado en OCEAN.'
-                  : 'Primero selecciona una galería.'}
-              </span>
-            </label>
-          </div>
-        )}
-
-        {sourceMode === 'upload' && anonymizationReport && (
-          <div className="deid-review card">
-            <div className="deid-review-header">
+      <form onSubmit={handleSubmit} className="case-form-grid">
+        <div className="case-form-main card">
+          <section className="case-form-section">
+            <div className="case-form-section-head">
               <div>
-                <div className="deid-review-kicker">OCEAN Local De-ID</div>
-                <strong>Desidentificación local verificable</strong>
+                <span className="field-label">Paso 1</span>
+                <h3>Resumen del caso</h3>
               </div>
-              <button type="button" className="btn-secondary" onClick={downloadCertificate}>
-                Descargar certificado JSON
-              </button>
+              <span className="case-form-hint">Lo clínico primero, el EEG después.</span>
             </div>
-            <p className="deid-review-lead">
-              El archivo original no se subirá al caso. Solo se cifrará y subirá la copia desidentificada resumida aquí.
-            </p>
-            <div className="deid-review-meta">
-              <span><strong>Original:</strong> {anonymizationReport.originalFilename}</span>
-              <span><strong>Copia subida:</strong> {anonymizationReport.anonymizedFilename}</span>
-              <span><strong>Formato:</strong> {anonymizationReport.format}</span>
+
+            <label>
+              Título
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                required
+              />
+            </label>
+
+            <label>
+              Contexto clínico
+              <textarea
+                rows={4}
+                value={clinicalContext}
+                onChange={(e) => setClinicalContext(e.target.value)}
+                required
+              />
+            </label>
+
+            <div className="case-form-row">
+              <label>
+                Rango de edad
+                <select
+                  value={ageRange}
+                  onChange={(e) => setAgeRange(e.target.value)}
+                  required
+                >
+                  <option value="">Selecciona…</option>
+                  {ageOptions.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                Modalidad
+                <select
+                  value={modality}
+                  onChange={(e) => setModality(e.target.value)}
+                  required
+                >
+                  <option value="">Selecciona…</option>
+                  {modalityOptions.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
-            <table className="deid-table">
-              <thead>
-                <tr>
-                  <th>Campo EDF</th>
-                  <th>Original</th>
-                  <th>Resultado</th>
-                </tr>
-              </thead>
-              <tbody>
-                {anonymizationReport.reviewedFields.map((field) => (
-                  <tr key={field.key}>
-                    <td>{field.label}</td>
-                    <td>{field.originalValue}</td>
-                    <td>{field.resultValue}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <div className="deid-review-annotation-box">
-              <strong>Anotaciones EDF+</strong>
-              {anonymizationReport.annotationReview.totalAnnotations > 0 ? (
-                <>
-                  <span>
-                    Se han detectado {anonymizationReport.annotationReview.totalAnnotations} anotaciones EDF+.
-                    {anonymizationReport.annotationReview.modeApplied === 'remove'
-                      ? ' Se han eliminado de la copia subida.'
-                      : anonymizationReport.annotationReview.modeApplied === 'clinical'
-                        ? ` Se han conservado ${anonymizationReport.annotationReview.preservedCount} etiquetas clínicas conocidas y se han eliminado ${anonymizationReport.annotationReview.removedCount} anotaciones no permitidas.`
-                      : anonymizationReport.annotationReview.modeApplied === 'replace'
-                        ? ` Se han reescrito con el texto neutro "${anonymizationReport.annotationReview.replacementText}".`
-                        : ' Se conservan y requieren revisión manual antes de subir.'}
+
+            <label>
+              Motivo del estudio
+              <textarea
+                rows={3}
+                value={studyReason}
+                onChange={(e) => setStudyReason(e.target.value)}
+                required
+              />
+            </label>
+          </section>
+
+          <section className="case-form-section">
+            <div className="case-form-section-head">
+              <div>
+                <span className="field-label">Paso 2</span>
+                <h3>Origen del EEG</h3>
+              </div>
+              <span className="case-form-hint">Elige si subes un EDF o reutilizas uno ya curado.</span>
+            </div>
+
+            <section className="source-selector">
+              <div className="source-selector-row">
+                <button
+                  type="button"
+                  className={sourceMode === 'upload' ? 'source-chip active' : 'source-chip'}
+                  onClick={() => {
+                    setSourceMode('upload')
+                    setSelectedGalleryId('')
+                    setSelectedGalleryRecordId('')
+                    setGalleryRecords([])
+                  }}
+                >
+                  Subir desde mi ordenador
+                </button>
+                <button
+                  type="button"
+                  className={sourceMode === 'gallery' ? 'source-chip active' : 'source-chip'}
+                  onClick={() => {
+                    setSourceMode('gallery')
+                    setSelectedFile(null)
+                    setEncryptedBlob(null)
+                    setDecryptionKey('')
+                    setAnonymizationReport(null)
+                    setReviewConfirmed(false)
+                    setAnnotationReviewConfirmed(false)
+                    if (fileInputRef.current) fileInputRef.current.value = ''
+                  }}
+                >
+                  Elegir EEG desde una galería
+                </button>
+              </div>
+            </section>
+
+            <div className={isCryptoAvailable() ? 'crypto-badge crypto-native' : 'crypto-badge crypto-fallback'}>
+              {isCryptoAvailable()
+                ? '🔒 Cifrado nativo del navegador (Web Crypto API)'
+                : '⚠️ Cifrado de compatibilidad (node-forge) — para máxima seguridad usa HTTPS'}
+            </div>
+
+            {sourceMode === 'upload' ? (
+              <>
+                <label>
+                  Archivo EEG (.edf / EDF+)
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".edf"
+                    onChange={handleFileChange}
+                  />
+                  <span className="file-hint">
+                    {selectedFile
+                      ? `${selectedFile.name} (${(selectedFile.size / 1024 / 1024).toFixed(1)} MB)`
+                      : encrypting
+                      ? 'Cifrando…'
+                      : 'Selecciona un archivo .edf. OCEAN genera una copia desidentificada local y solo esa copia se cifra y se sube.'}
                   </span>
-                  {anonymizationReport.annotationReview.suspiciousCount > 0 && (
-                    <div className="deid-review-warning">
-                      Posibles identificadores encontrados: {anonymizationReport.annotationReview.suspiciousSamples.join(' · ')}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <span>No se han detectado anotaciones EDF+ embebidas.</span>
-              )}
-            </div>
-            {anonymizationReport.anonymizedSha256 && (
-              <div className="deid-review-hash">
-                <strong>SHA-256 de la copia desidentificada:</strong> {anonymizationReport.anonymizedSha256}
+                </label>
+
+                <label>
+                  Tratamiento de anotaciones EDF+
+                  <select
+                    value={annotationMode}
+                    onChange={(e) => setAnnotationMode(e.target.value as EdfAnnotationMode)}
+                  >
+                    <option value="remove">Quitar todas las anotaciones EDF+</option>
+                    <option value="clinical">Conservar solo etiquetas clínicas conocidas</option>
+                    <option value="replace">Sustituir el texto por “ANOTACION ELIMINADA”</option>
+                  </select>
+                  <span className="file-hint">
+                    Las anotaciones pueden contener texto libre con identificadores. Por defecto se eliminan antes del cifrado; el modo clínico conserva solo marcas cortas conocidas como HV, HPV, ELI, EO, EC o photic.
+                  </span>
+                </label>
+              </>
+            ) : (
+              <div className="gallery-picker card">
+                <div className="gallery-picker-copy">
+                  <strong>Reutilizar un EEG de galería</strong>
+                  <span>Este caso enlazará un EEG ya disponible en OCEAN, sin volver a subirlo desde tu ordenador.</span>
+                </div>
+                <label htmlFor="gallery-select">
+                  Galería
+                  <select
+                    id="gallery-select"
+                    value={selectedGalleryId}
+                    onChange={(e) => setSelectedGalleryId(e.target.value)}
+                    required={sourceMode === 'gallery'}
+                  >
+                    <option value="">Selecciona una galería…</option>
+                    {galleries.map((gallery) => (
+                      <option key={gallery.id} value={gallery.id}>
+                        {gallery.title} ({gallery.recordCount} EEGs)
+                      </option>
+                    ))}
+                  </select>
+                  <span className="file-hint">
+                    {loadingGalleries ? 'Cargando galerías…' : 'Elige primero la colección de origen.'}
+                  </span>
+                </label>
+                <label htmlFor="gallery-record-select">
+                  EEG de la galería
+                  <select
+                    id="gallery-record-select"
+                    value={selectedGalleryRecordId}
+                    onChange={(e) => setSelectedGalleryRecordId(e.target.value)}
+                    required={sourceMode === 'gallery'}
+                    disabled={!selectedGalleryId || loadingGalleryRecords}
+                  >
+                    <option value="">Selecciona un registro…</option>
+                    {galleryRecords.map((record) => (
+                      <option key={record.id} value={record.id}>
+                        {record.label}
+                        {record.metadata?.originalFilename ? ` · ${record.metadata.originalFilename}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="file-hint">
+                    {loadingGalleryRecords
+                      ? 'Cargando EEGs de la galería…'
+                      : selectedGalleryId
+                      ? 'Ese EEG quedará enlazado al nuevo caso tal como está almacenado en OCEAN.'
+                      : 'Primero selecciona una galería.'}
+                  </span>
+                </label>
               </div>
             )}
-            <label className="deid-review-check">
-              <input
-                type="checkbox"
-                checked={reviewConfirmed}
-                onChange={(e) => setReviewConfirmed(e.target.checked)}
-              />
-              <span>He revisado la copia desidentificada y entiendo que OCEAN no subirá el archivo original.</span>
-            </label>
-            {anonymizationReport.annotationReview.requiresManualReview && (
+          </section>
+
+          {sourceMode === 'upload' && anonymizationReport && (
+            <div className="deid-review card">
+              <div className="deid-review-header">
+                <div>
+                  <div className="deid-review-kicker">OCEAN Local De-ID</div>
+                  <strong>Desidentificación local verificable</strong>
+                </div>
+                <button type="button" className="btn-secondary" onClick={downloadCertificate}>
+                  Descargar certificado JSON
+                </button>
+              </div>
               <label className="deid-review-check">
                 <input
                   type="checkbox"
-                  checked={annotationReviewConfirmed}
-                  onChange={(e) => setAnnotationReviewConfirmed(e.target.checked)}
+                  checked={reviewConfirmed}
+                  onChange={(e) => setReviewConfirmed(e.target.checked)}
                 />
-                <span>He revisado las anotaciones EDF+ y no contienen identificadores directos antes de subir esta copia.</span>
+                <span>He revisado la copia desidentificada y entiendo que OCEAN no subirá el archivo original.</span>
               </label>
-            )}
-          </div>
-        )}
-
-        {sourceMode === 'upload' && decryptionKey && (
-          <div className="key-box card">
-            <div className="key-label">Clave de descifrado</div>
-            <div className="key-value">{decryptionKey}</div>
-            <p className="key-hint">
-              Guarda esta clave si vas a compartir el acceso fuera de OCEAN.
-              <strong> Los usuarios invitados podrán recuperarla con su contraseña de OCEAN.</strong>
-            </p>
-            {storedKeyInOcean && (
-              <p className="key-hint">
-                Clave custodiada en OCEAN: el propietario y revisores invitados podrán usarla sin verla en pantalla.
+              <p className="deid-review-lead">
+                El archivo original no se subirá al caso. Solo se cifrará y subirá la copia desidentificada resumida aquí.
               </p>
-            )}
-          </div>
-        )}
+              <div className="deid-review-meta">
+                <span><strong>Original:</strong> {anonymizationReport.originalFilename}</span>
+                <span><strong>Copia subida:</strong> {anonymizationReport.anonymizedFilename}</span>
+                <span><strong>Formato:</strong> {anonymizationReport.format}</span>
+              </div>
+              <table className="deid-table">
+                <thead>
+                  <tr>
+                    <th>Campo EDF</th>
+                    <th>Original</th>
+                    <th>Resultado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {anonymizationReport.reviewedFields.map((field) => (
+                    <tr key={field.key}>
+                      <td>{field.label}</td>
+                      <td>{field.originalValue}</td>
+                      <td>{field.resultValue}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="deid-review-annotation-box">
+                <strong>Anotaciones EDF+</strong>
+                {anonymizationReport.annotationReview.totalAnnotations > 0 ? (
+                  <>
+                    <span>
+                      Se han detectado {anonymizationReport.annotationReview.totalAnnotations} anotaciones EDF+.
+                      {anonymizationReport.annotationReview.modeApplied === 'remove'
+                        ? ' Se han eliminado de la copia subida.'
+                        : anonymizationReport.annotationReview.modeApplied === 'clinical'
+                          ? ` Se han conservado ${anonymizationReport.annotationReview.preservedCount} etiquetas clínicas conocidas y se han eliminado ${anonymizationReport.annotationReview.removedCount} anotaciones no permitidas.`
+                        : anonymizationReport.annotationReview.modeApplied === 'replace'
+                          ? ` Se han reescrito con el texto neutro "${anonymizationReport.annotationReview.replacementText}".`
+                          : ' Se conservan y requieren revisión manual antes de subir.'}
+                    </span>
+                    {anonymizationReport.annotationReview.suspiciousCount > 0 && (
+                      <div className="deid-review-warning">
+                        Posibles identificadores encontrados: {anonymizationReport.annotationReview.suspiciousSamples.join(' · ')}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <span>No se han detectado anotaciones EDF+ embebidas.</span>
+                )}
+              </div>
+              {anonymizationReport.anonymizedSha256 && (
+                <div className="deid-review-hash">
+                  <strong>SHA-256 de la copia desidentificada:</strong> {anonymizationReport.anonymizedSha256}
+                </div>
+              )}
+              {anonymizationReport.annotationReview.requiresManualReview && (
+                <label className="deid-review-check">
+                  <input
+                    type="checkbox"
+                    checked={annotationReviewConfirmed}
+                    onChange={(e) => setAnnotationReviewConfirmed(e.target.checked)}
+                  />
+                  <span>He revisado las anotaciones EDF+ y no contienen identificadores directos antes de subir esta copia.</span>
+                </label>
+              )}
+            </div>
+          )}
 
-        {error && <div className="auth-error">{error}</div>}
+          {sourceMode === 'upload' && decryptionKey && (
+            <div className="key-box card">
+              <div className="key-label">Clave de descifrado</div>
+              <div className="key-value">{decryptionKey}</div>
+              <p className="key-hint">
+                Guarda esta clave si vas a compartir el acceso fuera de OCEAN.
+                <strong> Los usuarios invitados podrán recuperarla con su contraseña de OCEAN.</strong>
+              </p>
+              {storedKeyInOcean && (
+                <p className="key-hint">
+                  Clave custodiada en OCEAN: el propietario y revisores invitados podrán usarla sin verla en pantalla.
+                </p>
+              )}
+            </div>
+          )}
 
-        <div className="form-actions">
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => navigate('/')}
-          >
-            Cancelar
-          </button>
-          <button
-            type="submit"
-            className="btn-primary"
-            disabled={
-              saving
-              || encrypting
-              || (sourceMode === 'upload' && !encryptedBlob)
-              || (sourceMode === 'upload' && (!!anonymizationReport && !reviewConfirmed))
-              || (sourceMode === 'upload' && (!!anonymizationReport?.annotationReview.requiresManualReview && !annotationReviewConfirmed))
-              || (sourceMode === 'gallery' && !selectedGalleryRecordId)
-            }
-          >
-            {saving ? 'Guardando…' : 'Crear caso'}
-          </button>
+          {error && <div className="auth-error">{error}</div>}
         </div>
+
+        <aside className="case-form-side">
+          <section className="card case-form-side-card">
+            <span className="field-label">Resumen</span>
+            <h3>Qué se va a crear</h3>
+            <div className="case-form-summary-list">
+              <div><strong>Origen EEG:</strong> {sourceMode === 'upload' ? 'Subida local' : 'Galería existente'}</div>
+              <div><strong>EEG preparado:</strong> {sourceMode === 'upload' ? (encryptedBlob ? 'Sí' : 'No') : (selectedGalleryRecordId ? 'Sí' : 'No')}</div>
+              <div><strong>Visibilidad inicial:</strong> Privado</div>
+              <div><strong>Docencia:</strong> No se propone al crear el caso</div>
+            </div>
+          </section>
+
+          <section className="card case-form-side-card">
+            <span className="field-label">Checklist</span>
+            <h3>Antes de crear</h3>
+            <ul className="case-form-checklist">
+              <li className={title.trim() ? 'done' : ''}>Título y contexto completos</li>
+              <li className={ageRange && modality ? 'done' : ''}>Edad y modalidad elegidas</li>
+              <li className={studyReason.trim() ? 'done' : ''}>Motivo del estudio descrito</li>
+              <li className={(sourceMode === 'upload' && !!encryptedBlob) || (sourceMode === 'gallery' && !!selectedGalleryRecordId) ? 'done' : ''}>EEG listo para enlazar o subir</li>
+              <li className={sourceMode !== 'upload' || reviewConfirmed ? 'done' : ''}>Revisión de desidentificación confirmada</li>
+            </ul>
+          </section>
+
+          <section className="card case-form-side-card">
+            <span className="field-label">Siguiente paso</span>
+            <h3>Después de crear</h3>
+            <p className="ops-subtle">
+              El caso se abrirá en su detalle. Desde ahí podrás revisar el EEG, comentar, invitar a un colega o mandarlo a un grupo.
+            </p>
+          </section>
+
+          <div className="form-actions case-form-side-actions">
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => navigate('/')}
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              className="btn-primary"
+              disabled={!canSubmit}
+            >
+              {saving ? 'Guardando…' : 'Crear caso'}
+            </button>
+          </div>
+        </aside>
       </form>
 
     </div>

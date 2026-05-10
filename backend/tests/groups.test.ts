@@ -145,6 +145,42 @@ describe('POST /groups/:id/members', () => {
     )
   })
 
+  it('respeta la preferencia de no enviar email para invitaciones a grupo', async () => {
+    process.env.RESEND_API_KEY = 'test-key'
+    ;(global as any).fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => '',
+    })
+
+    const owner = await createUser({ email: 'grp-no-mail-owner@ocean.local', displayName: 'GrpNoMailOwner', password: 'pass' })
+    const newMember = await createUser({ email: 'grp-no-mail-member@ocean.local', displayName: 'GrpNoMailMember', password: 'pass' })
+    await prisma.user.update({
+      where: { id: newMember.id },
+      data: {
+        preferences: JSON.stringify({
+          review_request_direct: { email: true, telegram: true, push: true },
+          review_request_group: { email: true, telegram: true, push: true },
+          group_invitation: { email: false, telegram: true, push: true },
+          comment_on_case: { email: false, telegram: false, push: false },
+        }),
+      },
+    })
+    const token = generateToken(owner.id, owner.email, owner.role)
+
+    const created = await request(app).post('/groups').set('Authorization', `Bearer ${token}`).send({ name: 'Grupo sin correo' })
+    const res = await request(app)
+      .post(`/groups/${created.body.id}/members`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ userId: newMember.id })
+
+    expect(res.status).toBe(201)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect((global as any).fetch).not.toHaveBeenCalledWith(
+      'https://api.resend.com/emails',
+      expect.anything(),
+    )
+  })
+
   it('no-admin no puede invitar miembros', async () => {
     const owner = await createUser({ email: 'grp-oa@ocean.local', displayName: 'GrpOA', password: 'pass' })
     const member = await createUser({ email: 'grp-ma@ocean.local', displayName: 'GrpMA', password: 'pass' })

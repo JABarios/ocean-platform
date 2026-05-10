@@ -4,6 +4,7 @@ import { prisma } from '../utils/prisma'
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth'
 import { buildCaseUrl, sendReviewRequestEmail } from '../utils/email'
 import { buildNotificationCaseTitle, createNotification, createNotificationsForUsers } from '../utils/notifications'
+import { shouldDeliverNotification } from '../utils/notificationPreferences'
 import { sendPushToUser } from '../utils/push'
 import { sendTelegramToUser } from '../utils/telegram'
 import {
@@ -159,14 +160,16 @@ async function notifyReviewRequest(params: {
     })
     if (!targetUser || targetUser.status !== 'Active') return
 
-    await sendReviewRequestEmail({
-      to: targetUser.email,
-      displayName: targetUser.displayName,
-      requesterName: requester.displayName,
-      caseTitle,
-      caseUrl,
-      message: params.message,
-    })
+    if (await shouldDeliverNotification(params.targetUserId, 'review_request_direct', 'email')) {
+      await sendReviewRequestEmail({
+        to: targetUser.email,
+        displayName: targetUser.displayName,
+        requesterName: requester.displayName,
+        caseTitle,
+        caseUrl,
+        message: params.message,
+      })
+    }
     return
   }
 
@@ -193,8 +196,9 @@ async function notifyReviewRequest(params: {
         Boolean(user && user.id !== params.requestedBy && user.status === 'Active'),
       )
 
-    await Promise.allSettled(recipients.map((user) =>
-      sendReviewRequestEmail({
+    await Promise.allSettled(recipients.map(async (user) => {
+      if (!(await shouldDeliverNotification(user.id, 'review_request_group', 'email'))) return
+      return sendReviewRequestEmail({
         to: user.email,
         displayName: user.displayName,
         requesterName: requester.displayName,
@@ -202,8 +206,8 @@ async function notifyReviewRequest(params: {
         caseUrl,
         message: params.message,
         groupName: group.name,
-      }),
-    ))
+      })
+    }))
   }
 }
 
@@ -234,11 +238,15 @@ async function pushReviewRequest(params: {
   }
 
   if (params.targetUserId) {
-    await sendPushToUser(params.targetUserId, pushPayload)
-    await sendTelegramToUser(params.targetUserId, {
-      text: `${requester.displayName} te ha enviado ${caseTitle} para revisar en OCEAN.`,
-      url: buildCaseUrl(caseItem.id),
-    })
+    if (await shouldDeliverNotification(params.targetUserId, 'review_request_direct', 'push')) {
+      await sendPushToUser(params.targetUserId, pushPayload)
+    }
+    if (await shouldDeliverNotification(params.targetUserId, 'review_request_direct', 'telegram')) {
+      await sendTelegramToUser(params.targetUserId, {
+        text: `${requester.displayName} te ha enviado ${caseTitle} para revisar en OCEAN.`,
+        url: buildCaseUrl(caseItem.id),
+      })
+    }
     return
   }
 
@@ -259,11 +267,19 @@ async function pushReviewRequest(params: {
         .map((member) => member.userId)
         .filter((userId) => userId !== params.requestedBy)
         .flatMap((userId) => [
-          sendPushToUser(userId, pushPayload),
-          sendTelegramToUser(userId, {
-            text: `${requester.displayName} ha enviado ${caseTitle} al grupo para revisar en OCEAN.`,
-            url: buildCaseUrl(caseItem.id),
-          }),
+          (async () => {
+            if (await shouldDeliverNotification(userId, 'review_request_group', 'push')) {
+              await sendPushToUser(userId, pushPayload)
+            }
+          })(),
+          (async () => {
+            if (await shouldDeliverNotification(userId, 'review_request_group', 'telegram')) {
+              await sendTelegramToUser(userId, {
+                text: `${requester.displayName} ha enviado ${caseTitle} al grupo para revisar en OCEAN.`,
+                url: buildCaseUrl(caseItem.id),
+              })
+            }
+          })(),
         ]),
     )
   }

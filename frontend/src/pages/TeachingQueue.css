@@ -4,6 +4,35 @@
   gap: 1rem;
 }
 
+.queue-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.queue-summary-card {
+  min-width: 88px;
+  padding: 0.8rem 0.9rem;
+  border-radius: 16px;
+  border: 1px solid rgba(223, 228, 237, 0.92);
+  background: linear-gradient(180deg, rgba(251, 252, 254, 0.98) 0%, rgba(246, 248, 252, 0.98) 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.18rem;
+}
+
+.queue-summary-card strong {
+  font-size: 1.2rem;
+}
+
+.queue-summary-card span {
+  color: var(--text-secondary);
+  font-size: 0.73rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 .queue h2 {
   font-size: 1.45rem;
   font-weight: 700;
@@ -111,6 +140,10 @@
 .badge-recommended { background: #fef3c7; color: #92400e; }
 
 @media (max-width: 760px) {
+  .queue-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .item-header,
   .item-actions {
     flex-direction: column;

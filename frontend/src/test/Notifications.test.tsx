@@ -23,6 +23,13 @@ function renderNotifications() {
 }
 
 describe('Notifications', () => {
+  const defaultPreferences = {
+    review_request_direct: { email: true, telegram: true, push: true },
+    review_request_group: { email: true, telegram: true, push: true },
+    group_invitation: { email: true, telegram: true, push: true },
+    comment_on_case: { email: false, telegram: false, push: false },
+  }
+
   beforeEach(() => {
     vi.restoreAllMocks()
     vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -52,6 +59,16 @@ describe('Notifications', () => {
           username: null,
           linkedAt: null,
           notificationsEnabled: false,
+        },
+      },
+      {
+        data: {
+          preferences: defaultPreferences,
+          channels: {
+            emailConfigured: true,
+            telegramConfigured: false,
+            pushConfigured: false,
+          },
         },
       },
     ])
@@ -84,6 +101,16 @@ describe('Notifications', () => {
           username: null,
           linkedAt: null,
           notificationsEnabled: false,
+        },
+      },
+      {
+        data: {
+          preferences: defaultPreferences,
+          channels: {
+            emailConfigured: true,
+            telegramConfigured: false,
+            pushConfigured: false,
+          },
         },
       },
       { data: {}, status: 204 },
@@ -125,11 +152,68 @@ describe('Notifications', () => {
           notificationsEnabled: false,
         },
       },
+      {
+        data: {
+          preferences: defaultPreferences,
+          channels: {
+            emailConfigured: true,
+            telegramConfigured: true,
+            pushConfigured: true,
+          },
+        },
+      },
     ])
 
     renderNotifications()
 
     const link = await screen.findByRole('link', { name: /Abrir/i })
     expect(link.getAttribute('href')).toBe('/groups?groupId=group-42')
+  })
+
+  it('permite cambiar una preferencia de canal', async () => {
+    const fetchMock = mockFetchSequence([
+      { data: [] },
+      {
+        data: {
+          configured: false,
+          botUsername: null,
+          linked: false,
+          username: null,
+          linkedAt: null,
+          notificationsEnabled: false,
+        },
+      },
+      {
+        data: {
+          preferences: defaultPreferences,
+          channels: {
+            emailConfigured: true,
+            telegramConfigured: true,
+            pushConfigured: true,
+          },
+        },
+      },
+      {
+        data: {
+          preferences: {
+            ...defaultPreferences,
+            review_request_direct: { ...defaultPreferences.review_request_direct, email: false },
+          },
+        },
+      },
+    ])
+
+    renderNotifications()
+
+    fireEvent.click(await screen.findByRole('button', { name: /Canales y ajustes/i }))
+    const toggles = await screen.findAllByRole('checkbox')
+    fireEvent.click(toggles[0])
+
+    await waitFor(() => {
+      const preferenceCall = fetchMock.mock.calls.find(([url, opts]) =>
+        url.includes('/notifications/preferences') && opts?.method === 'PATCH'
+      )
+      expect(preferenceCall).toBeDefined()
+    })
   })
 })

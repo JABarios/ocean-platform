@@ -52,6 +52,9 @@ describe('TeachingQueue', () => {
     renderQueue()
 
     expect(await screen.findByText('Caso recomendado')).toBeInTheDocument()
+    expect(screen.getByText('Recomendado')).toBeInTheDocument()
+    expect(screen.getByText('Intermedio')).toBeInTheDocument()
+    expect(screen.getByText('Resuelto')).toBeInTheDocument()
     expect(screen.getByText('Apoyos: 2')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Ver caso/i })).toHaveAttribute('href', '/cases/case-1')
   })

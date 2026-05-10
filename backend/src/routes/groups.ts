@@ -5,6 +5,7 @@ import { authMiddleware, AuthenticatedRequest } from '../middleware/auth'
 import { canManageGroupMembers } from '../domain/workflows/groupWorkflow'
 import { buildGroupsUrl, sendGroupInvitationEmail } from '../utils/email'
 import { createNotification } from '../utils/notifications'
+import { shouldDeliverNotification } from '../utils/notificationPreferences'
 import { sendPushToUser } from '../utils/push'
 import { sendTelegramToUser } from '../utils/telegram'
 
@@ -288,31 +289,37 @@ router.post('/:id/members', async (req: AuthenticatedRequest, res) => {
       console.warn('[OCEAN notifications] No se pudo crear la notificación de invitación al grupo', err)
     })
 
-    sendGroupInvitationEmail({
-      to: member.user.email,
-      displayName: member.user.displayName,
-      inviterName: inviter.displayName,
-      groupName: group.name,
-      groupsUrl: buildGroupsUrl(),
-    }).catch((err) => {
-      console.warn('[OCEAN email] No se pudo enviar la invitación al grupo', err)
-    })
+    if (await shouldDeliverNotification(member.user.id, 'group_invitation', 'email')) {
+      sendGroupInvitationEmail({
+        to: member.user.email,
+        displayName: member.user.displayName,
+        inviterName: inviter.displayName,
+        groupName: group.name,
+        groupsUrl: buildGroupsUrl(),
+      }).catch((err) => {
+        console.warn('[OCEAN email] No se pudo enviar la invitación al grupo', err)
+      })
+    }
 
-    sendPushToUser(member.user.id, {
-      title: 'Nueva invitación a grupo',
-      body: `${inviter.displayName} te ha invitado al grupo ${group.name}.`,
-      url: buildGroupsUrl(),
-      tag: `group-invite-${req.params.id}`,
-    }).catch((err) => {
-      console.warn('[OCEAN push] No se pudo enviar el push de invitación a grupo', err)
-    })
+    if (await shouldDeliverNotification(member.user.id, 'group_invitation', 'push')) {
+      sendPushToUser(member.user.id, {
+        title: 'Nueva invitación a grupo',
+        body: `${inviter.displayName} te ha invitado al grupo ${group.name}.`,
+        url: buildGroupsUrl(),
+        tag: `group-invite-${req.params.id}`,
+      }).catch((err) => {
+        console.warn('[OCEAN push] No se pudo enviar el push de invitación a grupo', err)
+      })
+    }
 
-    sendTelegramToUser(member.user.id, {
-      text: `${inviter.displayName} te ha invitado al grupo ${group.name} en OCEAN.`,
-      url: buildGroupsUrl(),
-    }).catch((err) => {
-      console.warn('[OCEAN telegram] No se pudo enviar el aviso de Telegram de invitación a grupo', err)
-    })
+    if (await shouldDeliverNotification(member.user.id, 'group_invitation', 'telegram')) {
+      sendTelegramToUser(member.user.id, {
+        text: `${inviter.displayName} te ha invitado al grupo ${group.name} en OCEAN.`,
+        url: buildGroupsUrl(),
+      }).catch((err) => {
+        console.warn('[OCEAN telegram] No se pudo enviar el aviso de Telegram de invitación a grupo', err)
+      })
+    }
   }
 
   res.status(201).json(serializeMembership(member))

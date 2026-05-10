@@ -87,6 +87,19 @@ export interface NotificationItem {
   }
 }
 
+export type NotificationPreferenceEvent =
+  | 'review_request_direct'
+  | 'review_request_group'
+  | 'group_invitation'
+  | 'comment_on_case'
+
+export type NotificationPreferenceChannel = 'email' | 'telegram' | 'push'
+
+export type NotificationPreferences = Record<
+  NotificationPreferenceEvent,
+  Record<NotificationPreferenceChannel, boolean>
+>
+
 export interface CasePackage {
   id: string
   caseId: string

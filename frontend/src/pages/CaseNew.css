@@ -4,25 +4,94 @@
   gap: 1rem;
 }
 
+.case-new-overview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.case-new-kpi {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.95rem 1rem;
+}
+
+.case-new-kpi strong {
+  font-size: 1.2rem;
+  color: #1d4ed8;
+}
+
+.case-new-kpi span {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+}
+
 .case-new h2 {
   font-size: 1.45rem;
   font-weight: 700;
 }
 
-.case-form {
+.case-form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.8fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.case-form-main,
+.case-form-side {
   display: flex;
   flex-direction: column;
   gap: 0.95rem;
-  max-width: 780px;
 }
 
-.case-form label {
+.case-form-grid label {
   display: flex;
   flex-direction: column;
   gap: 0.42rem;
   font-size: 0.86rem;
   font-weight: 600;
   color: var(--text-secondary);
+}
+
+.case-form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.95rem;
+}
+
+.case-form-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.case-form-section-head h3,
+.case-form-side-card h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.case-form-hint {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  max-width: 18rem;
+  line-height: 1.45;
+}
+
+.case-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.8rem;
+}
+
+.case-form-side-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
 }
 
 .source-selector {
@@ -255,6 +324,41 @@
   margin-top: 0.45rem;
 }
 
+.case-form-side-actions {
+  margin-top: 0;
+}
+
+.case-form-side-actions .btn-primary,
+.case-form-side-actions .btn-secondary {
+  flex: 1;
+}
+
+.case-form-summary-list,
+.case-form-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  color: var(--text-secondary);
+  font-size: 0.84rem;
+}
+
+.case-form-checklist {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.case-form-checklist li::before {
+  content: '•';
+  color: #94a3b8;
+  margin-right: 0.45rem;
+}
+
+.case-form-checklist li.done::before {
+  content: '✓';
+  color: #15803d;
+}
+
 .crypto-badge {
   font-size: 0.82rem;
   padding: 0.5rem 0.8rem;
@@ -275,6 +379,12 @@
 }
 
 @media (max-width: 760px) {
+  .case-new-overview,
+  .case-form-grid,
+  .case-form-row {
+    grid-template-columns: 1fr;
+  }
+
   .source-selector-row {
     flex-direction: column;
   }

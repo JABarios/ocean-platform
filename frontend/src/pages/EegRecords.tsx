@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api, friendlyError } from '../api/client'
 import type { EegRecord } from '../types'
 import PageHeader from '../components/PageHeader'
+import { statusLabel } from '../utils/caseStatus'
 import './EegRecords.css'
 
 function formatDate(value?: string) {
@@ -22,17 +23,25 @@ export default function EegRecords() {
       .finally(() => setLoading(false))
   }, [])
 
+  const reusedRecords = records.filter((record) => record.usageCount > 1).length
+
   if (loading) return <div style={{ color: 'var(--text-secondary)', padding: '2rem 0' }}>Cargando…</div>
 
   return (
     <div className="eeg-records">
       <PageHeader
         title="EEGs"
-        subtitle="Registros compartidos, reutilización por hash y casos vinculados."
+        subtitle="Inventario reutilizable de paquetes EEG ya cargados en OCEAN y los casos donde viven."
         aside={(
-          <div className="records-summary card">
-            <strong>{records.length}</strong>
-            <span>Registros visibles</span>
+          <div className="records-summary-grid">
+            <div className="records-summary card">
+              <strong>{records.length}</strong>
+              <span>Registros visibles</span>
+            </div>
+            <div className="records-summary card">
+              <strong>{reusedRecords}</strong>
+              <span>Reutilizados</span>
+            </div>
           </div>
         )}
       />
@@ -69,7 +78,7 @@ export default function EegRecords() {
                       {item.title || 'Caso sin título'}
                     </Link>
                     <div className="record-meta">
-                      {item.owner?.displayName || 'Propietario'} · {item.status || '—'} · {formatDate(item.createdAt)}
+                      {item.owner?.displayName || 'Propietario'} · {item.status ? statusLabel(item.status as any) : '—'} · {formatDate(item.createdAt)}
                     </div>
                   </div>
                   <div className="linked-case-actions">

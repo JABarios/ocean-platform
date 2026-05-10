@@ -1,6 +1,7 @@
 import request from 'supertest'
 import app from '../src/index'
 import { createCase, createNotification, createUser, generateToken } from './helpers'
+import { prisma } from './helpers'
 
 describe('GET /notifications', () => {
   it('lista las notificaciones del usuario en orden reciente', async () => {
@@ -104,5 +105,45 @@ describe('POST /notifications/read-all', () => {
       .set('Authorization', `Bearer ${token}`)
 
     expect(count.body.count).toBe(0)
+  })
+})
+
+describe('GET/PATCH /notifications/preferences', () => {
+  it('devuelve las preferencias normalizadas del usuario', async () => {
+    const user = await createUser({ email: 'notif-prefs@ocean.local', displayName: 'NotifPrefs', password: 'pass' })
+    const token = generateToken(user.id, user.email, user.role)
+
+    const res = await request(app)
+      .get('/notifications/preferences')
+      .set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.preferences.review_request_direct.email).toBe(true)
+    expect(res.body.preferences.group_invitation.push).toBe(true)
+  })
+
+  it('permite actualizar una preferencia concreta', async () => {
+    const user = await createUser({ email: 'notif-prefs-patch@ocean.local', displayName: 'NotifPrefsPatch', password: 'pass' })
+    const token = generateToken(user.id, user.email, user.role)
+
+    const res = await request(app)
+      .patch('/notifications/preferences')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        review_request_direct: {
+          email: false,
+        },
+      })
+
+    expect(res.status).toBe(200)
+    expect(res.body.preferences.review_request_direct.email).toBe(false)
+
+    const stored = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { preferences: true },
+    })
+
+    expect(stored?.preferences).toContain('"review_request_direct"')
+    expect(stored?.preferences).toContain('"email":false')
   })
 })

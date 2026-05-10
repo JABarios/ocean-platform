@@ -4,6 +4,7 @@ import { api } from '../api/client'
 import { useAuthStore } from '../store/authStore'
 import type { TeachingProposal } from '../types'
 import { getTeachingSupportCount, hasAvailableAction } from '../utils/teachingState'
+import { difficultyLabel, statusLabel, teachingStatusLabel } from '../utils/caseStatus'
 import PageHeader from '../components/PageHeader'
 import './TeachingQueue.css'
 
@@ -23,6 +24,13 @@ export default function TeachingQueue() {
   const filtered = filter === 'all'
     ? items
     : items.filter((i) => i.status === filter)
+
+  const summary = {
+    total: items.length,
+    proposed: items.filter((item) => item.status === 'Proposed').length,
+    recommended: items.filter((item) => item.status === 'Recommended').length,
+    validated: items.filter((item) => item.status === 'Validated').length,
+  }
 
   const recommend = async (id: string) => {
     try {
@@ -56,10 +64,30 @@ export default function TeachingQueue() {
     <div className="queue">
       <PageHeader
         title="Casos propuestos"
-        subtitle="Casos propuestos por la comunidad pendientes de recomendación y validación curatorial."
+        subtitle="Bandeja docente para revisar propuestas, ver apoyos y decidir qué casos pasan a biblioteca."
+        aside={(
+          <div className="queue-summary-grid">
+            <div className="queue-summary-card">
+              <strong>{summary.total}</strong>
+              <span>en cola</span>
+            </div>
+            <div className="queue-summary-card">
+              <strong>{summary.proposed}</strong>
+              <span>propuestas</span>
+            </div>
+            <div className="queue-summary-card">
+              <strong>{summary.recommended}</strong>
+              <span>listas para curar</span>
+            </div>
+            <div className="queue-summary-card">
+              <strong>{summary.validated}</strong>
+              <span>validadas</span>
+            </div>
+          </div>
+        )}
       />
 
-      <div className="filters">
+      <div className="filters card">
         {(['all', 'Proposed', 'Recommended'] as const).map((f) => (
           <button
             key={f}
@@ -83,10 +111,13 @@ export default function TeachingQueue() {
                 <h3>{item.case?.title || 'Caso sin título'}</h3>
                 <div className="item-badges">
                   <span className={`badge badge-${item.status.toLowerCase()}`}>
-                    {item.status}
+                    {teachingStatusLabel(item.status)}
                   </span>
                   {item.difficulty && (
-                    <span className="badge badge-draft">{item.difficulty}</span>
+                    <span className="badge badge-draft">{difficultyLabel(item.difficulty)}</span>
+                  )}
+                  {item.case?.status && (
+                    <span className="badge">{statusLabel(item.case.status)}</span>
                   )}
                 </div>
               </div>
@@ -113,6 +144,7 @@ export default function TeachingQueue() {
               <div className="item-meta">
                 <span>Propuesto por: {item.proposer?.displayName || '—'}</span>
                 <span>Apoyos: {getTeachingSupportCount(item)}</span>
+                {item.validatedAt && <span>Validado: {new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium' }).format(new Date(item.validatedAt))}</span>}
               </div>
 
               {item.tags && item.tags.length > 0 && (

@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import PageHeader from '../components/PageHeader'
 import { api, friendlyError } from '../api/client'
 import { hasAvailableAction } from '../utils/teachingState'
+import { visibilityLabel } from '../utils/caseStatus'
 import type { Gallery } from '../types'
 import './GalleryDetail.css'
 
@@ -169,7 +170,7 @@ export default function GalleryDetail() {
                   <div><strong>Descripción:</strong> {gallery.description || '—'}</div>
                   <div><strong>Fuente:</strong> {gallery.source || '—'}</div>
                   <div><strong>Licencia:</strong> {gallery.license || '—'}</div>
-                  <div><strong>Visibilidad:</strong> {gallery.visibility}</div>
+                  <div><strong>Visibilidad:</strong> {visibilityLabel(gallery.visibility)}</div>
                   <div><strong>Tags:</strong> {gallery.tags.length > 0 ? gallery.tags.join(', ') : '—'}</div>
                 </div>
               )}
@@ -191,8 +192,8 @@ export default function GalleryDetail() {
                   <label>
                     <span>Visibilidad</span>
                     <select value={form.visibility} onChange={(e) => setForm((current) => ({ ...current, visibility: e.target.value }))}>
-                      <option value="Institutional">Institutional</option>
-                      <option value="Public">Public</option>
+                      <option value="Institutional">Grupo</option>
+                      <option value="Public">Público</option>
                     </select>
                   </label>
                   <label className="gallery-edit-wide">
@@ -231,7 +232,7 @@ export default function GalleryDetail() {
           <section className="card gallery-detail-meta">
             <div><strong>Fuente:</strong> {gallery.source || '—'}</div>
             <div><strong>Licencia:</strong> {gallery.license || '—'}</div>
-            <div><strong>Visibilidad:</strong> {gallery.visibility}</div>
+            <div><strong>Visibilidad:</strong> {visibilityLabel(gallery.visibility)}</div>
             <div><strong>Creada:</strong> {formatDate(gallery.createdAt)}</div>
             {gallery.metadata?.sourceDataset && <div><strong>Dataset:</strong> {gallery.metadata.sourceDataset}</div>}
             {gallery.metadata?.caseCode && <div><strong>Caso / serie:</strong> {gallery.metadata.caseCode}</div>}

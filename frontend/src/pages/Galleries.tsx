@@ -4,6 +4,7 @@ import PageHeader from '../components/PageHeader'
 import { api, friendlyError } from '../api/client'
 import { useAuthStore } from '../store/authStore'
 import { hasAvailableAction } from '../utils/teachingState'
+import { visibilityLabel } from '../utils/caseStatus'
 import type { Gallery } from '../types'
 import './Galleries.css'
 
@@ -64,6 +65,9 @@ export default function Galleries() {
     })
   }, [galleries, query])
 
+  const publicCount = galleries.filter((gallery) => gallery.visibility === 'Public').length
+  const groupCount = galleries.filter((gallery) => gallery.visibility === 'Institutional').length
+
   const handleImport = async (event: FormEvent) => {
     event.preventDefault()
     setImporting(true)
@@ -96,9 +100,19 @@ export default function Galleries() {
         title="Galerías"
         subtitle="Colecciones de EEGs preparadas para revisar, reutilizar o consultar dentro de OCEAN."
         aside={(
-          <div className="gallery-summary card">
-            <strong>{galleries.length}</strong>
-            <span>Galerías visibles</span>
+          <div className="gallery-summary-grid">
+            <div className="gallery-summary card">
+              <strong>{galleries.length}</strong>
+              <span>Galerías visibles</span>
+            </div>
+            <div className="gallery-summary card">
+              <strong>{publicCount}</strong>
+              <span>Públicas</span>
+            </div>
+            <div className="gallery-summary card">
+              <strong>{groupCount}</strong>
+              <span>De grupo</span>
+            </div>
           </div>
         )}
       />
@@ -111,6 +125,11 @@ export default function Galleries() {
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Buscar por título, fuente, licencia o tags…"
         />
+        <div className="gallery-filter-hint">
+          {query.trim()
+            ? `${filtered.length} resultado${filtered.length === 1 ? '' : 's'} para el filtro actual`
+            : 'Explora colecciones preparadas para docencia, revisión o consulta rápida'}
+        </div>
       </section>
 
       {canImport && (
@@ -152,8 +171,8 @@ export default function Galleries() {
               value={importForm.visibility}
               onChange={(e) => setImportForm((current) => ({ ...current, visibility: e.target.value }))}
             >
-              <option value="Institutional">Institutional</option>
-              <option value="Public">Public</option>
+              <option value="Institutional">Grupo</option>
+              <option value="Public">Público</option>
             </select>
             <textarea
               value={importForm.description}
@@ -177,7 +196,7 @@ export default function Galleries() {
               <div>
                 <div className="gallery-title-row">
                   <Link to={`/galleries/${gallery.id}`} className="gallery-title-link">{gallery.title}</Link>
-                  <span className="status-pill status-archived">{gallery.visibility}</span>
+                  <span className="status-pill status-archived">{visibilityLabel(gallery.visibility)}</span>
                 </div>
                 <div className="case-meta">
                   {gallery.source || 'Fuente —'} · {gallery.license || 'Licencia —'} · {formatDate(gallery.createdAt)}

@@ -57,4 +57,23 @@ describe('Galleries', () => {
     expect(await screen.findByText(/Galerías visibles/i)).toBeInTheDocument()
     expect(screen.queryByText(/Importar galería desde directorio del servidor/i)).not.toBeInTheDocument()
   })
+
+  it('muestra la visibilidad de la galería en español', async () => {
+    mockFetch([
+      {
+        id: 'gallery-1',
+        title: 'Galería pública',
+        visibility: 'Public',
+        tags: [],
+        recordCount: 2,
+        createdAt: '2026-05-10T10:00:00.000Z',
+        updatedAt: '2026-05-10T10:00:00.000Z',
+      },
+    ])
+
+    renderGalleries()
+
+    expect(await screen.findByText('Galería pública')).toBeInTheDocument()
+    expect(screen.getByText('Público')).toBeInTheDocument()
+  })
 })

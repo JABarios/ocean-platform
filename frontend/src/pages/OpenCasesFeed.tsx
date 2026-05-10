@@ -61,6 +61,9 @@ export default function OpenCasesFeed() {
     })
   }, [cases, query, statusFilter])
 
+  const activeCases = filteredCases.filter((item) => item.status === 'Requested' || item.status === 'InReview').length
+  const resolvedCases = filteredCases.filter((item) => item.status === 'Resolved').length
+
   if (loading) {
     return <div style={{ color: 'var(--text-secondary)', padding: '2rem 0' }}>Cargando…</div>
   }
@@ -71,6 +74,21 @@ export default function OpenCasesFeed() {
         title="Casos abiertos"
         subtitle="Consulta abierta a la comunidad autenticada de OCEAN: casos públicos que cualquier colega puede revisar y comentar."
       />
+
+      <section className="open-cases-summary-grid">
+        <article className="card open-cases-summary-card">
+          <strong>{filteredCases.length}</strong>
+          <span>casos visibles</span>
+        </article>
+        <article className="card open-cases-summary-card">
+          <strong>{activeCases}</strong>
+          <span>requieren discusión</span>
+        </article>
+        <article className="card open-cases-summary-card">
+          <strong>{resolvedCases}</strong>
+          <span>ya resueltos</span>
+        </article>
+      </section>
 
       <section className="card open-cases-toolbar">
         <label className="open-cases-field">
@@ -93,10 +111,7 @@ export default function OpenCasesFeed() {
             <option value="Archived">Archivado</option>
           </select>
         </label>
-        <div className="open-cases-metrics">
-          <strong>{filteredCases.length}</strong>
-          <span>casos visibles</span>
-        </div>
+        <div className="open-cases-metrics">Solo se muestran casos públicos de OCEAN.</div>
       </section>
 
       {filteredCases.length === 0 ? (
@@ -133,7 +148,10 @@ export default function OpenCasesFeed() {
               </div>
               <div className="open-case-side">
                 <span className="case-date">{new Date(item.updatedAt ?? item.createdAt).toLocaleDateString()}</span>
-                <Link to={`/cases/${item.id}`}>Abrir caso</Link>
+                <div className="case-links open-case-links">
+                  <Link to={`/cases/${item.id}`}>Abrir caso</Link>
+                  <Link to={`/cases/${item.id}#comments`}>Comentarios</Link>
+                </div>
               </div>
             </li>
           ))}

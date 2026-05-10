@@ -4,6 +4,28 @@
   gap: 1rem;
 }
 
+.library-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.library-summary-card {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.95rem 1rem;
+}
+
+.library-summary-card strong {
+  font-size: 1.15rem;
+}
+
+.library-summary-card span {
+  color: var(--text-secondary);
+  font-size: 0.84rem;
+}
+
 .library-overview {
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) auto auto;
@@ -147,6 +169,13 @@
   gap: 1rem;
 }
 
+.library-item-badges {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .item-header h3 {
   font-size: 1.02rem;
   font-weight: 700;
@@ -182,6 +211,7 @@
 }
 
 @media (max-width: 760px) {
+  .library-summary-grid,
   .library-overview {
     grid-template-columns: 1fr;
   }

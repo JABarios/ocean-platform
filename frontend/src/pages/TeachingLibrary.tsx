@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import type { TeachingProposal } from '../types'
 import PageHeader from '../components/PageHeader'
+import { difficultyLabel, statusLabel, teachingStatusLabel } from '../utils/caseStatus'
 import './TeachingLibrary.css'
 
 const DIFFICULTIES = ['Introductory', 'Intermediate', 'Advanced']
@@ -46,26 +47,42 @@ export default function TeachingLibrary() {
 
   const proposedCount = proposalItems.filter((item) => item.status === 'Proposed').length
   const recommendedCount = proposalItems.filter((item) => item.status === 'Recommended').length
+  const validatedCount = items.length
   const recentProposalItems = proposalItems.slice(0, 3)
 
   return (
     <div className="library">
       <PageHeader
         title="Biblioteca docente"
-        subtitle="Casos validados por la comunidad como material de enseñanza y consulta."
+        subtitle="Casos ya curados para enseñar, revisar patrones y reutilizar material que mereció quedarse."
       />
+
+      <section className="library-summary-grid">
+        <article className="card library-summary-card">
+          <strong>{validatedCount}</strong>
+          <span>casos en biblioteca</span>
+        </article>
+        <article className="card library-summary-card">
+          <strong>{loadingProposals ? '…' : proposedCount}</strong>
+          <span>propuestas pendientes</span>
+        </article>
+        <article className="card library-summary-card">
+          <strong>{loadingProposals ? '…' : recommendedCount}</strong>
+          <span>listas para curación</span>
+        </article>
+      </section>
 
       <section className="library-overview card">
         <div className="library-overview-copy">
-          <h3>Propuestas en curso</h3>
+          <h3>Cómo usar esta biblioteca</h3>
           <p>
-            La biblioteca muestra solo los casos ya validados. Las propuestas y recomendaciones pendientes
-            se consultan en casos propuestos.
+            Aquí aparecen solo los casos ya validados. Si quieres seguir qué está en camino o apoyar material nuevo,
+            usa la cola de casos propuestos.
           </p>
         </div>
         <div className="library-overview-stats">
           <span>{loadingProposals ? '…' : proposedCount} propuestas</span>
-          <span>{loadingProposals ? '…' : recommendedCount} recomendados</span>
+          <span>{loadingProposals ? '…' : recommendedCount} para curación</span>
         </div>
         <div className="library-overview-actions">
           <Link to="/queue" className="btn-secondary">
@@ -92,7 +109,7 @@ export default function TeachingLibrary() {
                   </span>
                 </div>
                 <span className={`badge ${item.status === 'Recommended' ? 'badge-resolved' : 'badge-draft'}`}>
-                  {item.status === 'Recommended' ? 'Recomendado' : 'Propuesto'}
+                  {teachingStatusLabel(item.status as any)}
                 </span>
               </li>
             ))}
@@ -110,7 +127,7 @@ export default function TeachingLibrary() {
         <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)}>
           <option value="">Todas las dificultades</option>
           {DIFFICULTIES.map((d) => (
-            <option key={d} value={d}>{d}</option>
+            <option key={d} value={d}>{difficultyLabel(d)}</option>
           ))}
         </select>
         <input
@@ -136,7 +153,10 @@ export default function TeachingLibrary() {
             <li key={item.id} className="library-item card">
               <div className="item-header">
                 <h3>{item.case?.title || 'Caso sin título'}</h3>
-                <span className="badge badge-resolved">{item.difficulty}</span>
+                <div className="library-item-badges">
+                  {item.case?.status && <span className="badge">{statusLabel(item.case.status)}</span>}
+                  <span className="badge badge-resolved">{difficultyLabel(item.difficulty)}</span>
+                </div>
               </div>
               <p className="item-summary">{item.summary}</p>
               <div className="item-meta">
@@ -153,6 +173,12 @@ export default function TeachingLibrary() {
                   {item.tags.map((t) => (
                     <span key={t} className="tag">{t}</span>
                   ))}
+                </div>
+              )}
+              {item.case?.id && (
+                <div className="case-links">
+                  <Link to={`/cases/${item.case.id}`}>Abrir caso</Link>
+                  <Link to={`/cases/${item.case.id}#comments`}>Comentarios</Link>
                 </div>
               )}
             </li>

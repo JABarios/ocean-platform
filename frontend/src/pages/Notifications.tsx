@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, friendlyError } from '../api/client'
-import type { NotificationItem } from '../types'
+import type {
+  NotificationItem,
+  NotificationPreferenceChannel,
+  NotificationPreferenceEvent,
+  NotificationPreferences,
+} from '../types'
 import {
   disablePushNotifications,
   enablePushNotifications,
@@ -28,14 +33,25 @@ function destinationForNotification(item: NotificationItem) {
 }
 
 const eventRows = [
-  ['Invitación a leer un EEG', 'Sí', 'Sí', 'Sí', 'Sí'],
-  ['Invitación a un grupo', 'Sí', 'Sí', 'Sí', 'Sí'],
-  ['EEG enviado a un grupo', 'Sí', 'Sí', 'Sí', 'Sí'],
-  ['Comentarios nuevos', 'Sí', 'Respaldo', 'No', 'No'],
+  {
+    key: 'review_request_direct' as const,
+    label: 'Invitación a leer un EEG',
+    description: 'Cuando otro colega te envía un caso directamente.',
+  },
+  {
+    key: 'group_invitation' as const,
+    label: 'Invitación a un grupo',
+    description: 'Cuando te incorporan a un grupo cerrado de trabajo.',
+  },
+  {
+    key: 'review_request_group' as const,
+    label: 'EEG enviado a un grupo',
+    description: 'Cuando aparece un caso nuevo en un grupo del que formas parte.',
+  },
 ] as const
 
 export default function Notifications() {
-  const [view, setView] = useState<'activity' | 'channels' | 'diagnostic'>('activity')
+  const [view, setView] = useState<'activity' | 'channels'>('activity')
   const [items, setItems] = useState<NotificationItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -61,6 +77,13 @@ export default function Notifications() {
     notificationsEnabled: boolean
   } | null>(null)
   const [telegramConnectUrl, setTelegramConnectUrl] = useState<string | null>(null)
+  const [preferences, setPreferences] = useState<NotificationPreferences | null>(null)
+  const [preferencesBusy, setPreferencesBusy] = useState<string | null>(null)
+  const [channelAvailability, setChannelAvailability] = useState({
+    emailConfigured: true,
+    telegramConfigured: false,
+    pushConfigured: false,
+  })
 
   const unreadCount = useMemo(() => items.filter((item) => !item.readAt).length, [items])
   const activeChannels = [
@@ -88,7 +111,21 @@ export default function Notifications() {
     getPushState().then(setPushState).catch(() => {})
     getPushDiagnostics().then(setPushDiagnostics).catch(() => {})
     loadTelegramStatus().catch(() => {})
+    loadPreferences().catch(() => {})
   }, [])
+
+  const loadPreferences = async () => {
+    const data = await api.get<{
+      preferences: NotificationPreferences
+      channels: {
+        emailConfigured: boolean
+        telegramConfigured: boolean
+        pushConfigured: boolean
+      }
+    }>('/notifications/preferences')
+    setPreferences(data.preferences)
+    setChannelAvailability(data.channels)
+  }
 
   const loadTelegramStatus = async () => {
     const status = await api.get<{
@@ -212,6 +249,54 @@ export default function Notifications() {
     }
   }
 
+  const updatePreference = async (
+    eventKey: NotificationPreferenceEvent,
+    channel: NotificationPreferenceChannel,
+    checked: boolean,
+  ) => {
+    if (!preferences) return
+
+    const previous = preferences
+    const next: NotificationPreferences = {
+      ...preferences,
+      [eventKey]: {
+        ...preferences[eventKey],
+        [channel]: checked,
+      },
+    }
+
+    setPreferences(next)
+    setPreferencesBusy(`${eventKey}:${channel}`)
+    setError('')
+
+    try {
+      const response = await api.patch<{ preferences: NotificationPreferences }>('/notifications/preferences', {
+        [eventKey]: {
+          [channel]: checked,
+        },
+      })
+      setPreferences(response.preferences)
+    } catch (err) {
+      setPreferences(previous)
+      setError(friendlyError(err))
+    } finally {
+      setPreferencesBusy(null)
+    }
+  }
+
+  const channelHint = (channel: NotificationPreferenceChannel) => {
+    if (channel === 'email' && !channelAvailability.emailConfigured) {
+      return 'Email no configurado en este entorno'
+    }
+    if (channel === 'telegram' && !channelAvailability.telegramConfigured) {
+      return 'Telegram aún no está configurado'
+    }
+    if (channel === 'push' && !channelAvailability.pushConfigured) {
+      return 'Push aún no está configurado'
+    }
+    return null
+  }
+
   return (
     <div className="notifications-page">
       <section className="page-hero card notifications-hero">
@@ -242,10 +327,7 @@ export default function Notifications() {
           Actividad
         </button>
         <button className={`btn-secondary${view === 'channels' ? ' active' : ''}`} onClick={() => setView('channels')}>
-          Canales
-        </button>
-        <button className={`btn-secondary${view === 'diagnostic' ? ' active' : ''}`} onClick={() => setView('diagnostic')}>
-          Diagnóstico
+          Canales y ajustes
         </button>
       </section>
 
@@ -255,7 +337,7 @@ export default function Notifications() {
         <div className="notification-policy-copy">
           <h2>Canales de aviso</h2>
           <p className="page-subtitle">
-            OCEAN usa siempre <strong>bandeja interna</strong> y <strong>email</strong>. Telegram y push web son canales rápidos para móvil cuando te interesan.
+            OCEAN usa siempre <strong>bandeja interna</strong>. Aquí decides qué avisos importantes quieres además por email, Telegram o push.
           </p>
         </div>
         <div className="notification-policy-grid">
@@ -283,7 +365,7 @@ export default function Notifications() {
           <div>
             <h2>Eventos importantes</h2>
             <p className="page-subtitle">
-              Los avisos móviles se reservan para lo que realmente reclama atención.
+              Ajusta por qué canal quieres recibir cada aviso relevante. Los comentarios se quedan solo en la bandeja interna.
             </p>
           </div>
         </div>
@@ -295,15 +377,36 @@ export default function Notifications() {
             <span>Telegram</span>
             <span>Push</span>
           </div>
-          {eventRows.map(([label, inbox, email, telegram, push]) => (
-            <div key={label} className="notification-events-row">
-              <strong>{label}</strong>
-              <span>{inbox}</span>
-              <span>{email}</span>
-              <span>{telegram}</span>
-              <span>{push}</span>
+          {eventRows.map((row) => (
+            <div key={row.key} className="notification-events-row">
+              <div className="notification-event-copy">
+                <strong>{row.label}</strong>
+                <span>{row.description}</span>
+              </div>
+              <span>Siempre</span>
+              {(['email', 'telegram', 'push'] as const).map((channel) => {
+                const disabled = !preferences || Boolean(channelHint(channel))
+                const hint = channelHint(channel)
+                return (
+                  <label key={channel} className={`notification-toggle${disabled ? ' disabled' : ''}`}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(preferences?.[row.key]?.[channel])}
+                      disabled={disabled || preferencesBusy === `${row.key}:${channel}`}
+                      onChange={(e) => updatePreference(row.key, channel, e.target.checked)}
+                    />
+                    <span>{hint ? 'No disponible' : 'Activo'}</span>
+                  </label>
+                )
+              })}
             </div>
           ))}
+        </div>
+        <div className="notification-events-footnote">
+          <span>Comentarios nuevos: solo bandeja interna, para evitar ruido.</span>
+          {channelHint('email') && <span>{channelHint('email')}</span>}
+          {channelHint('telegram') && <span>{channelHint('telegram')}</span>}
+          {channelHint('push') && <span>{channelHint('push')}</span>}
         </div>
       </section>
 
@@ -348,6 +451,39 @@ export default function Notifications() {
           )}
         </div>
       </section>
+
+      {pushDiagnostics && (
+        <details className="card notifications-debug-card">
+          <summary>Diagnóstico técnico del push</summary>
+          <div className="notifications-debug-head">
+            <div>
+              <h2>Diagnóstico push</h2>
+              <p className="page-subtitle">
+                Úsalo solo si este dispositivo da problemas. Para el trabajo normal, quédate con bandeja, email y Telegram.
+              </p>
+            </div>
+            <button className="btn-secondary" onClick={refreshPushDebug} disabled={pushBusy}>
+              Refrescar diagnóstico
+            </button>
+          </div>
+          <div className="notifications-debug-grid">
+            <div><strong>Permission</strong><span>{pushDiagnostics.permission}</span></div>
+            <div><strong>Service Worker</strong><span>{pushDiagnostics.support?.serviceWorker ? 'sí' : 'no'}</span></div>
+            <div><strong>PushManager</strong><span>{pushDiagnostics.support?.pushManager ? 'sí' : 'no'}</span></div>
+            <div><strong>Modo app</strong><span>{pushDiagnostics.support?.standalone ? 'standalone' : 'navegador'}</span></div>
+            <div><strong>Worker activo</strong><span>{pushDiagnostics.workerActive ? 'sí' : 'no'}</span></div>
+            <div><strong>Worker instalando</strong><span>{pushDiagnostics.workerInstalling ? 'sí' : 'no'}</span></div>
+            <div><strong>Worker esperando</strong><span>{pushDiagnostics.workerWaiting ? 'sí' : 'no'}</span></div>
+            <div><strong>Página controlada</strong><span>{pushDiagnostics.controlledPage ? 'sí' : 'no'}</span></div>
+            <div><strong>Scope SW</strong><span>{pushDiagnostics.workerScope || '—'}</span></div>
+            <div><strong>Suscripción actual</strong><span>{pushDiagnostics.subscribed ? 'sí' : 'no'}</span></div>
+            <div><strong>Endpoint</strong><span>{pushDiagnostics.endpointPreview || '—'}</span></div>
+            <div><strong>VAPID configurado</strong><span>{pushDiagnostics.vapidConfigured ? 'sí' : 'no'}</span></div>
+            <div><strong>Longitud VAPID pública</strong><span>{pushDiagnostics.vapidPublicKeyLength || 0}</span></div>
+            <div><strong>Prefijo VAPID</strong><span>{pushDiagnostics.vapidPublicKeyPrefix || '—'}</span></div>
+          </div>
+        </details>
+      )}
 
       <section className="card notifications-push-card">
         <div>
@@ -402,38 +538,6 @@ export default function Notifications() {
       )}
 
       {error && <div className="alert error">{error}</div>}
-
-      {view === 'diagnostic' && pushDiagnostics && (
-        <details className="card notifications-debug-card">
-          <div className="notifications-debug-head">
-            <div>
-              <h2>Diagnóstico push</h2>
-              <p className="page-subtitle">
-                Datos del dispositivo para entender por qué falla el alta de avisos.
-              </p>
-            </div>
-            <button className="btn-secondary" onClick={refreshPushDebug} disabled={pushBusy}>
-              Refrescar diagnóstico
-            </button>
-          </div>
-          <div className="notifications-debug-grid">
-            <div><strong>Permission</strong><span>{pushDiagnostics.permission}</span></div>
-            <div><strong>Service Worker</strong><span>{pushDiagnostics.support?.serviceWorker ? 'sí' : 'no'}</span></div>
-            <div><strong>PushManager</strong><span>{pushDiagnostics.support?.pushManager ? 'sí' : 'no'}</span></div>
-            <div><strong>Modo app</strong><span>{pushDiagnostics.support?.standalone ? 'standalone' : 'navegador'}</span></div>
-            <div><strong>Worker activo</strong><span>{pushDiagnostics.workerActive ? 'sí' : 'no'}</span></div>
-            <div><strong>Worker instalando</strong><span>{pushDiagnostics.workerInstalling ? 'sí' : 'no'}</span></div>
-            <div><strong>Worker esperando</strong><span>{pushDiagnostics.workerWaiting ? 'sí' : 'no'}</span></div>
-            <div><strong>Página controlada</strong><span>{pushDiagnostics.controlledPage ? 'sí' : 'no'}</span></div>
-            <div><strong>Scope SW</strong><span>{pushDiagnostics.workerScope || '—'}</span></div>
-            <div><strong>Suscripción actual</strong><span>{pushDiagnostics.subscribed ? 'sí' : 'no'}</span></div>
-            <div><strong>Endpoint</strong><span>{pushDiagnostics.endpointPreview || '—'}</span></div>
-            <div><strong>VAPID configurado</strong><span>{pushDiagnostics.vapidConfigured ? 'sí' : 'no'}</span></div>
-            <div><strong>Longitud VAPID pública</strong><span>{pushDiagnostics.vapidPublicKeyLength || 0}</span></div>
-            <div><strong>Prefijo VAPID</strong><span>{pushDiagnostics.vapidPublicKeyPrefix || '—'}</span></div>
-          </div>
-        </details>
-      )}
 
       {view === 'activity' && (loading ? (
         <div className="card muted">Cargando notificaciones…</div>

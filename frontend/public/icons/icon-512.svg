@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="OCEAN EEG">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2f5ea7"/>
+      <stop offset="100%" stop-color="#183766"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+  <rect x="78" y="104" width="356" height="304" rx="46" fill="#f8fbff" opacity="0.96"/>
+  <path d="M110 265h46l28-64 31 122 34-88 20 46h38l28-48 20 31h47" fill="none" stroke="#214b88" stroke-width="23" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="382" cy="146" r="36" fill="#d45578"/>
+</svg>

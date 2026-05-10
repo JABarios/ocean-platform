@@ -215,6 +215,9 @@ export default function Notifications() {
             <div><strong>PushManager</strong><span>{pushDiagnostics.support?.pushManager ? 'sí' : 'no'}</span></div>
             <div><strong>Modo app</strong><span>{pushDiagnostics.support?.standalone ? 'standalone' : 'navegador'}</span></div>
             <div><strong>Worker activo</strong><span>{pushDiagnostics.workerActive ? 'sí' : 'no'}</span></div>
+            <div><strong>Worker instalando</strong><span>{pushDiagnostics.workerInstalling ? 'sí' : 'no'}</span></div>
+            <div><strong>Worker esperando</strong><span>{pushDiagnostics.workerWaiting ? 'sí' : 'no'}</span></div>
+            <div><strong>Página controlada</strong><span>{pushDiagnostics.controlledPage ? 'sí' : 'no'}</span></div>
             <div><strong>Scope SW</strong><span>{pushDiagnostics.workerScope || '—'}</span></div>
             <div><strong>Suscripción actual</strong><span>{pushDiagnostics.subscribed ? 'sí' : 'no'}</span></div>
             <div><strong>Endpoint</strong><span>{pushDiagnostics.endpointPreview || '—'}</span></div>

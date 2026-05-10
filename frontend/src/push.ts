@@ -1,5 +1,9 @@
 import { api } from './api/client'
 
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
@@ -39,6 +43,21 @@ function pushActivationError(error: unknown) {
   return new Error(`No se pudo activar los avisos push: ${String(error || 'sin detalle')}`)
 }
 
+async function ensureActivePushWorker() {
+  let registration = await navigator.serviceWorker.ready
+  await registration.update().catch(() => {})
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    if (registration.active) {
+      return registration
+    }
+    await sleep(400)
+    registration = await navigator.serviceWorker.ready
+  }
+
+  throw new Error('No active service worker. Recarga la página y espera unos segundos antes de activar avisos.')
+}
+
 export async function getPushDiagnostics() {
   const support = {
     serviceWorker: 'serviceWorker' in navigator,
@@ -71,6 +90,9 @@ export async function getPushDiagnostics() {
     permission: Notification.permission,
     workerScope: registration.scope,
     workerActive: Boolean(registration.active),
+    workerInstalling: Boolean(registration.installing),
+    workerWaiting: Boolean(registration.waiting),
+    controlledPage: Boolean(navigator.serviceWorker.controller),
     subscribed: Boolean(subscription),
     endpointPreview: subscription?.endpoint ? subscription.endpoint.slice(0, 72) : null,
     vapidConfigured: config.configured,
@@ -82,7 +104,7 @@ export async function getPushDiagnostics() {
 export async function resetPushSubscription() {
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
 
-  const registration = await navigator.serviceWorker.ready
+  const registration = await ensureActivePushWorker()
   const subscription = await registration.pushManager.getSubscription()
   if (!subscription) return
 
@@ -124,8 +146,7 @@ export async function enablePushNotifications() {
     throw new Error('Los avisos push no están configurados todavía en el servidor.')
   }
 
-  const registration = await navigator.serviceWorker.ready
-  await registration.update().catch(() => {})
+  const registration = await ensureActivePushWorker()
   let subscription = await registration.pushManager.getSubscription()
   const applicationServerKey = validateVapidPublicKey(normalizePublicKey(config.publicKey))
 
@@ -171,7 +192,7 @@ export async function enablePushNotifications() {
 export async function disablePushNotifications() {
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
 
-  const registration = await navigator.serviceWorker.ready
+  const registration = await ensureActivePushWorker()
   const subscription = await registration.pushManager.getSubscription()
   if (!subscription) return
 

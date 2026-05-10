@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import CaseDetail from '../pages/CaseDetail'
 import { mockFetchSequence } from './mocks'
+import { AUTH_STORAGE_KEY } from '../store/authStorage'
 import type { User } from '../types'
 import * as navigation from '../utils/navigation'
 
@@ -106,7 +107,7 @@ describe('CaseDetail — carga inicial', () => {
   })
 
   it('muestra error cuando la API devuelve 401', async () => {
-    const reloadSpy = vi.spyOn(navigation, 'reloadApplication').mockImplementation(() => undefined)
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ state: { token: 'persisted-test-token' } }))
     mockFetchSequence([
       { data: { error: 'Token inválido' }, status: 401 },
       { data: [] },
@@ -120,7 +121,7 @@ describe('CaseDetail — carga inicial', () => {
     await waitFor(() => {
       expect(screen.queryByText('EEG Caso Test')).not.toBeInTheDocument()
     })
-    expect(reloadSpy).toHaveBeenCalled()
+    expect(localStorage.getItem(AUTH_STORAGE_KEY)).toBeFalsy()
   })
 
   it('muestra error cuando el caso no se encuentra', async () => {

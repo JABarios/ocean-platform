@@ -4,6 +4,55 @@
   gap: 1rem;
 }
 
+.case-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.case-summary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 1rem 1.05rem;
+  background: linear-gradient(180deg, rgba(247, 249, 253, 0.98) 0%, rgba(241, 246, 251, 0.98) 100%);
+}
+
+.case-summary-card strong {
+  font-size: 1.1rem;
+  color: var(--text);
+}
+
+.case-top-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.95fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.case-main-column,
+.case-side-column {
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+}
+
+.case-overview-card {
+  gap: 1.15rem;
+}
+
+.case-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.case-section-head h3 {
+  margin: 0;
+  font-size: 1.12rem;
+}
+
 .case-header {
   display: flex;
   align-items: center;
@@ -384,6 +433,11 @@
 }
 
 @media (max-width: 760px) {
+  .case-summary-grid,
+  .case-top-grid {
+    grid-template-columns: 1fr;
+  }
+
   .field-row {
     grid-template-columns: 1fr;
   }

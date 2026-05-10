@@ -93,6 +93,9 @@ export default function Groups() {
   const isCurrentUserAdmin = Boolean(
     selectedGroup?.members?.some((member) => member.userId === currentUser?.id && member.role === 'admin'),
   )
+  const currentMembership = selectedGroup?.members?.find((member) => member.userId === currentUser?.id) || null
+  const memberCount = selectedGroup?.members?.length ?? 0
+  const pendingCount = selectedGroup?.pendingInvitations?.length ?? 0
 
   const createGroup = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -174,25 +177,23 @@ export default function Groups() {
 
       {error && <div className="card groups-error">{error}</div>}
 
+      <section className="groups-summary">
+        <article className="card group-summary-card">
+          <span className="group-summary-value">{groups.length}</span>
+          <span className="group-summary-label">grupos aceptados</span>
+        </article>
+        <article className="card group-summary-card">
+          <span className="group-summary-value">{invitations.length}</span>
+          <span className="group-summary-label">invitaciones pendientes</span>
+        </article>
+        <article className="card group-summary-card">
+          <span className="group-summary-value">{selectedGroup ? memberCount : '—'}</span>
+          <span className="group-summary-label">miembros del grupo actual</span>
+        </article>
+      </section>
+
       <section className="groups-grid">
         <aside className="groups-sidebar">
-          <section className="card groups-panel">
-            <h3>Crear grupo</h3>
-            <form className="groups-form" onSubmit={createGroup}>
-              <label>
-                Nombre
-                <input value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} placeholder="Epilepsia Valencia" />
-              </label>
-              <label>
-                Descripción
-                <textarea rows={3} value={newGroupDescription} onChange={(e) => setNewGroupDescription(e.target.value)} placeholder="Grupo cerrado para discutir casos de epilepsia." />
-              </label>
-              <button className="btn-primary" disabled={creatingGroup}>
-                {creatingGroup ? 'Creando…' : 'Crear grupo'}
-              </button>
-            </form>
-          </section>
-
           <section className="card groups-panel">
             <div className="groups-panel-head">
               <h3>Mis grupos</h3>
@@ -209,7 +210,10 @@ export default function Groups() {
                       className={`group-row${selectedGroupId === group.id ? ' active' : ''}`}
                       onClick={() => setSelectedGroupId(group.id)}
                     >
-                      <span>{group.name}</span>
+                      <div className="group-row-copy">
+                        <strong>{group.name}</strong>
+                        {group.description && <span className="group-row-meta clamp-2">{group.description}</span>}
+                      </div>
                       <span className="group-row-meta">{group._count?.members ?? 0} miembros</span>
                     </button>
                   </li>
@@ -254,6 +258,26 @@ export default function Groups() {
               </ul>
             )}
           </section>
+
+          <section className="card groups-panel">
+            <h3>Crear grupo</h3>
+            <p className="ops-subtle">
+              Crea un grupo cerrado para derivar EEGs a un círculo estable de revisión.
+            </p>
+            <form className="groups-form" onSubmit={createGroup}>
+              <label>
+                Nombre
+                <input value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} placeholder="Epilepsia Valencia" />
+              </label>
+              <label>
+                Descripción
+                <textarea rows={3} value={newGroupDescription} onChange={(e) => setNewGroupDescription(e.target.value)} placeholder="Grupo cerrado para discutir casos de epilepsia." />
+              </label>
+              <button className="btn-primary" disabled={creatingGroup}>
+                {creatingGroup ? 'Creando…' : 'Crear grupo'}
+              </button>
+            </form>
+          </section>
         </aside>
 
         <section className="groups-main">
@@ -269,7 +293,25 @@ export default function Groups() {
                     <h3>{selectedGroup.name}</h3>
                     {selectedGroup.description && <p className="ops-subtle">{selectedGroup.description}</p>}
                   </div>
-                  <span className="badge">{selectedGroup.type}</span>
+                  <div className="groups-badges">
+                    {currentMembership && <span className="badge">{currentMembership.role === 'admin' ? 'Admin' : 'Miembro'}</span>}
+                    <span className="badge">{selectedGroup.type}</span>
+                  </div>
+                </div>
+
+                <div className="group-detail-kpis">
+                  <div className="group-detail-kpi">
+                    <strong>{memberCount}</strong>
+                    <span>miembros aceptados</span>
+                  </div>
+                  <div className="group-detail-kpi">
+                    <strong>{pendingCount}</strong>
+                    <span>invitaciones pendientes</span>
+                  </div>
+                  <div className="group-detail-kpi">
+                    <strong>{isCurrentUserAdmin ? 'Sí' : 'No'}</strong>
+                    <span>puedes invitar</span>
+                  </div>
                 </div>
 
                 {isCurrentUserAdmin && (
@@ -292,54 +334,56 @@ export default function Groups() {
                 )}
               </section>
 
-              <section className="card groups-panel">
-                <div className="groups-panel-head">
-                  <h3>Miembros aceptados</h3>
-                  <span className="section-count">{selectedGroup.members?.length ?? 0}</span>
-                </div>
-                <ul className="member-list">
-                  {(selectedGroup.members || []).map((member) => (
-                    <li key={member.id} className="member-row">
-                      <div>
-                        <strong>{member.user?.displayName || member.userId}</strong>
-                        <span className="member-meta">{member.user?.email} · {member.role}</span>
-                      </div>
-                      {isCurrentUserAdmin && member.userId !== currentUser?.id && (
-                        <button
-                          className="btn-secondary"
-                          disabled={busyMemberId === member.userId}
-                          onClick={() => removeMember(member.userId)}
-                        >
-                          Quitar
-                        </button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </section>
-
-              {isCurrentUserAdmin && (
+              <section className="groups-detail-grid">
                 <section className="card groups-panel">
                   <div className="groups-panel-head">
-                    <h3>Invitaciones pendientes</h3>
-                    <span className="section-count">{selectedGroup.pendingInvitations?.length ?? 0}</span>
+                    <h3>Miembros aceptados</h3>
+                    <span className="section-count">{selectedGroup.members?.length ?? 0}</span>
                   </div>
-                  {selectedGroup.pendingInvitations?.length ? (
-                    <ul className="member-list">
-                      {selectedGroup.pendingInvitations.map((member) => (
-                        <li key={member.id} className="member-row">
-                          <div>
-                            <strong>{member.user?.displayName || member.userId}</strong>
-                            <span className="member-meta">{member.user?.email} · invitación pendiente</span>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="empty">No hay invitaciones pendientes en este grupo.</p>
-                  )}
+                  <ul className="member-list">
+                    {(selectedGroup.members || []).map((member) => (
+                      <li key={member.id} className="member-row">
+                        <div>
+                          <strong>{member.user?.displayName || member.userId}</strong>
+                          <span className="member-meta">{member.user?.email} · {member.role}</span>
+                        </div>
+                        {isCurrentUserAdmin && member.userId !== currentUser?.id && (
+                          <button
+                            className="btn-secondary"
+                            disabled={busyMemberId === member.userId}
+                            onClick={() => removeMember(member.userId)}
+                          >
+                            Quitar
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
                 </section>
-              )}
+
+                {isCurrentUserAdmin && (
+                  <section className="card groups-panel">
+                    <div className="groups-panel-head">
+                      <h3>Invitaciones pendientes</h3>
+                      <span className="section-count">{selectedGroup.pendingInvitations?.length ?? 0}</span>
+                    </div>
+                    {selectedGroup.pendingInvitations?.length ? (
+                      <ul className="member-list">
+                        {selectedGroup.pendingInvitations.map((member) => (
+                          <li key={member.id} className="member-row">
+                            <div>
+                              <strong>{member.user?.displayName || member.userId}</strong>
+                              <span className="member-meta">{member.user?.email} · invitación pendiente</span>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="empty">No hay invitaciones pendientes en este grupo.</p>
+                    )}
+                  </section>
+                )}
+              </section>
             </>
           )}
         </section>

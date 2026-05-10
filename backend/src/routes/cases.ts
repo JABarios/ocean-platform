@@ -17,11 +17,16 @@ const createCaseSchema = z.object({
   studyReason: z.string().optional(),
   modality: z.string().default('EEG'),
   tags: z.array(z.string()).default([]),
+  visibility: z.enum(['Private', 'Institutional', 'Public']).default('Private'),
   galleryRecordId: z.string().uuid().optional(),
 })
 
 const updateStatusSchema = z.object({
   statusClinical: z.enum(['Draft', 'Requested', 'InReview', 'Resolved', 'Archived']),
+})
+
+const updateVisibilitySchema = z.object({
+  visibility: z.enum(['Private', 'Institutional', 'Public']),
 })
 
 router.use(authMiddleware)
@@ -183,6 +188,7 @@ router.post('/', async (req: AuthenticatedRequest, res) => {
         ageRange: data.ageRange,
         studyReason: data.studyReason,
         modality: data.modality,
+        visibility: data.visibility,
         tags: JSON.stringify(data.tags),
         ownerId: req.user!.id,
         statusClinical: 'Draft',
@@ -225,6 +231,36 @@ router.post('/', async (req: AuthenticatedRequest, res) => {
   res.status(201).json(toCaseResponse(newCase, req.user!))
 })
 
+router.get('/open', async (req: AuthenticatedRequest, res) => {
+  const cases = await prisma.case.findMany({
+    where: { visibility: 'Public' },
+    orderBy: { updatedAt: 'desc' },
+    include: {
+      _count: { select: { reviewRequests: true, comments: true } },
+      owner: { select: { id: true, displayName: true, email: true } },
+      reviewRequests: {
+        select: {
+          requestedBy: true,
+          targetUserId: true,
+          status: true,
+        },
+      },
+      teachingProposals: {
+        where: { status: { in: ['Proposed', 'Recommended', 'Validated'] } },
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+        include: {
+          recommendations: {
+            select: { authorId: true },
+          },
+        },
+      },
+    },
+  })
+
+  res.json(cases.map((item) => toCaseResponse(item, req.user!)))
+})
+
 router.get('/:id', async (req: AuthenticatedRequest, res) => {
   const caseItem = await prisma.case.findFirst({
     where: {
@@ -240,6 +276,51 @@ router.get('/:id', async (req: AuthenticatedRequest, res) => {
   }
 
   res.json(toCaseResponse(caseItem, req.user!))
+})
+
+router.patch('/:id/visibility', async (req: AuthenticatedRequest, res) => {
+  const parsed = updateVisibilitySchema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Visibilidad inválida' })
+    return
+  }
+
+  const caseItem = await prisma.case.findUnique({
+    where: { id: req.params.id },
+    select: { id: true, ownerId: true, visibility: true },
+  })
+
+  if (!caseItem) {
+    res.status(404).json({ error: 'Caso no encontrado' })
+    return
+  }
+
+  const isAdmin = hasAppAction(req.user!.role, 'access_admin')
+  if (caseItem.ownerId !== req.user!.id && !isAdmin) {
+    res.status(404).json({ error: 'Caso no encontrado o sin acceso' })
+    return
+  }
+
+  const updated = await prisma.case.update({
+    where: { id: req.params.id },
+    data: { visibility: parsed.data.visibility },
+    include: getCaseInclude(),
+  })
+
+  await prisma.auditEvent.create({
+    data: {
+      actorId: req.user!.id,
+      caseId: updated.id,
+      action: 'VisibilityChanged',
+      target: updated.id,
+      metadata: JSON.stringify({
+        from: caseItem.visibility,
+        to: parsed.data.visibility,
+      }),
+    },
+  })
+
+  res.json(toCaseResponse(updated, req.user!))
 })
 
 router.patch('/:id/status', async (req: AuthenticatedRequest, res) => {

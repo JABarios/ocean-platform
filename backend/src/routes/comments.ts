@@ -24,6 +24,7 @@ router.get('/case/:caseId', async (req: AuthenticatedRequest, res) => {
     select: {
       ownerId: true,
       statusTeaching: true,
+      visibility: true,
       reviewRequests: {
         select: {
           requestedBy: true,
@@ -70,6 +71,7 @@ router.post('/case/:caseId', async (req: AuthenticatedRequest, res) => {
       ownerId: true,
       statusClinical: true,
       statusTeaching: true,
+      visibility: true,
       reviewRequests: {
         select: {
           requestedBy: true,

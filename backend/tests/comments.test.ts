@@ -29,6 +29,21 @@ describe('POST /comments/case/:caseId — validaciones', () => {
 
     expect(res.status).toBe(404)
   })
+
+  it('usuario autenticado sí puede comentar un caso público', async () => {
+    const owner = await createUser({ email: 'cm-pub-own2@ocean.local', displayName: 'CmPubOwn2', password: 'pass' })
+    const outsider = await createUser({ email: 'cm-pub-out2@ocean.local', displayName: 'CmPubOut2', password: 'pass' })
+    const c = await createCase(owner.id, { visibility: 'Public' })
+    const token = generateToken(outsider.id, outsider.email, outsider.role)
+
+    const res = await request(app)
+      .post(`/comments/case/${c.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ body: 'Yo también lo quiero comentar' })
+
+    expect(res.status).toBe(201)
+    expect(res.body.content).toBe('Yo también lo quiero comentar')
+  })
 })
 
 describe('POST /comments/case/:caseId', () => {
@@ -142,6 +157,21 @@ describe('GET /comments/case/:caseId', () => {
     expect(res.status).toBe(200)
     expect(res.body).toHaveLength(1)
     expect(res.body[0].content).toBe('Comentario visible')
+  })
+
+  it('usuario autenticado puede leer comentarios de un caso público', async () => {
+    const owner = await createUser({ email: 'cm-public-read-own@ocean.local', displayName: 'CmPublicReadOwn', password: 'pass' })
+    const outsider = await createUser({ email: 'cm-public-read-out@ocean.local', displayName: 'CmPublicReadOut', password: 'pass' })
+    const c = await createCase(owner.id, { visibility: 'Public' })
+    const ownerToken = generateToken(owner.id, owner.email, owner.role)
+    await request(app).post(`/comments/case/${c.id}`).set('Authorization', `Bearer ${ownerToken}`).send({ body: 'Comentario público' })
+
+    const token = generateToken(outsider.id, outsider.email, outsider.role)
+    const res = await request(app).get(`/comments/case/${c.id}`).set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body).toHaveLength(1)
+    expect(res.body[0].content).toBe('Comentario público')
   })
 
   it('admin puede leer comentarios de cualquier caso', async () => {

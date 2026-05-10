@@ -76,6 +76,8 @@ export default function CaseDetail() {
   const [recommending, setRecommending] = useState(false)
 
   const [statusBusy, setStatusBusy] = useState(false)
+  const [visibilityValue, setVisibilityValue] = useState<'Private' | 'Institutional' | 'Public'>('Private')
+  const [visibilityBusy, setVisibilityBusy] = useState(false)
 
   const [decryptKey, setDecryptKey] = useState('')
   const [storedDecryptKey, setStoredDecryptKey] = useState('')
@@ -131,6 +133,12 @@ export default function CaseDetail() {
       setDecryptKey('')
     }
   }, [id])
+
+  useEffect(() => {
+    if (caseItem?.visibility) {
+      setVisibilityValue(caseItem.visibility)
+    }
+  }, [caseItem?.visibility])
 
   const isOwner = caseItem ? caseItem.ownerId === user?.id : false
   const packageIsEncrypted = caseItem ? caseItem.package?.encryptionMode !== 'NONE' : true
@@ -251,6 +259,19 @@ export default function CaseDetail() {
     }
   }
 
+  const updateVisibility = async () => {
+    if (!id || !caseItem) return
+    setVisibilityBusy(true)
+    try {
+      const updated = await api.patch<CaseItem>(`/cases/${id}/visibility`, { visibility: visibilityValue })
+      setCaseItem(updated)
+    } catch (err) {
+      alert(friendlyError(err))
+    } finally {
+      setVisibilityBusy(false)
+    }
+  }
+
   const downloadEncrypted = async () => {
     if (!id) return
     const base = import.meta.env.VITE_API_URL || 'http://localhost:4000'
@@ -361,6 +382,7 @@ export default function CaseDetail() {
   const canResolveCase = hasAvailableAction(caseItem.availableActions, 'resolve_case')
   const canArchiveCase = hasAvailableAction(caseItem.availableActions, 'archive_case')
   const canComment = hasAvailableAction(caseItem.availableActions, 'comment_case')
+  const canManageVisibility = isOwner || hasAvailableAction(user?.availableActions, 'access_admin')
   const reviewAccessStatusLabel =
     currentUserReviewLink?.status === 'Pending'
       ? 'Has solicitado acceso a la revisión'
@@ -430,6 +452,38 @@ export default function CaseDetail() {
         <div className="field">
           <span className="field-label">Fecha</span>
           <p>{new Date(caseItem.createdAt).toLocaleString()}</p>
+        </div>
+        <div className="field">
+          <span className="field-label">Visibilidad</span>
+          {canManageVisibility ? (
+            <div className="inline-form">
+              <select
+                value={visibilityValue}
+                onChange={(e) => setVisibilityValue(e.target.value as 'Private' | 'Institutional' | 'Public')}
+              >
+                <option value="Private">Private</option>
+                <option value="Institutional">Institutional</option>
+                <option value="Public">Public</option>
+              </select>
+              <button
+                className="btn-secondary"
+                type="button"
+                onClick={updateVisibility}
+                disabled={visibilityBusy || visibilityValue === caseItem.visibility}
+              >
+                {visibilityBusy ? 'Guardando…' : 'Guardar visibilidad'}
+              </button>
+            </div>
+          ) : (
+            <p>{caseItem.visibility || 'Private'}</p>
+          )}
+          <span className="ops-subtle">
+            {caseItem.visibility === 'Public'
+              ? 'Visible para cualquier usuario autenticado de OCEAN.'
+              : caseItem.visibility === 'Institutional'
+                ? 'Visible dentro del perímetro restringido del caso.'
+                : 'Solo visible para el perímetro privado del caso.'}
+          </span>
         </div>
 
         {isOwner && (
@@ -739,7 +793,9 @@ export default function CaseDetail() {
           </form>
         ) : (
           <p className="ops-subtle">
-            Solo pueden comentar el propietario del caso y quienes ya participan en la revisión.
+            {caseItem.visibility === 'Public'
+              ? 'Este caso es visible en la comunidad autenticada, pero tu cuenta no puede comentar aquí ahora mismo.'
+              : 'Solo pueden comentar el propietario del caso y quienes ya participan en la revisión.'}
           </p>
         )}
       </section>

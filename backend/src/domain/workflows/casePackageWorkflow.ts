@@ -17,6 +17,7 @@ interface ReviewRequestLike {
 interface CasePackageWorkflowInput {
   ownerId: string
   statusTeaching: string
+  visibility?: string | null
   reviewRequests?: ReviewRequestLike[]
   hasPackage?: boolean
   hasStoredSecret?: boolean
@@ -28,6 +29,7 @@ export function getCasePackageAvailableActions(input: CasePackageWorkflowInput):
   const actions: CasePackageAction[] = []
   const isOwner = input.ownerId === input.viewerId
   const isAdmin = input.viewerRole ? hasAppAction(input.viewerRole, 'access_admin') : false
+  const isPublic = input.visibility === 'Public'
   const hasOpenTeachingVisibility = OPEN_TEACHING_STATUSES.includes(
     input.statusTeaching as typeof OPEN_TEACHING_STATUSES[number],
   )
@@ -47,7 +49,7 @@ export function getCasePackageAvailableActions(input: CasePackageWorkflowInput):
     }
   }
 
-  if (input.hasPackage && (isAdmin || isOwner || hasReviewAccess || hasOpenTeachingVisibility)) {
+  if (input.hasPackage && (isAdmin || isOwner || isPublic || hasReviewAccess || hasOpenTeachingVisibility)) {
     actions.push('download_case_package', 'list_reusable_eegs')
   }
 

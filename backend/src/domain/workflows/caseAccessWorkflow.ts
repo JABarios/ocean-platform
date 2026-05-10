@@ -9,6 +9,7 @@ interface ReviewRequestAccessLike {
 interface CaseAccessLike {
   ownerId: string
   statusTeaching: string
+  visibility?: string | null
   reviewRequests?: ReviewRequestAccessLike[]
 }
 
@@ -18,6 +19,7 @@ export function buildCaseReadAccessWhere(userId: string) {
   return {
     OR: [
       { ownerId: userId },
+      { visibility: 'Public' },
       { statusTeaching: { in: [...OPEN_TEACHING_STATUSES] } },
       {
         reviewRequests: {
@@ -104,6 +106,7 @@ export function hasAcceptedReviewRelationship(caseItem: CaseAccessLike, userId: 
 export function canReadCase(caseItem: CaseAccessLike, userId: string, role?: string) {
   if (role && hasAppAction(role, 'access_admin')) return true
   if (caseItem.ownerId === userId) return true
+  if (caseItem.visibility === 'Public') return true
   if (OPEN_TEACHING_STATUSES.includes(caseItem.statusTeaching as typeof OPEN_TEACHING_STATUSES[number])) return true
   return hasReviewRelationship(caseItem, userId)
 }

@@ -185,6 +185,7 @@ export interface CaseItem {
   ageRange: string
   studyReason: string
   modality: string
+  visibility?: 'Private' | 'Institutional' | 'Public'
   tags: string[]
   status: 'Draft' | 'Requested' | 'InReview' | 'Resolved' | 'Archived'
   teachingStatus: 'None' | 'Proposed' | 'Recommended' | 'Validated' | 'Rejected'

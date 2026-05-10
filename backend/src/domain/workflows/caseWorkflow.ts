@@ -23,6 +23,7 @@ interface CaseWorkflowCase {
   ownerId: string
   statusClinical: string
   statusTeaching: string
+  visibility?: string | null
   reviewRequests?: ReviewRequestLike[]
   teachingProposals?: TeachingProposalLike[]
 }
@@ -31,6 +32,7 @@ function getCaseWorkflowFacts(caseObj: CaseWorkflowCase, viewer: CaseWorkflowVie
   const reviewRequests = caseObj.reviewRequests ?? []
   const activeTeachingProposal = caseObj.teachingProposals?.[0] ?? null
   const isOwner = caseObj.ownerId === viewer.id
+  const isPublic = caseObj.visibility === 'Public'
   const isReviewer = reviewRequests.some((request) =>
     (request.targetUserId === viewer.id && request.status === 'Accepted') || request.requestedBy === viewer.id,
   )
@@ -42,6 +44,7 @@ function getCaseWorkflowFacts(caseObj: CaseWorkflowCase, viewer: CaseWorkflowVie
     reviewRequests,
     activeTeachingProposal,
     isOwner,
+    isPublic,
     isReviewer,
     hasReviewRelationship,
   }
@@ -54,6 +57,7 @@ export function getCaseAvailableActions(caseObj: CaseWorkflowCase, viewer?: Case
     reviewRequests,
     activeTeachingProposal,
     isOwner,
+    isPublic,
     isReviewer,
     hasReviewRelationship,
   } = getCaseWorkflowFacts(caseObj, viewer)
@@ -62,7 +66,7 @@ export function getCaseAvailableActions(caseObj: CaseWorkflowCase, viewer?: Case
   if (isOwner) {
     clinicalActions.push('send_review_request')
   }
-  if (isOwner || isReviewer) {
+  if (isOwner || isReviewer || isPublic) {
     clinicalActions.push('comment_case')
   }
   if (isOwner) {

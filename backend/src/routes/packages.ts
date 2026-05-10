@@ -50,6 +50,7 @@ router.post('/upload', authMiddleware, upload.single('blob'), async (req: Authen
     select: {
       ownerId: true,
       statusTeaching: true,
+      visibility: true,
       reviewRequests: {
         select: {
           requestedBy: true,
@@ -309,6 +310,7 @@ router.get('/download/:caseId', authMiddleware, async (req: AuthenticatedRequest
   if (!caseItem || !caseItem.package || !canDownloadCasePackage({
     ownerId: caseItem.ownerId,
     statusTeaching: caseItem.statusTeaching,
+    visibility: caseItem.visibility,
     reviewRequests: caseItem.reviewRequests,
     hasPackage: Boolean(caseItem.package),
     viewerId: req.user!.id,
@@ -348,6 +350,7 @@ router.get('/eegs', authMiddleware, async (req: AuthenticatedRequest, res) => {
           case: {
             OR: [
               { ownerId: req.user!.id },
+              { visibility: 'Public' },
               { statusTeaching: { in: ['Proposed', 'Recommended', 'Validated'] } },
               {
                 reviewRequests: {

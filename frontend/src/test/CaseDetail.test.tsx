@@ -35,6 +35,7 @@ const BASE_CASE = {
   ageRange: 'Adulto',
   studyReason: 'Diagnóstico diferencial',
   modality: 'EEG',
+  visibility: 'Private',
   status: 'Draft',
   teachingStatus: 'None',
   ownerId: 'owner-1',
@@ -183,6 +184,14 @@ describe('CaseDetail — acceso por rol (owner vs no-owner)', () => {
     await screen.findByText('EEG Caso Test')
     expect(screen.queryByPlaceholderText(/Escribe un comentario/i)).not.toBeInTheDocument()
     expect(screen.getByText(/Solo pueden comentar el propietario del caso/i)).toBeInTheDocument()
+  })
+
+  it('un usuario autenticado puede comentar un caso público si la API le da esa acción', async () => {
+    mockAuthState = { ...mockAuthState, user: { ...mockAuthState.user, id: 'intruder-99' } }
+    mockLoad({ ...BASE_CASE, visibility: 'Public', ownerId: 'owner-1', availableActions: ['comment_case'] })
+    renderDetail()
+    await screen.findByText('EEG Caso Test')
+    expect(screen.getByPlaceholderText(/Escribe un comentario/i)).toBeInTheDocument()
   })
 
   it('en estado InReview, owner ve "Marcar como Resuelto"', async () => {

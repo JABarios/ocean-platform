@@ -20,6 +20,7 @@ import GalleryDetail from './pages/GalleryDetail'
 import AdminHome from './pages/AdminHome'
 import SharedLinkNew from './pages/SharedLinkNew'
 import OpenLocalEeg from './pages/OpenLocalEeg'
+import OpenCasesFeed from './pages/OpenCasesFeed'
 
 export default function App() {
   const token = useAuthStore((s) => s.token)
@@ -53,6 +54,16 @@ export default function App() {
               </Layout>
             </ProtectedRoute>
           )
+        }
+      />
+      <Route
+        path="/cases/open"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <OpenCasesFeed />
+            </Layout>
+          </ProtectedRoute>
         }
       />
       <Route

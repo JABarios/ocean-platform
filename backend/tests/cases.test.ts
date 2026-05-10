@@ -74,6 +74,23 @@ describe('GET /cases', () => {
   })
 })
 
+describe('GET /cases/open', () => {
+  it('lista solo los casos públicos para cualquier usuario autenticado', async () => {
+    const owner = await createUser({ email: 'open-owner@ocean.local', displayName: 'OpenOwner', password: 'pass' })
+    const outsider = await createUser({ email: 'open-outsider@ocean.local', displayName: 'OpenOutsider', password: 'pass' })
+    await createCase(owner.id, { title: 'Caso privado', visibility: 'Private' })
+    await createCase(owner.id, { title: 'Caso público', visibility: 'Public' })
+    const token = generateToken(outsider.id, outsider.email, outsider.role)
+
+    const res = await request(app).get('/cases/open').set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body).toHaveLength(1)
+    expect(res.body[0].title).toBe('Caso público')
+    expect(res.body[0].visibility).toBe('Public')
+  })
+})
+
 describe('POST /cases — respuesta serializada', () => {
   it('devuelve tags como array, no como string', async () => {
     const user = await createUser({ email: 'tags@ocean.local', displayName: 'Tags', password: 'pass' })
@@ -180,6 +197,19 @@ describe('GET /cases/:id', () => {
     expect(res.body.title).toBe('Caso propuesto visible')
   })
 
+  it('usuario autenticado puede ver un caso público aunque no haya sido invitado', async () => {
+    const owner = await createUser({ email: 'public-case-own@ocean.local', displayName: 'PublicCaseOwn', password: 'pass' })
+    const outsider = await createUser({ email: 'public-case-out@ocean.local', displayName: 'PublicCaseOut', password: 'pass' })
+    const c = await createCase(owner.id, { visibility: 'Public', title: 'Caso público comunitario' })
+    const token = generateToken(outsider.id, outsider.email, outsider.role)
+
+    const res = await request(app).get(`/cases/${c.id}`).set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.title).toBe('Caso público comunitario')
+    expect(res.body.availableActions).toContain('comment_case')
+  })
+
   it('devuelve availableActions acordes al workflow para un observador de un caso propuesto', async () => {
     const owner = await createUser({ email: 'workflow-own@ocean.local', displayName: 'WorkflowOwn', password: 'pass' })
     const outsider = await createUser({ email: 'workflow-out@ocean.local', displayName: 'WorkflowOut', password: 'pass' })
@@ -280,6 +310,36 @@ describe('GET /cases/:id', () => {
 
     const audit = await prisma.auditEvent.findFirst({ where: { caseId: res.body.id, action: 'CaseCreated' } })
     expect(audit).not.toBeNull()
+  })
+})
+
+describe('PATCH /cases/:id/visibility', () => {
+  it('owner puede cambiar la visibilidad del caso', async () => {
+    const owner = await createUser({ email: 'vis-owner@ocean.local', displayName: 'VisOwner', password: 'pass' })
+    const c = await createCase(owner.id, { visibility: 'Private' })
+    const token = generateToken(owner.id, owner.email, owner.role)
+
+    const res = await request(app)
+      .patch(`/cases/${c.id}/visibility`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ visibility: 'Public' })
+
+    expect(res.status).toBe(200)
+    expect(res.body.visibility).toBe('Public')
+  })
+
+  it('intruder no puede cambiar la visibilidad del caso', async () => {
+    const owner = await createUser({ email: 'vis-own2@ocean.local', displayName: 'VisOwn2', password: 'pass' })
+    const intruder = await createUser({ email: 'vis-int@ocean.local', displayName: 'VisInt', password: 'pass' })
+    const c = await createCase(owner.id, { visibility: 'Private' })
+    const token = generateToken(intruder.id, intruder.email, intruder.role)
+
+    const res = await request(app)
+      .patch(`/cases/${c.id}/visibility`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ visibility: 'Public' })
+
+    expect(res.status).toBe(404)
   })
 })
 

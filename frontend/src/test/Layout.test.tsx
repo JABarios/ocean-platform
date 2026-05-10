@@ -66,4 +66,10 @@ describe('Layout', () => {
     expect(screen.queryByRole('link', { name: /^Admin$/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /Casos propuestos/i })).not.toBeInTheDocument()
   })
+
+  it('muestra el acceso a Casos abiertos para usuarios autenticados', () => {
+    renderLayout('/')
+
+    expect(screen.getByRole('link', { name: /Casos abiertos/i })).toBeInTheDocument()
+  })
 })

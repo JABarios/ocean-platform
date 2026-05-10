@@ -19,13 +19,23 @@
 .summary-card {
   padding: 0.55rem 0.7rem;
   display: flex;
-  flex-direction: column;
-  gap: 0.08rem;
+  align-items: center;
   min-height: 0;
 }
 
+.summary-inline {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
 .summary-card strong {
-  font-size: 1.15rem;
+  font-size: 1rem;
   line-height: 1;
 }
 
@@ -35,13 +45,13 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-secondary);
-  line-height: 1.1;
+  line-height: 1;
 }
 
 .summary-help {
   font-size: 0.68rem;
   color: var(--text-secondary);
-  line-height: 1.15;
+  line-height: 1;
 }
 
 .dashboard-work-grid {

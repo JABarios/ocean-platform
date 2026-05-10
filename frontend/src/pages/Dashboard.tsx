@@ -121,24 +121,32 @@ export default function Dashboard() {
 
       <section className="dashboard-summary-grid">
         <article className="card summary-card">
-          <span className="summary-label">Casos abiertos</span>
-          <strong>{statusCounts.Draft + statusCounts.Requested + statusCounts.InReview}</strong>
-          <span className="summary-help">{statusCounts.Draft} B · {statusCounts.Requested} S · {statusCounts.InReview} R</span>
+          <span className="summary-inline">
+            <span className="summary-label">Casos abiertos</span>
+            <strong>{statusCounts.Draft + statusCounts.Requested + statusCounts.InReview}</strong>
+            <span className="summary-help">{statusCounts.Draft} B · {statusCounts.Requested} S · {statusCounts.InReview} R</span>
+          </span>
         </article>
         <article className="card summary-card">
-          <span className="summary-label">Revisiones pendientes</span>
-          <strong>{pending.length}</strong>
-          <span className="summary-help">por responder</span>
+          <span className="summary-inline">
+            <span className="summary-label">Revisiones pendientes</span>
+            <strong>{pending.length}</strong>
+            <span className="summary-help">por responder</span>
+          </span>
         </article>
         <article className="card summary-card">
-          <span className="summary-label">Revisiones activas</span>
-          <strong>{active.length}</strong>
-          <span className="summary-help">en curso</span>
+          <span className="summary-inline">
+            <span className="summary-label">Revisiones activas</span>
+            <strong>{active.length}</strong>
+            <span className="summary-help">en curso</span>
+          </span>
         </article>
         <article className="card summary-card">
-          <span className="summary-label">Resueltos</span>
-          <strong>{statusCounts.Resolved}</strong>
-          <span className="summary-help">{statusCounts.Archived > 0 ? `${statusCounts.Archived} arch.` : 'sin archivar'}</span>
+          <span className="summary-inline">
+            <span className="summary-label">Resueltos</span>
+            <strong>{statusCounts.Resolved}</strong>
+            <span className="summary-help">{statusCounts.Archived > 0 ? `${statusCounts.Archived} arch.` : 'sin archivar'}</span>
+          </span>
         </article>
       </section>
 

@@ -168,4 +168,30 @@ export async function createGalleryRecord(data: {
   })
 }
 
+export async function createNotification(data: {
+  userId: string
+  kind?: string
+  title?: string
+  body?: string
+  caseId?: string
+  reviewRequestId?: string
+  commentId?: string
+  actorUserId?: string
+  readAt?: Date | null
+}) {
+  return prisma.notification.create({
+    data: {
+      userId: data.userId,
+      kind: data.kind || 'comment_on_case',
+      title: data.title || 'Nueva notificación',
+      body: data.body || 'Tienes actividad nueva',
+      caseId: data.caseId,
+      reviewRequestId: data.reviewRequestId,
+      commentId: data.commentId,
+      actorUserId: data.actorUserId,
+      readAt: data.readAt,
+    },
+  })
+}
+
 export { prisma }

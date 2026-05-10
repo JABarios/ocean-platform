@@ -1,6 +1,6 @@
 import request from 'supertest'
 import app from '../src/index'
-import { createUser, generateToken, createCase, createReviewRequest } from './helpers'
+import { createUser, generateToken, createCase, createReviewRequest, prisma } from './helpers'
 
 describe('POST /comments/case/:caseId — validaciones', () => {
   it('rechaza body vacío', async () => {
@@ -59,6 +59,26 @@ describe('POST /comments/case/:caseId', () => {
 
     expect(res.status).toBe(201)
     expect(res.body.content).toBe('Buen caso') // renombrado en respuesta
+  })
+
+  it('notifica al owner cuando otro usuario comenta un caso público', async () => {
+    const owner = await createUser({ email: 'comm-notif-own@ocean.local', displayName: 'CommNotifOwn', password: 'pass' })
+    const outsider = await createUser({ email: 'comm-notif-out@ocean.local', displayName: 'CommNotifOut', password: 'pass' })
+    const c = await createCase(owner.id, { visibility: 'Public', title: 'Caso comentado' })
+    const token = generateToken(outsider.id, outsider.email, outsider.role)
+
+    const res = await request(app)
+      .post(`/comments/case/${c.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ body: 'Comentario comunitario' })
+
+    expect(res.status).toBe(201)
+
+    const notifications = await prisma.notification.findMany({
+      where: { userId: owner.id, kind: 'comment_on_case' },
+    })
+    expect(notifications).toHaveLength(1)
+    expect(notifications[0].commentId).toBe(res.body.id)
   })
 
   it('permite comentar si eres revisor aceptado', async () => {

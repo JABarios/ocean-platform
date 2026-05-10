@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { prisma } from '../utils/prisma'
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth'
 import { buildCaseUrl, sendReviewRequestEmail } from '../utils/email'
+import { buildNotificationCaseTitle, createNotification, createNotificationsForUsers } from '../utils/notifications'
 import {
   getNextReviewRequestState,
   getReviewRequestAvailableActions,
@@ -204,6 +205,97 @@ async function notifyReviewRequest(params: {
   }
 }
 
+async function createReviewRequestNotifications(params: {
+  requestId: string
+  caseId: string
+  requestedBy: string
+  targetUserId?: string
+  targetGroupId?: string
+}) {
+  const caseItem = await prisma.case.findUnique({
+    where: { id: params.caseId },
+    select: { id: true, title: true },
+  })
+  const requester = await prisma.user.findUnique({
+    where: { id: params.requestedBy },
+    select: { displayName: true },
+  })
+
+  if (!caseItem || !requester) return
+
+  const caseTitle = buildNotificationCaseTitle(caseItem)
+  const title = 'Nueva solicitud de revisión'
+  const body = `${requester.displayName} te ha enviado ${caseTitle} para revisar.`
+
+  if (params.targetUserId) {
+    await createNotification({
+      userId: params.targetUserId,
+      kind: 'review_request_received',
+      title,
+      body,
+      caseId: params.caseId,
+      reviewRequestId: params.requestId,
+      actorUserId: params.requestedBy,
+    })
+    return
+  }
+
+  if (params.targetGroupId) {
+    const group = await prisma.group.findUnique({
+      where: { id: params.targetGroupId },
+      select: {
+        members: {
+          where: { status: 'Accepted' },
+          select: { userId: true },
+        },
+      },
+    })
+
+    if (!group) return
+
+    await createNotificationsForUsers({
+      userIds: group.members.map((member) => member.userId).filter((userId) => userId !== params.requestedBy),
+      kind: 'review_request_received',
+      title,
+      body,
+      caseId: params.caseId,
+      reviewRequestId: params.requestId,
+      actorUserId: params.requestedBy,
+    })
+  }
+}
+
+async function createReviewDecisionNotification(params: {
+  requestId: string
+  caseId: string
+  requestedBy: string
+  actorUserId: string
+  decision: 'accepted' | 'rejected'
+}) {
+  const [caseItem, actor] = await Promise.all([
+    prisma.case.findUnique({
+      where: { id: params.caseId },
+      select: { id: true, title: true },
+    }),
+    prisma.user.findUnique({
+      where: { id: params.actorUserId },
+      select: { displayName: true },
+    }),
+  ])
+
+  if (!caseItem || !actor || params.requestedBy === params.actorUserId) return
+
+  await createNotification({
+    userId: params.requestedBy,
+    kind: params.decision === 'accepted' ? 'review_request_accepted' : 'review_request_rejected',
+    title: params.decision === 'accepted' ? 'Solicitud aceptada' : 'Solicitud rechazada',
+    body: `${actor.displayName} ha ${params.decision === 'accepted' ? 'aceptado' : 'rechazado'} tu solicitud sobre ${buildNotificationCaseTitle(caseItem)}.`,
+    caseId: params.caseId,
+    reviewRequestId: params.requestId,
+    actorUserId: params.actorUserId,
+  })
+}
+
 // Listar solicitudes donde el usuario es destinatario (pendientes)
 router.get('/pending', async (req: AuthenticatedRequest, res) => {
   const requests = await prisma.reviewRequest.findMany({
@@ -349,6 +441,16 @@ router.post('/', async (req: AuthenticatedRequest, res) => {
     auditAction: 'RequestSent',
   })
 
+  await createReviewRequestNotifications({
+    requestId: request.id,
+    caseId,
+    requestedBy: req.user!.id,
+    targetUserId,
+    targetGroupId,
+  }).catch((err) => {
+    console.warn('[OCEAN notifications] No se pudieron crear notificaciones de solicitud de revisión', err)
+  })
+
   notifyReviewRequest({
     caseId,
     requestedBy: req.user!.id,
@@ -426,6 +528,15 @@ router.post('/request-access', async (req: AuthenticatedRequest, res) => {
     auditAction: 'ReviewAccessRequested',
   })
 
+  await createReviewRequestNotifications({
+    requestId: accessRequest.id,
+    caseId,
+    requestedBy: req.user!.id,
+    targetUserId: caseItem.ownerId,
+  }).catch((err) => {
+    console.warn('[OCEAN notifications] No se pudieron crear notificaciones de solicitud de acceso', err)
+  })
+
   notifyReviewRequest({
     caseId,
     requestedBy: req.user!.id,
@@ -487,6 +598,16 @@ router.post('/:id/accept', async (req: AuthenticatedRequest, res) => {
     }),
   ])
 
+  await createReviewDecisionNotification({
+    requestId: updated.id,
+    caseId: request.caseId,
+    requestedBy: request.requestedBy,
+    actorUserId: req.user!.id,
+    decision: 'accepted',
+  }).catch((err) => {
+    console.warn('[OCEAN notifications] No se pudo crear la notificación de aceptación', err)
+  })
+
   res.json(updated)
 })
 
@@ -520,6 +641,16 @@ router.post('/:id/reject', async (req: AuthenticatedRequest, res) => {
       action: 'RequestRejected',
       target: request.id,
     },
+  })
+
+  await createReviewDecisionNotification({
+    requestId: updated.id,
+    caseId: request.caseId,
+    requestedBy: request.requestedBy,
+    actorUserId: req.user!.id,
+    decision: 'rejected',
+  }).catch((err) => {
+    console.warn('[OCEAN notifications] No se pudo crear la notificación de rechazo', err)
   })
 
   res.json(updated)

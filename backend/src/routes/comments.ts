@@ -4,6 +4,7 @@ import { prisma } from '../utils/prisma'
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth'
 import { canCommentOnCase } from '../domain/workflows/caseWorkflow'
 import { canReadCase } from '../domain/workflows/caseAccessWorkflow'
+import { buildNotificationCaseTitle, createNotificationsForUsers } from '../utils/notifications'
 
 const router = Router()
 
@@ -14,6 +15,76 @@ const createCommentSchema = z.object({
 })
 
 router.use(authMiddleware)
+
+async function createCommentNotifications(params: {
+  caseId: string
+  commentId: string
+  authorId: string
+}) {
+  const caseItem = await prisma.case.findUnique({
+    where: { id: params.caseId },
+    select: {
+      id: true,
+      title: true,
+      ownerId: true,
+      reviewRequests: {
+        where: {
+          status: { in: ['Pending', 'Accepted', 'Completed'] },
+        },
+        select: {
+          requestedBy: true,
+          targetUserId: true,
+          targetGroup: {
+            select: {
+              members: {
+                where: { status: 'Accepted' },
+                select: { userId: true },
+              },
+            },
+          },
+        },
+      },
+    },
+  })
+
+  const author = await prisma.user.findUnique({
+    where: { id: params.authorId },
+    select: { displayName: true },
+  })
+
+  if (!caseItem || !author) return
+
+  const recipients = new Set<string>()
+  if (caseItem.ownerId !== params.authorId) {
+    recipients.add(caseItem.ownerId)
+  }
+
+  for (const request of caseItem.reviewRequests) {
+    if (request.requestedBy && request.requestedBy !== params.authorId) {
+      recipients.add(request.requestedBy)
+    }
+    if (request.targetUserId && request.targetUserId !== params.authorId) {
+      recipients.add(request.targetUserId)
+    }
+    for (const member of request.targetGroup?.members || []) {
+      if (member.userId !== params.authorId) {
+        recipients.add(member.userId)
+      }
+    }
+  }
+
+  if (!recipients.size) return
+
+  await createNotificationsForUsers({
+    userIds: [...recipients],
+    kind: 'comment_on_case',
+    title: 'Nuevo comentario en caso',
+    body: `${author.displayName} ha comentado en ${buildNotificationCaseTitle(caseItem)}.`,
+    caseId: params.caseId,
+    commentId: params.commentId,
+    actorUserId: params.authorId,
+  })
+}
 
 // Listar comentarios de un caso
 router.get('/case/:caseId', async (req: AuthenticatedRequest, res) => {
@@ -140,6 +211,14 @@ router.post('/case/:caseId', async (req: AuthenticatedRequest, res) => {
       action: 'Commented',
       target: comment.id,
     },
+  })
+
+  await createCommentNotifications({
+    caseId: req.params.caseId,
+    commentId: comment.id,
+    authorId: req.user!.id,
+  }).catch((err) => {
+    console.warn('[OCEAN notifications] No se pudieron crear notificaciones de comentario', err)
   })
 
   res.status(201).json({ ...comment, content: comment.body, body: undefined })

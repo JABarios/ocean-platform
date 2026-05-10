@@ -23,6 +23,7 @@ import SharedLinkNew from './pages/SharedLinkNew'
 import OpenLocalEeg from './pages/OpenLocalEeg'
 import OpenCasesFeed from './pages/OpenCasesFeed'
 import Groups from './pages/Groups'
+import Notifications from './pages/Notifications'
 
 export default function App() {
   const token = useAuthStore((s) => s.token)
@@ -65,6 +66,16 @@ export default function App() {
           <ProtectedRoute>
             <Layout>
               <OpenCasesFeed />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/notifications"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <Notifications />
             </Layout>
           </ProtectedRoute>
         }

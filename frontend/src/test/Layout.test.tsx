@@ -3,9 +3,11 @@ import { MemoryRouter } from 'react-router-dom'
 import { render, screen } from '@testing-library/react'
 import Layout from '../components/Layout'
 import type { User } from '../types'
+import { mockFetchSequence } from './mocks'
 
 let mockAuthState = {
   user: null as User | null,
+  token: undefined as string | undefined,
   logout: vi.fn(),
 }
 
@@ -44,6 +46,7 @@ describe('Layout', () => {
         role: 'Clinician',
         availableActions: [],
       },
+      token: undefined,
       logout: vi.fn(),
     }
   })
@@ -71,5 +74,14 @@ describe('Layout', () => {
     renderLayout('/')
 
     expect(screen.getByRole('link', { name: /Casos abiertos/i })).toBeInTheDocument()
+  })
+
+  it('muestra el acceso a notificaciones', async () => {
+    mockFetchSequence([{ data: { count: 2 } }])
+    mockAuthState.token = 'test-token'
+    renderLayout('/')
+
+    expect(await screen.findByRole('link', { name: /Notificaciones/i })).toBeInTheDocument()
+    expect(screen.getByText('2')).toBeInTheDocument()
   })
 })

@@ -37,6 +37,24 @@ CREATE TABLE "email_verification_tokens" (
 );
 CREATE UNIQUE INDEX "email_verification_tokens_token_key" ON "email_verification_tokens"("token");
 
+CREATE TABLE "notifications" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "user_id" TEXT NOT NULL,
+    "kind" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "body" TEXT NOT NULL,
+    "case_id" TEXT,
+    "review_request_id" TEXT,
+    "comment_id" TEXT,
+    "actor_user_id" TEXT,
+    "read_at" DATETIME,
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "notifications_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "notifications_actor_user_id_fkey" FOREIGN KEY ("actor_user_id") REFERENCES "users" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+CREATE INDEX "notifications_user_id_created_at_idx" ON "notifications"("user_id", "created_at");
+CREATE INDEX "notifications_user_id_read_at_idx" ON "notifications"("user_id", "read_at");
+
 CREATE TABLE "groups" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "name" TEXT NOT NULL,
@@ -275,6 +293,7 @@ CREATE UNIQUE INDEX "viewer_states_user_id_package_hash_key" ON "viewer_states"(
 beforeAll(async () => {
   // Limpiar tablas si existen de un test suite anterior
   const drops = [
+    'DROP TABLE IF EXISTS "notifications"',
     'DROP TABLE IF EXISTS "audit_events"',
     'DROP TABLE IF EXISTS "eeg_access_secrets"',
     'DROP TABLE IF EXISTS "shared_link_blobs"',
@@ -307,6 +326,7 @@ afterAll(async () => {
 
 afterEach(async () => {
   const tables = [
+    'notifications',
     'audit_events',
     'eeg_access_secrets',
     'shared_link_blobs',

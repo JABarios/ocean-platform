@@ -60,6 +60,28 @@ export interface Group {
   pendingInvitations?: GroupMember[]
 }
 
+export interface NotificationItem {
+  id: string
+  kind: string
+  title: string
+  body: string
+  caseId?: string
+  reviewRequestId?: string
+  commentId?: string
+  readAt?: string
+  createdAt: string
+  actor?: Pick<User, 'id' | 'displayName' | 'email'>
+  case?: {
+    id: string
+    title?: string
+    status?: string
+  }
+  reviewRequest?: {
+    id: string
+    status: string
+  }
+}
+
 export interface CasePackage {
   id: string
   caseId: string

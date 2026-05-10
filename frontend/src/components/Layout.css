@@ -58,6 +58,78 @@
   gap: 0.75rem;
 }
 
+.notification-link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(217, 222, 234, 0.96);
+  color: var(--text-secondary);
+}
+
+.notification-link:hover,
+.notification-link.active {
+  color: var(--text);
+  background: #edf3ff;
+  border-color: rgba(191, 208, 247, 0.95);
+}
+
+.notification-link-icon {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  color: currentColor;
+  font-size: 0;
+}
+
+.notification-link-icon::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 1px;
+  width: 12px;
+  height: 10px;
+  border: 2px solid currentColor;
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+  border-top-color: transparent;
+}
+
+.notification-link-icon::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  bottom: 0;
+  width: 6px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.notification-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: #d14d72;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 18px rgba(209, 77, 114, 0.24);
+}
+
 .account-menu {
   position: relative;
 }

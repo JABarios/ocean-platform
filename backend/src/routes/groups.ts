@@ -4,6 +4,7 @@ import { prisma } from '../utils/prisma'
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth'
 import { canManageGroupMembers } from '../domain/workflows/groupWorkflow'
 import { buildGroupsUrl, sendGroupInvitationEmail } from '../utils/email'
+import { createNotification } from '../utils/notifications'
 
 const router = Router()
 
@@ -274,6 +275,16 @@ router.post('/:id/members', async (req: AuthenticatedRequest, res) => {
   })
 
   if (member.user && inviter) {
+    await createNotification({
+      userId: member.user.id,
+      kind: 'group_invitation_received',
+      title: 'Nueva invitación a grupo',
+      body: `${inviter.displayName} te ha invitado al grupo ${group.name}.`,
+      actorUserId: req.user!.id,
+    }).catch((err) => {
+      console.warn('[OCEAN notifications] No se pudo crear la notificación de invitación al grupo', err)
+    })
+
     sendGroupInvitationEmail({
       to: member.user.email,
       displayName: member.user.displayName,

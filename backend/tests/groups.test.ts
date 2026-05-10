@@ -1,6 +1,6 @@
 import request from 'supertest'
 import app from '../src/index'
-import { createUser, generateToken } from './helpers'
+import { createUser, generateToken, prisma } from './helpers'
 
 describe('POST /groups', () => {
   it('crea un grupo y añade al creador como admin', async () => {
@@ -95,6 +95,26 @@ describe('POST /groups/:id/members', () => {
     expect(res.status).toBe(201)
     expect(res.body.user.id).toBe(newMember.id)
     expect(res.body.status).toBe('Pending')
+  })
+
+  it('crea una notificación interna para el invitado', async () => {
+    const owner = await createUser({ email: 'grp-notif-owner@ocean.local', displayName: 'GrpNotifOwner', password: 'pass' })
+    const newMember = await createUser({ email: 'grp-notif-member@ocean.local', displayName: 'GrpNotifMember', password: 'pass' })
+    const token = generateToken(owner.id, owner.email, owner.role)
+
+    const created = await request(app).post('/groups').set('Authorization', `Bearer ${token}`).send({ name: 'Grupo avisos' })
+    const res = await request(app)
+      .post(`/groups/${created.body.id}/members`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ userId: newMember.id })
+
+    expect(res.status).toBe(201)
+
+    const notifications = await prisma.notification.findMany({
+      where: { userId: newMember.id, kind: 'group_invitation_received' },
+    })
+
+    expect(notifications).toHaveLength(1)
   })
 
   it('envía correo de invitación si Resend está configurado', async () => {

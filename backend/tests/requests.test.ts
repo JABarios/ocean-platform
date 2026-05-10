@@ -55,6 +55,28 @@ describe('POST /requests', () => {
     expect(res.body.message).toBe('Revisa esto')
   })
 
+  it('crea una notificación para el destinatario directo', async () => {
+    const owner = await createUser({ email: 'req-notif-own@ocean.local', displayName: 'ReqNotifOwn', password: 'pass' })
+    const reviewer = await createUser({ email: 'req-notif-rev@ocean.local', displayName: 'ReqNotifRev', password: 'pass' })
+    const c = await createCase(owner.id, { title: 'Caso notificado' })
+    const token = generateToken(owner.id, owner.email, owner.role)
+
+    const res = await request(app)
+      .post('/requests')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ caseId: c.id, targetUserId: reviewer.id })
+
+    expect(res.status).toBe(201)
+
+    const reviewerNotifications = await prisma.notification.findMany({
+      where: { userId: reviewer.id },
+    })
+
+    expect(reviewerNotifications).toHaveLength(1)
+    expect(reviewerNotifications[0].kind).toBe('review_request_received')
+    expect(reviewerNotifications[0].reviewRequestId).toBe(res.body.id)
+  })
+
   it('envía correo al destinatario directo si hay Resend configurado', async () => {
     process.env.RESEND_API_KEY = 'test-key'
     ;(global as any).fetch = jest.fn().mockResolvedValue({
@@ -329,6 +351,27 @@ describe('POST /requests/:id/accept', () => {
     const res = await request(app).post(`/requests/${req.id}/accept`).set('Authorization', `Bearer ${token}`)
 
     expect(res.status).toBe(404)
+  })
+
+  it('notifica al solicitante cuando se acepta', async () => {
+    const owner = await createUser({ email: 'acc-notif-own@ocean.local', displayName: 'AccNotifOwn', password: 'pass' })
+    const reviewer = await createUser({ email: 'acc-notif-rev@ocean.local', displayName: 'AccNotifRev', password: 'pass' })
+    const c = await createCase(owner.id, { statusClinical: 'Requested', title: 'Caso aceptación' })
+    await createReviewRequest({ caseId: c.id, requestedBy: owner.id, targetUserId: reviewer.id, status: 'Pending' })
+    const pending = await request(app)
+      .get('/requests/pending')
+      .set('Authorization', `Bearer ${generateToken(reviewer.id, reviewer.email, reviewer.role)}`)
+
+    const accept = await request(app)
+      .post(`/requests/${pending.body[0].id}/accept`)
+      .set('Authorization', `Bearer ${generateToken(reviewer.id, reviewer.email, reviewer.role)}`)
+
+    expect(accept.status).toBe(200)
+
+    const notifications = await prisma.notification.findMany({
+      where: { userId: owner.id, kind: 'review_request_accepted' },
+    })
+    expect(notifications).toHaveLength(1)
   })
 })
 

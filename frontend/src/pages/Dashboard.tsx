@@ -123,26 +123,22 @@ export default function Dashboard() {
         <article className="card summary-card">
           <span className="summary-label">Casos abiertos</span>
           <strong>{statusCounts.Draft + statusCounts.Requested + statusCounts.InReview}</strong>
-          <span className="summary-help">
-            {statusCounts.Draft} borradores · {statusCounts.Requested} solicitados · {statusCounts.InReview} en revisión
-          </span>
+          <span className="summary-help">{statusCounts.Draft} B · {statusCounts.Requested} S · {statusCounts.InReview} R</span>
         </article>
         <article className="card summary-card">
           <span className="summary-label">Revisiones pendientes</span>
           <strong>{pending.length}</strong>
-          <span className="summary-help">Invitaciones que requieren tu respuesta</span>
+          <span className="summary-help">por responder</span>
         </article>
         <article className="card summary-card">
           <span className="summary-label">Revisiones activas</span>
           <strong>{active.length}</strong>
-          <span className="summary-help">Casos que ya estás revisando</span>
+          <span className="summary-help">en curso</span>
         </article>
         <article className="card summary-card">
           <span className="summary-label">Resueltos</span>
           <strong>{statusCounts.Resolved}</strong>
-          <span className="summary-help">
-            {statusCounts.Archived > 0 ? `${statusCounts.Archived} archivados aparte` : 'Pendientes de cierre o archivo'}
-          </span>
+          <span className="summary-help">{statusCounts.Archived > 0 ? `${statusCounts.Archived} arch.` : 'sin archivar'}</span>
         </article>
       </section>
 

@@ -189,44 +189,43 @@ export default function Dashboard() {
           )}
         </section>
 
-        <section className="dashboard-section">
-          <div className="section-head">
-            <h3>En revisión contigo</h3>
-            {active.length > 0 && <span className="section-count">{active.length}</span>}
-          </div>
-          {active.length === 0 ? (
-            <p className="empty">No tienes revisiones activas.</p>
-          ) : (
-            <ul className="request-list request-list-compact">
-              {active.map((r) => (
-                <li key={r.id} className="request-row card request-row-compact">
-                  <div className="request-info request-info-compact">
-                    <div className="request-compact-top">
-                      <div className="request-case">
-                        {r.case ? r.case.title : `Caso ${r.caseId}`}
-                      </div>
-                      {r.case?.status && (
-                        <span className={statusBadgeClass(r.case.status as CaseItem['status'])}>
-                          {statusLabel(r.case.status as CaseItem['status'])}
-                        </span>
-                      )}
-                    </div>
-                    <div className="request-subline">
-                      {r.requester?.displayName ? `Solicita: ${r.requester.displayName}` : 'Revisión activa'}
-                    </div>
+      </section>
+
+      <section className="dashboard-section dashboard-section-wide">
+        <div className="section-head">
+          <h3>En revisión contigo</h3>
+          {active.length > 0 && <span className="section-count">{active.length}</span>}
+        </div>
+        {active.length === 0 ? (
+          <p className="empty">No tienes revisiones activas.</p>
+        ) : (
+          <ul className="request-list request-list-compact">
+            {active.map((r) => (
+              <li key={r.id} className="request-row card request-row-compact request-row-full">
+                <div className="request-info request-info-compact request-info-inline">
+                  <div className="request-case">
+                    {r.case ? r.case.title : `Caso ${r.caseId}`}
                   </div>
-                  <div className="request-inline-links">
-                    <Link to={`/cases/${r.caseId}`}>Caso</Link>
-                    <a href={`/cases/${r.caseId}/eeg`} target="_blank" rel="noreferrer">
-                      EEG
-                    </a>
-                    <Link to={`/cases/${r.caseId}#comments`}>Comentarios</Link>
+                  {r.case?.status && (
+                    <span className={statusBadgeClass(r.case.status as CaseItem['status'])}>
+                      {statusLabel(r.case.status as CaseItem['status'])}
+                    </span>
+                  )}
+                  <div className="request-subline">
+                    {r.requester?.displayName ? `Solicita: ${r.requester.displayName}` : 'Revisión activa'}
                   </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+                </div>
+                <div className="request-inline-links">
+                  <Link to={`/cases/${r.caseId}`}>Caso</Link>
+                  <a href={`/cases/${r.caseId}/eeg`} target="_blank" rel="noreferrer">
+                    EEG
+                  </a>
+                  <Link to={`/cases/${r.caseId}#comments`}>Comentarios</Link>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <section className="dashboard-section">

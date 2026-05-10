@@ -26,13 +26,70 @@ function validateVapidPublicKey(value: string) {
 }
 
 function pushActivationError(error: unknown) {
+  const name = error instanceof Error ? error.name : ''
   const message = error instanceof Error ? error.message : String(error || '')
   if (message.toLowerCase().includes('push service error')) {
     return new Error(
-      'El navegador rechazó el alta push. Suele deberse a una clave VAPID mal copiada o a una suscripción vieja del dispositivo. Reinténtalo y, si sigue igual, reharemos la suscripción.',
+      `El navegador rechazó el alta push (${name || 'Error'}). Suele deberse a una clave VAPID mal copiada o a una suscripción vieja del dispositivo.`,
     )
   }
   return error instanceof Error ? error : new Error('No se pudo activar los avisos push.')
+}
+
+export async function getPushDiagnostics() {
+  const support = {
+    serviceWorker: 'serviceWorker' in navigator,
+    pushManager: 'PushManager' in window,
+    notification: 'Notification' in window,
+    standalone: window.matchMedia?.('(display-mode: standalone)')?.matches ?? false,
+  }
+
+  if (!support.serviceWorker || !support.pushManager || !support.notification) {
+    return {
+      support,
+      permission: typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
+      workerScope: null,
+      workerActive: false,
+      subscribed: false,
+      endpointPreview: null,
+      vapidConfigured: false,
+      vapidPublicKeyLength: 0,
+      vapidPublicKeyPrefix: null,
+    }
+  }
+
+  const registration = await navigator.serviceWorker.ready
+  const subscription = await registration.pushManager.getSubscription()
+  const config = await api.get<{ configured: boolean; publicKey: string | null }>('/push/public-key')
+  const normalizedKey = config.publicKey ? normalizePublicKey(config.publicKey) : ''
+
+  return {
+    support,
+    permission: Notification.permission,
+    workerScope: registration.scope,
+    workerActive: Boolean(registration.active),
+    subscribed: Boolean(subscription),
+    endpointPreview: subscription?.endpoint ? subscription.endpoint.slice(0, 72) : null,
+    vapidConfigured: config.configured,
+    vapidPublicKeyLength: normalizedKey.length,
+    vapidPublicKeyPrefix: normalizedKey ? normalizedKey.slice(0, 16) : null,
+  }
+}
+
+export async function resetPushSubscription() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
+
+  const registration = await navigator.serviceWorker.ready
+  const subscription = await registration.pushManager.getSubscription()
+  if (!subscription) return
+
+  try {
+    await api.post('/push/unsubscribe', { endpoint: subscription.endpoint })
+  } catch {
+    // no bloqueamos el reset local por un fallo del backend
+  }
+
+  await subscription.unsubscribe()
 }
 
 export async function getPushState() {
@@ -65,6 +122,7 @@ export async function enablePushNotifications() {
   }
 
   const registration = await navigator.serviceWorker.ready
+  await registration.update().catch(() => {})
   let subscription = await registration.pushManager.getSubscription()
   const applicationServerKey = validateVapidPublicKey(normalizePublicKey(config.publicKey))
 

@@ -2,7 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, friendlyError } from '../api/client'
 import type { NotificationItem } from '../types'
-import { disablePushNotifications, enablePushNotifications, getPushState } from '../push'
+import {
+  disablePushNotifications,
+  enablePushNotifications,
+  getPushDiagnostics,
+  getPushState,
+  resetPushSubscription,
+} from '../push'
 import './Notifications.css'
 
 function formatTimestamp(value?: string) {
@@ -35,6 +41,7 @@ export default function Notifications() {
     permission: 'default',
     subscribed: false,
   })
+  const [pushDiagnostics, setPushDiagnostics] = useState<any | null>(null)
 
   const unreadCount = useMemo(() => items.filter((item) => !item.readAt).length, [items])
 
@@ -54,7 +61,13 @@ export default function Notifications() {
   useEffect(() => {
     loadNotifications()
     getPushState().then(setPushState).catch(() => {})
+    getPushDiagnostics().then(setPushDiagnostics).catch(() => {})
   }, [])
+
+  const refreshPushDebug = async () => {
+    setPushState(await getPushState())
+    setPushDiagnostics(await getPushDiagnostics())
+  }
 
   const markOneRead = async (notificationId: string) => {
     try {
@@ -83,9 +96,10 @@ export default function Notifications() {
     setError('')
     try {
       await enablePushNotifications()
-      setPushState(await getPushState())
+      await refreshPushDebug()
     } catch (err) {
       setError(friendlyError(err))
+      getPushDiagnostics().then(setPushDiagnostics).catch(() => {})
     } finally {
       setPushBusy(false)
     }
@@ -96,7 +110,20 @@ export default function Notifications() {
     setError('')
     try {
       await disablePushNotifications()
-      setPushState(await getPushState())
+      await refreshPushDebug()
+    } catch (err) {
+      setError(friendlyError(err))
+    } finally {
+      setPushBusy(false)
+    }
+  }
+
+  const handleResetPush = async () => {
+    setPushBusy(true)
+    setError('')
+    try {
+      await resetPushSubscription()
+      await refreshPushDebug()
     } catch (err) {
       setError(friendlyError(err))
     } finally {
@@ -154,6 +181,11 @@ export default function Notifications() {
               Desactivar avisos
             </button>
           )}
+          {pushState.supported && (
+            <button className="btn-secondary" onClick={handleResetPush} disabled={pushBusy}>
+              Resetear suscripción
+            </button>
+          )}
           {pushState.permission === 'denied' && (
             <p className="muted">
               El navegador ha bloqueado los avisos. Toca reactivarlos desde la configuración del sitio.
@@ -163,6 +195,35 @@ export default function Notifications() {
       </section>
 
       {error && <div className="alert error">{error}</div>}
+
+      {pushDiagnostics && (
+        <section className="card notifications-debug-card">
+          <div className="notifications-debug-head">
+            <div>
+              <h2>Diagnóstico push</h2>
+              <p className="page-subtitle">
+                Datos del dispositivo para entender por qué falla el alta de avisos.
+              </p>
+            </div>
+            <button className="btn-secondary" onClick={refreshPushDebug} disabled={pushBusy}>
+              Refrescar diagnóstico
+            </button>
+          </div>
+          <div className="notifications-debug-grid">
+            <div><strong>Permission</strong><span>{pushDiagnostics.permission}</span></div>
+            <div><strong>Service Worker</strong><span>{pushDiagnostics.support?.serviceWorker ? 'sí' : 'no'}</span></div>
+            <div><strong>PushManager</strong><span>{pushDiagnostics.support?.pushManager ? 'sí' : 'no'}</span></div>
+            <div><strong>Modo app</strong><span>{pushDiagnostics.support?.standalone ? 'standalone' : 'navegador'}</span></div>
+            <div><strong>Worker activo</strong><span>{pushDiagnostics.workerActive ? 'sí' : 'no'}</span></div>
+            <div><strong>Scope SW</strong><span>{pushDiagnostics.workerScope || '—'}</span></div>
+            <div><strong>Suscripción actual</strong><span>{pushDiagnostics.subscribed ? 'sí' : 'no'}</span></div>
+            <div><strong>Endpoint</strong><span>{pushDiagnostics.endpointPreview || '—'}</span></div>
+            <div><strong>VAPID configurado</strong><span>{pushDiagnostics.vapidConfigured ? 'sí' : 'no'}</span></div>
+            <div><strong>Longitud VAPID pública</strong><span>{pushDiagnostics.vapidPublicKeyLength || 0}</span></div>
+            <div><strong>Prefijo VAPID</strong><span>{pushDiagnostics.vapidPublicKeyPrefix || '—'}</span></div>
+          </div>
+        </section>
+      )}
 
       {loading ? (
         <div className="card muted">Cargando notificaciones…</div>

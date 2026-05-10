@@ -25,7 +25,7 @@
 
 .case-top-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.95fr);
+  grid-template-columns: minmax(0, 1.6fr) minmax(280px, 0.78fr);
   gap: 1rem;
   align-items: start;
 }
@@ -39,6 +39,10 @@
 
 .case-overview-card {
   gap: 1.15rem;
+}
+
+.comments-card {
+  gap: 0.85rem;
 }
 
 .case-section-head {
@@ -77,6 +81,7 @@
   justify-content: space-between;
   gap: 1rem;
   flex-wrap: wrap;
+  padding: 1rem 1.05rem;
   border-color: rgba(15, 91, 216, 0.14);
   background:
     radial-gradient(circle at top right, rgba(15, 91, 216, 0.08), transparent 14rem),
@@ -145,6 +150,23 @@
   display: flex;
   flex-direction: column;
   gap: 0.9rem;
+}
+
+.teaching-panel-side,
+.case-side-column .card {
+  padding: 1rem 1.05rem;
+}
+
+.case-side-column .section h3,
+.teaching-panel-side .teaching-panel-header h3,
+.eeg-access-copy h3 {
+  font-size: 0.98rem;
+}
+
+.case-side-column .ops-subtle,
+.case-side-column .field p,
+.case-side-column .member-meta {
+  font-size: 0.82rem;
 }
 
 .teaching-panel-header {
@@ -221,7 +243,7 @@
 
 .teaching-proposal-body {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 1rem;
 }
 

@@ -572,85 +572,45 @@ export default function CaseDetail() {
             )}
           </div>
 
-          <section className="card teaching-panel">
-        <div className="teaching-panel-header">
-          <div>
-            <span className="field-label">Biblioteca</span>
-            <h3>Estado docente del caso</h3>
-          </div>
-          <span className="badge">{teachingStatusLabel(caseItem.teachingStatus)}</span>
-        </div>
-
-        {!teachingProposal ? (
-          <div className="teaching-panel-empty">
-            <div className="teaching-panel-empty-copy">
-              <p>Este caso todavía no tiene propuesta para biblioteca.</p>
-              {ownerCanPrepareProposalLater && (
-                <span className="ops-subtle">
-                  Podrás proponerlo cuando el caso esté resuelto o archivado.
-                </span>
-              )}
-            </div>
-            <div className="teaching-panel-empty-actions">
-              {canPropose && (
-                <button className="btn-secondary" onClick={() => setShowModal(true)}>
-                  Proponer para biblioteca
-                </button>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className="teaching-proposal-card">
-            <div className="teaching-proposal-top">
-              <div>
-                <div className="teaching-proposal-meta">
-                  <span>Propuesto por {teachingProposal.proposer?.displayName || '—'}</span>
-                  <span>{teachingSupportCount} apoyos</span>
-                  {teachingProposal.difficulty && <span>{teachingProposal.difficulty}</span>}
-                </div>
-                <p className="teaching-summary">{teachingProposal.summary}</p>
-              </div>
-              <div className="teaching-proposal-actions">
-                {canRecommendProposal ? (
-                  <button className="btn-secondary" onClick={recommendTeaching} disabled={recommending}>
-                    {recommending ? 'Recomendando…' : 'Recomendar para biblioteca'}
-                  </button>
-                ) : teachingProposal.proposerId === user?.id ? (
-                  <span className="ops-subtle">Eres quien propuso este caso. Tu propuesta cuenta como primer apoyo.</span>
-                ) : teachingProposal.recommendations?.some((r) => r.authorId === user?.id) ? (
-                  <span className="ops-subtle">Ya lo has recomendado.</span>
-                ) : teachingProposal.status === 'Validated' ? (
-                  <span className="ops-subtle">Ya forma parte de la biblioteca.</span>
-                ) : null}
-              </div>
-            </div>
-
-            {(teachingProposal.keyFindings || teachingProposal.learningPoints) && (
-              <div className="teaching-proposal-body">
-                {teachingProposal.keyFindings && (
-                  <div className="field">
-                    <span className="field-label">Hallazgos clave</span>
-                    <p>{teachingProposal.keyFindings}</p>
-                  </div>
-                )}
-                {teachingProposal.learningPoints && (
-                  <div className="field">
-                    <span className="field-label">Puntos de aprendizaje</span>
-                    <p>{teachingProposal.learningPoints}</p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {teachingProposal.tags && teachingProposal.tags.length > 0 && (
-              <div className="case-tags">
-                {teachingProposal.tags.map((tag) => (
-                  <span key={tag} className="badge">{tag}</span>
+          <section className="section card comments-card">
+            <h3>Comentarios</h3>
+            {comments.length === 0 ? (
+              <p className="empty">No hay comentarios.</p>
+            ) : (
+              <ul className="comment-list">
+                {comments.map((c) => (
+                  <li key={c.id} className="comment">
+                    <div className="comment-author">
+                      {c.author ? c.author.displayName : 'Usuario'}
+                    </div>
+                    <div className="comment-content">{c.content}</div>
+                    <div className="comment-date">
+                      {new Date(c.createdAt).toLocaleString()}
+                    </div>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
-          </div>
-        )}
+            {canComment ? (
+              <form onSubmit={sendComment} className="comment-form">
+                <textarea
+                  rows={2}
+                  placeholder="Escribe un comentario…"
+                  value={commentText}
+                  onChange={(e) => setCommentText(e.target.value)}
+                  required
+                />
+                <button className="btn-primary" disabled={sendingComment}>
+                  {sendingComment ? 'Enviando…' : 'Comentar'}
+                </button>
+              </form>
+            ) : (
+              <p className="ops-subtle">
+                {caseItem.visibility === 'Public'
+                  ? 'Este caso es visible en la comunidad autenticada, pero tu cuenta no puede comentar aquí ahora mismo.'
+                  : 'Solo pueden comentar el propietario del caso y quienes ya participan en la revisión.'}
+              </p>
+            )}
           </section>
         </div>
 
@@ -678,6 +638,87 @@ export default function CaseDetail() {
                 <button className="btn-secondary" onClick={downloadEncrypted}>
                   {packageIsEncrypted ? 'Descargar .enc' : 'Descargar .edf'}
                 </button>
+              </div>
+            )}
+          </section>
+
+          <section className="card teaching-panel teaching-panel-side">
+            <div className="teaching-panel-header">
+              <div>
+                <span className="field-label">Biblioteca</span>
+                <h3>Estado docente del caso</h3>
+              </div>
+              <span className="badge">{teachingStatusLabel(caseItem.teachingStatus)}</span>
+            </div>
+
+            {!teachingProposal ? (
+              <div className="teaching-panel-empty">
+                <div className="teaching-panel-empty-copy">
+                  <p>Este caso todavía no tiene propuesta para biblioteca.</p>
+                  {ownerCanPrepareProposalLater && (
+                    <span className="ops-subtle">
+                      Podrás proponerlo cuando el caso esté resuelto o archivado.
+                    </span>
+                  )}
+                </div>
+                <div className="teaching-panel-empty-actions">
+                  {canPropose && (
+                    <button className="btn-secondary" onClick={() => setShowModal(true)}>
+                      Proponer para biblioteca
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="teaching-proposal-card">
+                <div className="teaching-proposal-top">
+                  <div>
+                    <div className="teaching-proposal-meta">
+                      <span>Propuesto por {teachingProposal.proposer?.displayName || '—'}</span>
+                      <span>{teachingSupportCount} apoyos</span>
+                      {teachingProposal.difficulty && <span>{teachingProposal.difficulty}</span>}
+                    </div>
+                    <p className="teaching-summary">{teachingProposal.summary}</p>
+                  </div>
+                  <div className="teaching-proposal-actions">
+                    {canRecommendProposal ? (
+                      <button className="btn-secondary" onClick={recommendTeaching} disabled={recommending}>
+                        {recommending ? 'Recomendando…' : 'Recomendar para biblioteca'}
+                      </button>
+                    ) : teachingProposal.proposerId === user?.id ? (
+                      <span className="ops-subtle">Eres quien propuso este caso. Tu propuesta cuenta como primer apoyo.</span>
+                    ) : teachingProposal.recommendations?.some((r) => r.authorId === user?.id) ? (
+                      <span className="ops-subtle">Ya lo has recomendado.</span>
+                    ) : teachingProposal.status === 'Validated' ? (
+                      <span className="ops-subtle">Ya forma parte de la biblioteca.</span>
+                    ) : null}
+                  </div>
+                </div>
+
+                {(teachingProposal.keyFindings || teachingProposal.learningPoints) && (
+                  <div className="teaching-proposal-body">
+                    {teachingProposal.keyFindings && (
+                      <div className="field">
+                        <span className="field-label">Hallazgos clave</span>
+                        <p>{teachingProposal.keyFindings}</p>
+                      </div>
+                    )}
+                    {teachingProposal.learningPoints && (
+                      <div className="field">
+                        <span className="field-label">Puntos de aprendizaje</span>
+                        <p>{teachingProposal.learningPoints}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {teachingProposal.tags && teachingProposal.tags.length > 0 && (
+                  <div className="case-tags">
+                    {teachingProposal.tags.map((tag) => (
+                      <span key={tag} className="badge">{tag}</span>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </section>
@@ -770,12 +811,6 @@ export default function CaseDetail() {
                 <button className="btn-secondary" onClick={downloadEncrypted}>
                   {packageIsEncrypted ? 'Descargar .enc (cifrado)' : 'Descargar .edf'}
                 </button>
-                <button
-                  className="btn-primary"
-                  onClick={() => window.open(`/cases/${id}/eeg`, '_blank')}
-                >
-                  Ver EEG
-                </button>
               </div>
               {packageIsEncrypted ? (
                 <>
@@ -855,47 +890,6 @@ export default function CaseDetail() {
           )}
         </aside>
       </div>
-
-      <section className="section card">
-        <h3>Comentarios</h3>
-        {comments.length === 0 ? (
-          <p className="empty">No hay comentarios.</p>
-        ) : (
-          <ul className="comment-list">
-            {comments.map((c) => (
-              <li key={c.id} className="comment">
-                <div className="comment-author">
-                  {c.author ? c.author.displayName : 'Usuario'}
-                </div>
-                <div className="comment-content">{c.content}</div>
-                <div className="comment-date">
-                  {new Date(c.createdAt).toLocaleString()}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-        {canComment ? (
-          <form onSubmit={sendComment} className="comment-form">
-            <textarea
-              rows={2}
-              placeholder="Escribe un comentario…"
-              value={commentText}
-              onChange={(e) => setCommentText(e.target.value)}
-              required
-            />
-            <button className="btn-primary" disabled={sendingComment}>
-              {sendingComment ? 'Enviando…' : 'Comentar'}
-            </button>
-          </form>
-        ) : (
-          <p className="ops-subtle">
-            {caseItem.visibility === 'Public'
-              ? 'Este caso es visible en la comunidad autenticada, pero tu cuenta no puede comentar aquí ahora mismo.'
-              : 'Solo pueden comentar el propietario del caso y quienes ya participan en la revisión.'}
-          </p>
-        )}
-      </section>
 
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>

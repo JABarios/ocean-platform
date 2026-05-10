@@ -13,6 +13,28 @@ function urlBase64ToUint8Array(base64String: string) {
   return outputArray
 }
 
+function normalizePublicKey(value: string) {
+  return value.trim().replace(/\s+/g, '')
+}
+
+function validateVapidPublicKey(value: string) {
+  const key = urlBase64ToUint8Array(value)
+  if (key.length !== 65) {
+    throw new Error('La clave pública de avisos push del servidor no es válida.')
+  }
+  return key
+}
+
+function pushActivationError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || '')
+  if (message.toLowerCase().includes('push service error')) {
+    return new Error(
+      'El navegador rechazó el alta push. Suele deberse a una clave VAPID mal copiada o a una suscripción vieja del dispositivo. Reinténtalo y, si sigue igual, reharemos la suscripción.',
+    )
+  }
+  return error instanceof Error ? error : new Error('No se pudo activar los avisos push.')
+}
+
 export async function getPushState() {
   if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
     return { supported: false, permission: 'unsupported' as const, subscribed: false }
@@ -44,12 +66,41 @@ export async function enablePushNotifications() {
 
   const registration = await navigator.serviceWorker.ready
   let subscription = await registration.pushManager.getSubscription()
+  const applicationServerKey = validateVapidPublicKey(normalizePublicKey(config.publicKey))
 
-  if (!subscription) {
-    subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(config.publicKey),
-    })
+  try {
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey,
+      })
+    }
+  } catch (error) {
+    if (subscription) {
+      try {
+        await subscription.unsubscribe()
+      } catch {
+        // ignoramos errores al limpiar una suscripción rota
+      }
+    }
+
+    subscription = await registration.pushManager.getSubscription()
+    if (subscription) {
+      try {
+        await subscription.unsubscribe()
+      } catch {
+        // ignoramos errores al limpiar una suscripción rota
+      }
+    }
+
+    try {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey,
+      })
+    } catch (retryError) {
+      throw pushActivationError(retryError)
+    }
   }
 
   await api.post('/push/subscriptions', subscription.toJSON())

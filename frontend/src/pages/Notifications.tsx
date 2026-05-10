@@ -26,6 +26,13 @@ function destinationForNotification(item: NotificationItem) {
   return '/groups'
 }
 
+const eventRows = [
+  ['Invitación a leer un EEG', 'Sí', 'Sí', 'Sí', 'Sí'],
+  ['Invitación a un grupo', 'Sí', 'Sí', 'Sí', 'Sí'],
+  ['EEG enviado a un grupo', 'Sí', 'Sí', 'Sí', 'Sí'],
+  ['Comentarios nuevos', 'Sí', 'Respaldo', 'No', 'No'],
+] as const
+
 export default function Notifications() {
   const [items, setItems] = useState<NotificationItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -54,6 +61,12 @@ export default function Notifications() {
   const [telegramConnectUrl, setTelegramConnectUrl] = useState<string | null>(null)
 
   const unreadCount = useMemo(() => items.filter((item) => !item.readAt).length, [items])
+  const activeChannels = [
+    'Bandeja interna',
+    'Email',
+    telegramStatus?.linked ? 'Telegram' : null,
+    pushState.subscribed ? 'Push web' : null,
+  ].filter(Boolean).length
 
   const loadNotifications = async () => {
     setLoading(true)
@@ -204,7 +217,7 @@ export default function Notifications() {
           <p className="eyebrow">Actividad</p>
           <h1>Notificaciones</h1>
           <p className="page-subtitle">
-            Avisos internos sobre revisiones, grupos y comentarios recientes.
+            Gestiona por qué canal te avisamos cuando llega una revisión, una invitación o actividad importante.
           </p>
         </div>
         <div className="notifications-hero-actions">
@@ -212,18 +225,78 @@ export default function Notifications() {
             <span className="notification-kpi-value">{unreadCount}</span>
             <span className="notification-kpi-label">sin leer</span>
           </div>
+          <div className="notification-kpi">
+            <span className="notification-kpi-value">{activeChannels}</span>
+            <span className="notification-kpi-label">canales activos</span>
+          </div>
           <button className="btn-secondary" onClick={handleMarkAllRead} disabled={busy || unreadCount === 0}>
             Marcar todas como leídas
           </button>
         </div>
       </section>
 
+      <section className="card notification-policy-card">
+        <div className="notification-policy-copy">
+          <h2>Canales de aviso</h2>
+          <p className="page-subtitle">
+            OCEAN usa siempre <strong>bandeja interna</strong> y <strong>email</strong>. Telegram y push web son canales rápidos para móvil cuando te interesan.
+          </p>
+        </div>
+        <div className="notification-policy-grid">
+          <div className="notification-policy-pill">
+            <strong>Bandeja interna</strong>
+            <span>Siempre disponible dentro de OCEAN</span>
+          </div>
+          <div className="notification-policy-pill">
+            <strong>Email</strong>
+            <span>Respaldo universal</span>
+          </div>
+          <div className="notification-policy-pill">
+            <strong>Telegram</strong>
+            <span>Muy útil si vives en el móvil</span>
+          </div>
+          <div className="notification-policy-pill">
+            <strong>Push web</strong>
+            <span>Bonus cuando el dispositivo acompaña</span>
+          </div>
+        </div>
+      </section>
+
+      <section className="card notification-events-card">
+        <div className="notification-events-head">
+          <div>
+            <h2>Eventos importantes</h2>
+            <p className="page-subtitle">
+              Los avisos móviles se reservan para lo que realmente reclama atención.
+            </p>
+          </div>
+        </div>
+        <div className="notification-events-table">
+          <div className="notification-events-row notification-events-header">
+            <span>Evento</span>
+            <span>Bandeja</span>
+            <span>Email</span>
+            <span>Telegram</span>
+            <span>Push</span>
+          </div>
+          {eventRows.map(([label, inbox, email, telegram, push]) => (
+            <div key={label} className="notification-events-row">
+              <strong>{label}</strong>
+              <span>{inbox}</span>
+              <span>{email}</span>
+              <span>{telegram}</span>
+              <span>{push}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
       <section className="card notifications-push-card">
         <div>
           <p className="eyebrow">Dispositivo</p>
-          <h2>Avisos push</h2>
+          <h2>Push web</h2>
           <p className="page-subtitle">
-            Recibe avisos en este móvil incluso cuando OCEAN no esté abierto.
+            Útil cuando el navegador del dispositivo lo soporta bien. Si falla, OCEAN sigue avisando por bandeja, email y Telegram.
           </p>
           <div className="notifications-push-state">
             {!pushState.supported && <span className="badge">No soportado</span>}
@@ -264,7 +337,7 @@ export default function Notifications() {
         <div>
           <h2>Telegram</h2>
           <p className="page-subtitle">
-            Avisos alternativos por bot de Telegram para invitaciones de revisión y grupos.
+            Canal alternativo de aviso para móvil. Recomendado si quieres algo más fiable que el push web.
           </p>
           <div className="notifications-push-state">
             {!telegramStatus?.configured && <span className="badge">No configurado</span>}
@@ -313,7 +386,7 @@ export default function Notifications() {
       {error && <div className="alert error">{error}</div>}
 
       {pushDiagnostics && (
-        <section className="card notifications-debug-card">
+        <details className="card notifications-debug-card">
           <div className="notifications-debug-head">
             <div>
               <h2>Diagnóstico push</h2>
@@ -341,7 +414,7 @@ export default function Notifications() {
             <div><strong>Longitud VAPID pública</strong><span>{pushDiagnostics.vapidPublicKeyLength || 0}</span></div>
             <div><strong>Prefijo VAPID</strong><span>{pushDiagnostics.vapidPublicKeyPrefix || '—'}</span></div>
           </div>
-        </section>
+        </details>
       )}
 
       {loading ? (

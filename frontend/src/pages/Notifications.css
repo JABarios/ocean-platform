@@ -45,6 +45,85 @@
   gap: 0.85rem;
 }
 
+.notification-policy-card,
+.notification-events-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.notification-policy-copy h2,
+.notification-events-head h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+}
+
+.notification-policy-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.notification-policy-pill {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(247, 249, 253, 0.98) 0%, rgba(242, 246, 251, 0.98) 100%);
+  border: 1px solid rgba(223, 228, 237, 0.92);
+}
+
+.notification-policy-pill strong {
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.notification-policy-pill span {
+  font-size: 0.84rem;
+  color: var(--text-secondary);
+}
+
+.notification-events-table {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(223, 228, 237, 0.92);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.notification-events-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2.2fr) repeat(4, minmax(0, 0.9fr));
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.85rem 1rem;
+  background: #fff;
+  border-top: 1px solid rgba(223, 228, 237, 0.82);
+}
+
+.notification-events-row:first-child {
+  border-top: 0;
+}
+
+.notification-events-header {
+  background: rgba(246, 248, 252, 0.98);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+.notification-events-row strong {
+  font-size: 0.93rem;
+  color: var(--text);
+}
+
+.notification-events-row span {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+}
+
 .notifications-push-card {
   display: flex;
   align-items: flex-start;
@@ -79,6 +158,10 @@
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.notifications-debug-card[open] {
+  border-color: rgba(187, 202, 226, 0.95);
 }
 
 .notifications-debug-head {
@@ -189,6 +272,31 @@
 
   .notifications-debug-grid {
     grid-template-columns: 1fr;
+  }
+
+  .notification-policy-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .notification-events-table {
+    border: 0;
+    gap: 0.75rem;
+    overflow: visible;
+  }
+
+  .notification-events-header {
+    display: none;
+  }
+
+  .notification-events-row {
+    grid-template-columns: 1fr 1fr;
+    padding: 0.9rem;
+    border: 1px solid rgba(223, 228, 237, 0.92);
+    border-radius: 14px;
+  }
+
+  .notification-events-row strong {
+    grid-column: 1 / -1;
   }
 
   .notifications-push-actions .btn-primary,

@@ -3,7 +3,7 @@ import app from '../src/index'
 import { createUser, generateToken, createCase, prisma } from './helpers'
 
 describe('POST /auth/register', () => {
-  it('registra un nuevo usuario', async () => {
+  it('registra un nuevo usuario pendiente de verificación', async () => {
     const res = await request(app).post('/auth/register').send({
       email: 'test@ocean.local',
       password: 'password123',
@@ -12,10 +12,11 @@ describe('POST /auth/register', () => {
       specialty: 'Neurofisiología',
     })
     expect(res.status).toBe(201)
-    expect(res.body).toHaveProperty('token')
-    expect(res.body.user.id).toBeDefined()
-    expect(res.body.user.email).toBe('test@ocean.local')
-    expect(res.body.user.availableActions).toEqual([])
+    expect(res.body.requiresVerification).toBe(true)
+    expect(res.body.verifyUrl).toMatch(/verify-email\//)
+
+    const created = await prisma.user.findUnique({ where: { email: 'test@ocean.local' } })
+    expect(created?.status).toBe('Pending')
   })
 
   it('rechaza email duplicado', async () => {
@@ -39,6 +40,25 @@ describe('POST /auth/register', () => {
   })
 })
 
+describe('GET /auth/verify/:token', () => {
+  it('activa la cuenta si el token es válido', async () => {
+    const registerRes = await request(app).post('/auth/register').send({
+      email: 'verify@ocean.local',
+      password: 'password123',
+      displayName: 'Verify User',
+    })
+
+    const token = registerRes.body.verifyUrl.split('/').pop()
+    const res = await request(app).get(`/auth/verify/${token}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.message).toMatch(/ya puedes iniciar sesión/i)
+
+    const user = await prisma.user.findUnique({ where: { email: 'verify@ocean.local' } })
+    expect(user?.status).toBe('Active')
+  })
+})
+
 describe('POST /auth/login', () => {
   it('loguea con credenciales válidas', async () => {
     await createUser({ email: 'login@ocean.local', displayName: 'Login', password: 'secret123' })
@@ -58,6 +78,40 @@ describe('POST /auth/login', () => {
       password: 'wrong',
     })
     expect(res.status).toBe(401)
+  })
+
+  it('rechaza usuarios pendientes de verificación', async () => {
+    await request(app).post('/auth/register').send({
+      email: 'pending-login@ocean.local',
+      password: 'password123',
+      displayName: 'Pending Login',
+    })
+
+    const res = await request(app).post('/auth/login').send({
+      email: 'pending-login@ocean.local',
+      password: 'password123',
+    })
+
+    expect(res.status).toBe(401)
+    expect(res.body.error).toMatch(/confirmar tu correo/i)
+  })
+})
+
+describe('POST /auth/resend-verification', () => {
+  it('reemite un enlace para cuentas pendientes', async () => {
+    await request(app).post('/auth/register').send({
+      email: 'resend@ocean.local',
+      password: 'password123',
+      displayName: 'Resend User',
+    })
+
+    const res = await request(app).post('/auth/resend-verification').send({
+      email: 'resend@ocean.local',
+    })
+
+    expect(res.status).toBe(200)
+    expect(res.body.ok).toBe(true)
+    expect(res.body.verifyUrl).toMatch(/verify-email\//)
   })
 })
 

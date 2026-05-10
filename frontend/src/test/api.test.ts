@@ -59,6 +59,24 @@ describe('api.client — manejo de errores', () => {
     expect(reloadSpy).toHaveBeenCalled()
   })
 
+  it('en 401 sin sesión previa conserva el mensaje del backend y no recarga', async () => {
+    localStorage.getItem = vi.fn(() => null)
+    const reloadSpy = vi.spyOn(navigation, 'reloadApplication').mockImplementation(() => undefined)
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      text: () => Promise.resolve(JSON.stringify({ error: 'Debes confirmar tu correo antes de iniciar sesión' })),
+      json: () => Promise.resolve({ error: 'Debes confirmar tu correo antes de iniciar sesión' }),
+    } as unknown as Response)
+
+    await expect(apiClient.api.post('/auth/login', { email: 'x', password: 'y' })).rejects.toMatchObject({
+      status: 401,
+      message: 'Debes confirmar tu correo antes de iniciar sesión',
+    })
+    expect(reloadSpy).not.toHaveBeenCalled()
+  })
+
   it('lee error JSON sin consumir el body dos veces', async () => {
     // Simula una respuesta 500 donde json() lanza porque el stream ya se leyó
     let textCalled = false

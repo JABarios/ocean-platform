@@ -1,10 +1,12 @@
 import { Router } from 'express'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
+import { randomBytes } from 'crypto'
 import { z } from 'zod'
 import { prisma } from '../utils/prisma'
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth'
 import { getAppAvailableActions } from '../domain/workflows/appWorkflow'
+import { buildVerificationUrl, sendVerificationEmail } from '../utils/email'
 
 const router = Router()
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me'
@@ -22,6 +24,36 @@ const loginSchema = z.object({
   password: z.string(),
 })
 
+const resendSchema = z.object({
+  email: z.string().email(),
+})
+
+async function issueEmailVerification(userId: string, email: string, displayName: string) {
+  await prisma.emailVerificationToken.updateMany({
+    where: { userId, consumedAt: null },
+    data: { consumedAt: new Date() },
+  })
+
+  const token = randomBytes(32).toString('hex')
+  const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000)
+
+  await prisma.emailVerificationToken.create({
+    data: {
+      userId,
+      token,
+      expiresAt,
+    },
+  })
+
+  const verifyUrl = buildVerificationUrl(token)
+  const delivery = await sendVerificationEmail({ to: email, displayName, verifyUrl })
+
+  return {
+    verifyUrl,
+    emailSent: delivery.delivered,
+  }
+}
+
 router.post('/register', async (req, res) => {
   const parsed = registerSchema.safeParse(req.body)
   if (!parsed.success) {
@@ -38,36 +70,30 @@ router.post('/register', async (req, res) => {
   }
 
   const passwordHash = await bcrypt.hash(password, 10)
-  const now = new Date()
   const user = await prisma.user.create({
     data: {
       email,
       displayName,
       institution,
       specialty,
-      status: 'Active',
+      status: 'Pending',
       role: 'Clinician',
       passwordHash,
       preferences: "{}",
-      lastLoginAt: now,
     },
   })
 
-  const token = jwt.sign(
-    { userId: user.id, email: user.email, role: user.role },
-    JWT_SECRET,
-    { expiresIn: '7d' }
-  )
+  const verification = await issueEmailVerification(user.id, user.email, user.displayName)
 
   res.status(201).json({
-    token,
-    user: {
-      id: user.id,
-      email: user.email,
-      displayName: user.displayName,
-      role: user.role,
-      availableActions: getAppAvailableActions(user.role),
-    },
+    requiresVerification: true,
+    emailSent: verification.emailSent,
+    message: verification.emailSent
+      ? 'Te hemos enviado un correo de confirmación. Revisa tu bandeja para activar la cuenta.'
+      : 'Cuenta creada. Como no hay proveedor de correo configurado, usa el enlace de verificación devuelto por la API.',
+    verifyUrl: process.env.NODE_ENV === 'production' && verification.emailSent
+      ? undefined
+      : verification.verifyUrl,
   })
 })
 
@@ -86,7 +112,7 @@ router.post('/login', async (req, res) => {
   }
 
   if (user.status !== 'Active') {
-    res.status(401).json({ error: 'Usuario inactivo' })
+    res.status(401).json({ error: 'Debes confirmar tu correo antes de iniciar sesión' })
     return
   }
 
@@ -121,6 +147,58 @@ router.post('/login', async (req, res) => {
       role: updatedUser.role,
       availableActions: getAppAvailableActions(updatedUser.role),
     },
+  })
+})
+
+router.get('/verify/:token', async (req, res) => {
+  const record = await prisma.emailVerificationToken.findUnique({
+    where: { token: req.params.token },
+    include: { user: true },
+  })
+
+  if (!record || record.consumedAt || record.expiresAt < new Date()) {
+    res.status(400).json({ error: 'El enlace de verificación no es válido o ha caducado' })
+    return
+  }
+
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { id: record.userId },
+      data: { status: 'Active' },
+    }),
+    prisma.emailVerificationToken.update({
+      where: { id: record.id },
+      data: { consumedAt: new Date() },
+    }),
+  ])
+
+  res.json({ ok: true, message: 'Correo confirmado. Ya puedes iniciar sesión.' })
+})
+
+router.post('/resend-verification', async (req, res) => {
+  const parsed = resendSchema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Datos inválidos' })
+    return
+  }
+
+  const user = await prisma.user.findUnique({ where: { email: parsed.data.email } })
+  if (!user || user.status === 'Active') {
+    res.json({ ok: true, message: 'Si la cuenta existe y sigue pendiente, te hemos reenviado el correo.' })
+    return
+  }
+
+  const verification = await issueEmailVerification(user.id, user.email, user.displayName)
+
+  res.json({
+    ok: true,
+    emailSent: verification.emailSent,
+    message: verification.emailSent
+      ? 'Te hemos reenviado el correo de confirmación.'
+      : 'No hay proveedor de correo configurado. Usa el enlace de verificación devuelto por la API.',
+    verifyUrl: process.env.NODE_ENV === 'production' && verification.emailSent
+      ? undefined
+      : verification.verifyUrl,
   })
 })
 

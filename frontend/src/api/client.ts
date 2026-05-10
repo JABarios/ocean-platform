@@ -65,14 +65,7 @@ async function request<T>(
     )
   }
 
-  if (response.status === 401) {
-    clearPersistedAuth()
-    reloadApplication()
-    return Promise.reject(new ApiError('Unauthorized', 401))
-  }
-
   if (!response.ok) {
-    // Leer el body UNA sola vez como texto, luego intentar parsear JSON
     const rawText = await response.text()
     let errorText = rawText
     try {
@@ -81,6 +74,15 @@ async function request<T>(
     } catch {
       // No es JSON válido, usar el texto crudo
     }
+
+    if (response.status === 401) {
+      if (token) {
+        clearPersistedAuth()
+        reloadApplication()
+      }
+      return Promise.reject(new ApiError(errorText || 'Unauthorized', 401))
+    }
+
     console.error(`[OCEAN API] HTTP ${response.status} en ${url}: ${errorText}`)
     throw new ApiError(
       errorText || `Error HTTP ${response.status}`,

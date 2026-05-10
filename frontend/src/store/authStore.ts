@@ -9,7 +9,7 @@ interface AuthState {
   user: User | null
   isLoading: boolean
   login: (email: string, password: string) => Promise<void>
-  register: (data: RegisterData) => Promise<void>
+  register: (data: RegisterData) => Promise<RegisterResult>
   logout: () => void
   fetchMe: () => Promise<void>
   setToken: (token: string | null) => void
@@ -21,6 +21,13 @@ interface RegisterData {
   displayName: string
   institution?: string
   specialty?: string
+}
+
+interface RegisterResult {
+  requiresVerification: boolean
+  emailSent: boolean
+  message: string
+  verifyUrl?: string
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -53,8 +60,9 @@ export const useAuthStore = create<AuthState>()(
       register: async (data) => {
         set({ isLoading: true })
         try {
-          const res = await api.post<{ token: string; user: User }>('/auth/register', data)
-          set({ token: res.token, user: res.user })
+          const res = await api.post<RegisterResult>('/auth/register', data)
+          set({ token: null, user: null })
+          return res
         } catch (err) {
           set({ isLoading: false })
           throw err

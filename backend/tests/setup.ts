@@ -26,6 +26,17 @@ CREATE TABLE "users" (
 );
 CREATE UNIQUE INDEX "users_email_key" ON "users"("email");
 
+CREATE TABLE "email_verification_tokens" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "user_id" TEXT NOT NULL,
+    "token" TEXT NOT NULL,
+    "expires_at" DATETIME NOT NULL,
+    "consumed_at" DATETIME,
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "email_verification_tokens_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE UNIQUE INDEX "email_verification_tokens_token_key" ON "email_verification_tokens"("token");
+
 CREATE TABLE "groups" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "name" TEXT NOT NULL,
@@ -277,6 +288,7 @@ beforeAll(async () => {
     'DROP TABLE IF EXISTS "eeg_records"',
     'DROP TABLE IF EXISTS "cases"',
     'DROP TABLE IF EXISTS "viewer_states"',
+    'DROP TABLE IF EXISTS "email_verification_tokens"',
     'DROP TABLE IF EXISTS "group_members"',
     'DROP TABLE IF EXISTS "groups"',
     'DROP TABLE IF EXISTS "users"',
@@ -308,6 +320,7 @@ afterEach(async () => {
     'galleries',
     'eeg_records',
     'cases',
+    'email_verification_tokens',
     'group_members',
     'groups',
     'users',

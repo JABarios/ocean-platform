@@ -5,6 +5,7 @@ import ProtectedRoute from './components/ProtectedRoute'
 import { useAuthStore } from './store/authStore'
 import Login from './pages/Login'
 import Register from './pages/Register'
+import VerifyEmail from './pages/VerifyEmail'
 import Dashboard from './pages/Dashboard'
 import CaseNew from './pages/CaseNew'
 import CaseDetail from './pages/CaseDetail'
@@ -39,6 +40,7 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/verify-email/:token" element={<VerifyEmail />} />
       <Route path="/open" element={<OpenLocalEeg />} />
       <Route path="/open/cache/:cacheId" element={<EEGViewer />} />
       <Route path="/open/:localId" element={<EEGViewer />} />

@@ -60,7 +60,7 @@ describe('Login', () => {
 
   it('muestra error si las credenciales son inválidas', async () => {
     vi.spyOn(navigation, 'reloadApplication').mockImplementation(() => undefined)
-    mockFetch({ error: 'Unauthorized' }, 401)
+    mockFetch({ error: 'Credenciales inválidas' }, 401)
 
     render(
       <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
@@ -76,6 +76,28 @@ describe('Login', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: /Entrar/i }))
 
-    expect(await screen.findByText(/Unauthorized/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Credenciales inválidas/i)).toBeInTheDocument()
+  })
+
+  it('ofrece reenviar la confirmación si la cuenta está pendiente', async () => {
+    const fetchMock = mockFetch({ error: 'Debes confirmar tu correo antes de iniciar sesión' }, 401)
+
+    render(
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <Login />
+      </MemoryRouter>
+    )
+
+    fireEvent.change(screen.getByLabelText(/Correo electrónico/i), {
+      target: { value: 'pending@ocean.local' },
+    })
+    fireEvent.change(screen.getByLabelText(/Contraseña/i), {
+      target: { value: 'password123' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Entrar/i }))
+
+    expect(await screen.findByText(/Debes confirmar tu correo/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Reenviar confirmación/i })).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalled()
   })
 })

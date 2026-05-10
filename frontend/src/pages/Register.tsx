@@ -10,6 +10,8 @@ export default function Register() {
   const [institution, setInstitution] = useState('')
   const [specialty, setSpecialty] = useState('')
   const [error, setError] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
+  const [verifyUrl, setVerifyUrl] = useState('')
   const register = useAuthStore((s) => s.register)
   const token = useAuthStore((s) => s.token)
   const isLoading = useAuthStore((s) => s.isLoading)
@@ -24,8 +26,12 @@ export default function Register() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+    setSuccessMessage('')
+    setVerifyUrl('')
     try {
-      await register({ email, password, displayName, institution, specialty })
+      const result = await register({ email, password, displayName, institution, specialty })
+      setSuccessMessage(result.message)
+      setVerifyUrl(result.verifyUrl || '')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al registrarse')
     }
@@ -82,6 +88,16 @@ export default function Register() {
             />
           </label>
           {error && <div className="auth-error">{error}</div>}
+          {successMessage && (
+            <div className="auth-success">
+              <div>{successMessage}</div>
+              {verifyUrl && (
+                <div className="auth-debug">
+                  Enlace de verificación: <a href={verifyUrl}>{verifyUrl}</a>
+                </div>
+              )}
+            </div>
+          )}
           <button type="submit" className="btn-primary" disabled={isLoading}>
             {isLoading ? 'Creando cuenta…' : 'Registrarse'}
           </button>

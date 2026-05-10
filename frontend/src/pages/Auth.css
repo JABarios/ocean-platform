@@ -146,6 +146,15 @@
   font-size: 0.85rem;
 }
 
+.auth-success {
+  color: #0f766e;
+  font-size: 0.85rem;
+}
+
+.auth-inline-button {
+  margin-top: 0.55rem;
+}
+
 .auth-debug {
   color: var(--text-secondary);
   font-size: 0.75rem;

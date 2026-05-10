@@ -30,10 +30,13 @@ function pushActivationError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error || '')
   if (message.toLowerCase().includes('push service error')) {
     return new Error(
-      `El navegador rechazó el alta push (${name || 'Error'}). Suele deberse a una clave VAPID mal copiada o a una suscripción vieja del dispositivo.`,
+      `El navegador rechazó el alta push (${name || 'Error'}: ${message || 'sin detalle'}). Suele deberse a una suscripción vieja del dispositivo, a que Chrome tenga bloqueadas notificaciones a nivel sistema o a un problema local del servicio push del navegador.`,
     )
   }
-  return error instanceof Error ? error : new Error('No se pudo activar los avisos push.')
+  if (error instanceof Error) {
+    return new Error(`${error.name || 'Error'}: ${error.message || 'sin detalle'}`)
+  }
+  return new Error(`No se pudo activar los avisos push: ${String(error || 'sin detalle')}`)
 }
 
 export async function getPushDiagnostics() {
@@ -157,6 +160,7 @@ export async function enablePushNotifications() {
         applicationServerKey,
       })
     } catch (retryError) {
+      console.warn('[OCEAN push] Error al suscribir dispositivo', retryError)
       throw pushActivationError(retryError)
     }
   }

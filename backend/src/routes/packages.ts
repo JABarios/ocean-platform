@@ -56,6 +56,14 @@ router.post('/upload', authMiddleware, upload.single('blob'), async (req: Authen
           requestedBy: true,
           targetUserId: true,
           status: true,
+          targetGroup: {
+            select: {
+              members: {
+                where: { userId: req.user!.id, status: 'Accepted' },
+                select: { userId: true, status: true },
+              },
+            },
+          },
         },
       },
     },
@@ -233,6 +241,14 @@ router.post('/secret/:caseId/recover', authMiddleware, async (req: Authenticated
           requestedBy: true,
           targetUserId: true,
           status: true,
+          targetGroup: {
+            select: {
+              members: {
+                where: { userId: req.user!.id, status: 'Accepted' },
+                select: { userId: true, status: true },
+              },
+            },
+          },
         },
       },
     },

@@ -19,6 +19,47 @@ export interface User {
   }
 }
 
+export interface GroupMember {
+  id: string
+  userId: string
+  groupId: string
+  role: string
+  status: 'Pending' | 'Accepted'
+  invitedBy?: string
+  invitedAt?: string
+  respondedAt?: string
+  joinedAt?: string
+  user?: Pick<User, 'id' | 'displayName' | 'email' | 'role'>
+}
+
+export interface GroupInvitation {
+  id: string
+  groupId: string
+  role: string
+  status: 'Pending'
+  invitedBy?: string
+  invitedAt?: string
+  respondedAt?: string
+  group: {
+    id: string
+    name: string
+    description?: string
+    type: string
+  }
+}
+
+export interface Group {
+  id: string
+  name: string
+  description?: string
+  type: 'Closed' | 'Open'
+  createdAt?: string
+  updatedAt?: string
+  _count?: { members: number }
+  members?: GroupMember[]
+  pendingInvitations?: GroupMember[]
+}
+
 export interface CasePackage {
   id: string
   caseId: string

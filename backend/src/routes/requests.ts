@@ -54,7 +54,7 @@ async function loadRequestWithViewerScope(requestId: string, viewerId: string) {
         select: {
           id: true,
           members: {
-            where: { userId: viewerId },
+            where: { userId: viewerId, status: 'Accepted' },
             select: { userId: true },
           },
         },
@@ -135,7 +135,7 @@ router.get('/pending', async (req: AuthenticatedRequest, res) => {
         { targetUserId: req.user!.id, status: 'Pending' },
         {
           targetGroup: {
-            members: { some: { userId: req.user!.id } },
+            members: { some: { userId: req.user!.id, status: 'Accepted' } },
           },
           status: 'Pending',
         },
@@ -144,6 +144,7 @@ router.get('/pending', async (req: AuthenticatedRequest, res) => {
     include: {
       case: { select: { id: true, title: true, statusClinical: true, owner: { select: { displayName: true } } } },
       requester: { select: { id: true, displayName: true } },
+      targetGroup: { select: { id: true, name: true } },
     },
     orderBy: { createdAt: 'desc' },
   })
@@ -157,6 +158,12 @@ router.get('/active', async (req: AuthenticatedRequest, res) => {
     where: {
       OR: [
         { targetUserId: req.user!.id, status: 'Accepted' },
+        {
+          targetGroup: {
+            members: { some: { userId: req.user!.id, status: 'Accepted' } },
+          },
+          status: 'Accepted',
+        },
         { requestedBy: req.user!.id },
       ],
     },
@@ -164,6 +171,7 @@ router.get('/active', async (req: AuthenticatedRequest, res) => {
       case: { select: { id: true, title: true, statusClinical: true } },
       requester: { select: { id: true, displayName: true } },
       targetUser: { select: { id: true, displayName: true } },
+      targetGroup: { select: { id: true, name: true } },
     },
     orderBy: { createdAt: 'desc' },
   })
@@ -177,12 +185,19 @@ router.get('/expired', async (req: AuthenticatedRequest, res) => {
     where: {
       OR: [
         { targetUserId: req.user!.id, status: 'Expired' },
+        {
+          targetGroup: {
+            members: { some: { userId: req.user!.id, status: 'Accepted' } },
+          },
+          status: 'Expired',
+        },
         { requestedBy: req.user!.id, status: 'Expired' },
       ],
     },
     include: {
       case: { select: { id: true, title: true, statusClinical: true, owner: { select: { displayName: true } } } },
       requester: { select: { id: true, displayName: true } },
+      targetGroup: { select: { id: true, name: true } },
     },
     orderBy: { expiresAt: 'desc' },
   })
@@ -201,6 +216,10 @@ router.post('/', async (req: AuthenticatedRequest, res) => {
   const { caseId, targetUserId, targetGroupId, message } = parsed.data
   if (!targetUserId && !targetGroupId) {
     res.status(400).json({ error: 'Debe especificar un destinatario o grupo' })
+    return
+  }
+  if (targetUserId && targetGroupId) {
+    res.status(400).json({ error: 'No puedes enviar la misma solicitud a un usuario y a un grupo a la vez' })
     return
   }
 
@@ -231,6 +250,17 @@ router.post('/', async (req: AuthenticatedRequest, res) => {
   if (!caseItem || !getCaseAvailableActions(caseItem, req.user!).includes('send_review_request')) {
     res.status(404).json({ error: 'Caso no encontrado' })
     return
+  }
+
+  if (targetGroupId) {
+    const groupMembership = await prisma.groupMember.findUnique({
+      where: { userId_groupId: { userId: req.user!.id, groupId: targetGroupId } },
+      select: { status: true },
+    })
+    if (!groupMembership || groupMembership.status !== 'Accepted') {
+      res.status(403).json({ error: 'Solo puedes enviar casos a grupos a los que perteneces' })
+      return
+    }
   }
 
   const request = await createReviewRequestForCase({

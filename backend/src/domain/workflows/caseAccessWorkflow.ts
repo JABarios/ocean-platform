@@ -4,6 +4,9 @@ interface ReviewRequestAccessLike {
   requestedBy?: string | null
   targetUserId?: string | null
   status?: string | null
+  targetGroup?: {
+    members?: Array<{ userId: string; status?: string | null }>
+  } | null
 }
 
 interface CaseAccessLike {
@@ -27,6 +30,16 @@ export function buildCaseReadAccessWhere(userId: string) {
             OR: [
               { targetUserId: userId },
               { requestedBy: userId },
+              {
+                targetGroup: {
+                  members: {
+                    some: {
+                      userId,
+                      status: 'Accepted',
+                    },
+                  },
+                },
+              },
             ],
           },
         },
@@ -46,6 +59,17 @@ export function buildTeachingProposalReadAccessWhere(userId: string) {
             OR: [
               { targetUserId: userId, status: 'Accepted' },
               { requestedBy: userId },
+              {
+                targetGroup: {
+                  members: {
+                    some: {
+                      userId,
+                      status: 'Accepted',
+                    },
+                  },
+                },
+                status: 'Accepted',
+              },
             ],
           },
         },
@@ -65,6 +89,17 @@ export function buildCasePackageReadAccessWhere(userId: string) {
             OR: [
               { targetUserId: userId, status: 'Accepted' },
               { requestedBy: userId },
+              {
+                targetGroup: {
+                  members: {
+                    some: {
+                      userId,
+                      status: 'Accepted',
+                    },
+                  },
+                },
+                status: 'Accepted',
+              },
             ],
           },
         },
@@ -83,6 +118,17 @@ export function buildTeachingContributorAccessWhere(userId: string) {
             OR: [
               { targetUserId: userId, status: 'Accepted' },
               { requestedBy: userId },
+              {
+                targetGroup: {
+                  members: {
+                    some: {
+                      userId,
+                      status: 'Accepted',
+                    },
+                  },
+                },
+                status: 'Accepted',
+              },
             ],
           },
         },
@@ -93,13 +139,21 @@ export function buildTeachingContributorAccessWhere(userId: string) {
 
 export function hasReviewRelationship(caseItem: CaseAccessLike, userId: string) {
   return (caseItem.reviewRequests ?? []).some((request) =>
-    request.targetUserId === userId || request.requestedBy === userId,
+    request.targetUserId === userId
+      || request.requestedBy === userId
+      || Boolean(request.targetGroup?.members?.some((member) => member.userId === userId && member.status === 'Accepted')),
   )
 }
 
 export function hasAcceptedReviewRelationship(caseItem: CaseAccessLike, userId: string) {
   return (caseItem.reviewRequests ?? []).some((request) =>
-    (request.targetUserId === userId && request.status === 'Accepted') || request.requestedBy === userId,
+    (request.targetUserId === userId && request.status === 'Accepted')
+      || request.requestedBy === userId
+      || Boolean(
+        request.targetGroup?.members?.some((member) =>
+          member.userId === userId && member.status === 'Accepted',
+        ),
+      ),
   )
 }
 

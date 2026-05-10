@@ -21,6 +21,7 @@ import AdminHome from './pages/AdminHome'
 import SharedLinkNew from './pages/SharedLinkNew'
 import OpenLocalEeg from './pages/OpenLocalEeg'
 import OpenCasesFeed from './pages/OpenCasesFeed'
+import Groups from './pages/Groups'
 
 export default function App() {
   const token = useAuthStore((s) => s.token)
@@ -62,6 +63,16 @@ export default function App() {
           <ProtectedRoute>
             <Layout>
               <OpenCasesFeed />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/groups"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <Groups />
             </Layout>
           </ProtectedRoute>
         }

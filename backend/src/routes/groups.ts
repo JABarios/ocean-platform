@@ -12,7 +12,38 @@ const createGroupSchema = z.object({
   type: z.enum(['Closed', 'Open']).default('Closed'),
 })
 
+const inviteMemberSchema = z.object({
+  userId: z.string().uuid(),
+})
+
+const updateGroupSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  description: z.string().optional(),
+  type: z.enum(['Closed', 'Open']).optional(),
+})
+
 router.use(authMiddleware)
+
+function serializeMembership(member: any) {
+  return {
+    id: member.id,
+    userId: member.userId,
+    groupId: member.groupId,
+    role: member.role,
+    status: member.status,
+    invitedBy: member.invitedBy,
+    invitedAt: member.invitedAt,
+    respondedAt: member.respondedAt,
+    joinedAt: member.joinedAt,
+    user: member.user,
+  }
+}
+
+async function getAcceptedMembership(groupId: string, userId: string) {
+  return prisma.groupMember.findUnique({
+    where: { userId_groupId: { userId, groupId } },
+  })
+}
 
 // Crear grupo
 router.post('/', async (req: AuthenticatedRequest, res) => {
@@ -28,36 +59,99 @@ router.post('/', async (req: AuthenticatedRequest, res) => {
       description: parsed.data.description,
       type: parsed.data.type,
       members: {
-        create: { userId: req.user!.id, role: 'admin' },
+        create: {
+          userId: req.user!.id,
+          role: 'admin',
+          status: 'Accepted',
+          invitedBy: req.user!.id,
+          respondedAt: new Date(),
+        },
       },
     },
-    include: { members: { include: { user: { select: { id: true, displayName: true, email: true } } } } },
+    include: {
+      members: {
+        include: { user: { select: { id: true, displayName: true, email: true } } },
+        orderBy: { joinedAt: 'asc' },
+      },
+    },
   })
 
-  res.status(201).json(group)
+  res.status(201).json({
+    ...group,
+    members: group.members.map(serializeMembership),
+  })
 })
 
-// Listar grupos del usuario
+// Listar grupos aceptados del usuario
 router.get('/', async (req: AuthenticatedRequest, res) => {
   const groups = await prisma.group.findMany({
     where: {
-      members: { some: { userId: req.user!.id } },
+      members: {
+        some: {
+          userId: req.user!.id,
+          status: 'Accepted',
+        },
+      },
     },
     include: {
-      _count: { select: { members: true } },
+      members: {
+        where: { status: 'Accepted' },
+        select: { id: true },
+      },
     },
     orderBy: { createdAt: 'desc' },
   })
-  res.json(groups)
+  res.json(groups.map((group) => ({
+    ...group,
+    _count: { members: group.members.length },
+    members: undefined,
+  })))
+})
+
+// Invitaciones pendientes del usuario
+router.get('/invitations', async (req: AuthenticatedRequest, res) => {
+  const invitations = await prisma.groupMember.findMany({
+    where: {
+      userId: req.user!.id,
+      status: 'Pending',
+    },
+    include: {
+      group: {
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          type: true,
+        },
+      },
+    },
+    orderBy: { invitedAt: 'desc' },
+  })
+
+  res.json(invitations.map((item) => ({
+    id: item.id,
+    groupId: item.groupId,
+    role: item.role,
+    status: item.status,
+    invitedBy: item.invitedBy,
+    invitedAt: item.invitedAt,
+    respondedAt: item.respondedAt,
+    group: item.group,
+  })))
 })
 
 // Detalle de grupo
 router.get('/:id', async (req: AuthenticatedRequest, res) => {
+  const membership = await prisma.groupMember.findUnique({
+    where: { userId_groupId: { userId: req.user!.id, groupId: req.params.id } },
+  })
+  if (!membership || membership.status !== 'Accepted') {
+    res.status(404).json({ error: 'Grupo no encontrado o sin acceso' })
+    return
+  }
+
   const group = await prisma.group.findFirst({
-    where: {
-      id: req.params.id,
-      members: { some: { userId: req.user!.id } },
-    },
+    where: { id: req.params.id },
     include: {
       members: {
         include: { user: { select: { id: true, displayName: true, email: true, role: true } } },
@@ -71,46 +165,154 @@ router.get('/:id', async (req: AuthenticatedRequest, res) => {
     return
   }
 
-  res.json(group)
+  const acceptedMembers = group.members.filter((member) => member.status === 'Accepted').map(serializeMembership)
+  const pendingInvitations = membership.role === 'admin'
+    ? group.members.filter((member) => member.status === 'Pending').map(serializeMembership)
+    : []
+
+  res.json({
+    ...group,
+    members: acceptedMembers,
+    pendingInvitations,
+  })
 })
 
-// Añadir miembro
-router.post('/:id/members', async (req: AuthenticatedRequest, res) => {
-  const { userId } = req.body
-  if (!userId) {
-    res.status(400).json({ error: 'userId requerido' })
+// Editar grupo
+router.patch('/:id', async (req: AuthenticatedRequest, res) => {
+  const parsed = updateGroupSchema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Datos inválidos' })
     return
   }
 
-  // Solo admin del grupo puede añadir miembros
   const membership = await prisma.groupMember.findUnique({
     where: { userId_groupId: { userId: req.user!.id, groupId: req.params.id } },
   })
-  if (!membership || !canManageGroupMembers(membership.role)) {
-    res.status(403).json({ error: 'Solo el administrador del grupo puede añadir miembros' })
+  if (!membership || membership.status !== 'Accepted' || !canManageGroupMembers(membership.role)) {
+    res.status(403).json({ error: 'Solo un administrador del grupo puede editarlo' })
     return
   }
 
-  const targetUser = await prisma.user.findUnique({ where: { id: userId } })
+  const group = await prisma.group.update({
+    where: { id: req.params.id },
+    data: parsed.data,
+  })
+
+  res.json(group)
+})
+
+// Invitar miembro
+router.post('/:id/members', async (req: AuthenticatedRequest, res) => {
+  const parsed = inviteMemberSchema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Datos inválidos' })
+    return
+  }
+
+  const membership = await prisma.groupMember.findUnique({
+    where: { userId_groupId: { userId: req.user!.id, groupId: req.params.id } },
+  })
+  if (!membership || membership.status !== 'Accepted' || !canManageGroupMembers(membership.role)) {
+    res.status(403).json({ error: 'Solo el administrador del grupo puede invitar miembros' })
+    return
+  }
+
+  const targetUser = await prisma.user.findUnique({ where: { id: parsed.data.userId } })
   if (!targetUser) {
     res.status(404).json({ error: 'Usuario no encontrado' })
     return
   }
 
   const existing = await prisma.groupMember.findUnique({
-    where: { userId_groupId: { userId, groupId: req.params.id } },
+    where: { userId_groupId: { userId: parsed.data.userId, groupId: req.params.id } },
   })
-  if (existing) {
+  if (existing?.status === 'Accepted') {
     res.status(409).json({ error: 'El usuario ya es miembro del grupo' })
     return
   }
+  if (existing?.status === 'Pending') {
+    res.status(409).json({ error: 'El usuario ya tiene una invitación pendiente' })
+    return
+  }
 
-  const member = await prisma.groupMember.create({
-    data: { userId, groupId: req.params.id, role: 'member' },
+  const member = existing
+    ? await prisma.groupMember.update({
+        where: { userId_groupId: { userId: parsed.data.userId, groupId: req.params.id } },
+        data: {
+          role: 'member',
+          status: 'Pending',
+          invitedBy: req.user!.id,
+          invitedAt: new Date(),
+          respondedAt: null,
+        },
+        include: { user: { select: { id: true, displayName: true, email: true } } },
+      })
+    : await prisma.groupMember.create({
+        data: {
+          userId: parsed.data.userId,
+          groupId: req.params.id,
+          role: 'member',
+          status: 'Pending',
+          invitedBy: req.user!.id,
+        },
+        include: { user: { select: { id: true, displayName: true, email: true } } },
+      })
+
+  res.status(201).json(serializeMembership(member))
+})
+
+// Aceptar invitación
+router.post('/invitations/:membershipId/accept', async (req: AuthenticatedRequest, res) => {
+  const membership = await prisma.groupMember.findFirst({
+    where: {
+      id: req.params.membershipId,
+      userId: req.user!.id,
+      status: 'Pending',
+    },
+    include: {
+      group: true,
+    },
+  })
+  if (!membership) {
+    res.status(404).json({ error: 'Invitación no encontrada' })
+    return
+  }
+
+  const updated = await prisma.groupMember.update({
+    where: { id: membership.id },
+    data: {
+      status: 'Accepted',
+      respondedAt: new Date(),
+      joinedAt: new Date(),
+    },
     include: { user: { select: { id: true, displayName: true, email: true } } },
   })
 
-  res.status(201).json(member)
+  res.json({
+    ...serializeMembership(updated),
+    group: membership.group,
+  })
+})
+
+// Rechazar invitación
+router.post('/invitations/:membershipId/reject', async (req: AuthenticatedRequest, res) => {
+  const membership = await prisma.groupMember.findFirst({
+    where: {
+      id: req.params.membershipId,
+      userId: req.user!.id,
+      status: 'Pending',
+    },
+  })
+  if (!membership) {
+    res.status(404).json({ error: 'Invitación no encontrada' })
+    return
+  }
+
+  await prisma.groupMember.delete({
+    where: { id: membership.id },
+  })
+
+  res.status(204).send()
 })
 
 // Eliminar miembro
@@ -118,12 +320,11 @@ router.delete('/:id/members/:userId', async (req: AuthenticatedRequest, res) => 
   const membership = await prisma.groupMember.findUnique({
     where: { userId_groupId: { userId: req.user!.id, groupId: req.params.id } },
   })
-  if (!membership || !canManageGroupMembers(membership.role)) {
+  if (!membership || membership.status !== 'Accepted' || !canManageGroupMembers(membership.role)) {
     res.status(403).json({ error: 'Solo el administrador del grupo puede eliminar miembros' })
     return
   }
 
-  // Admin no puede eliminarse a sí mismo si es el único admin
   if (req.params.userId === req.user!.id) {
     res.status(400).json({ error: 'No puedes eliminarte a ti mismo del grupo' })
     return

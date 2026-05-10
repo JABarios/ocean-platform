@@ -41,6 +41,10 @@ CREATE TABLE "group_members" (
     "user_id" TEXT NOT NULL,
     "group_id" TEXT NOT NULL,
     "role" TEXT NOT NULL DEFAULT 'member',
+    "status" TEXT NOT NULL DEFAULT 'Accepted',
+    "invited_by" TEXT,
+    "invited_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "responded_at" DATETIME,
     "joined_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "group_members_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT "group_members_group_id_fkey" FOREIGN KEY ("group_id") REFERENCES "groups" ("id") ON DELETE CASCADE ON UPDATE CASCADE

@@ -1,20 +1,27 @@
 export type GroupAvailableAction =
   | 'view_group'
-  | 'add_group_member'
+  | 'invite_group_member'
   | 'remove_group_member'
+  | 'respond_group_invitation'
 
 interface GroupWorkflowInput {
   isMember: boolean
   membershipRole?: string | null
+  membershipStatus?: string | null
 }
 
 export function getGroupAvailableActions(input: GroupWorkflowInput): GroupAvailableAction[] {
   const actions: GroupAvailableAction[] = []
-  if (input.isMember) {
+  const isAccepted = input.membershipStatus === 'Accepted'
+  const isPending = input.membershipStatus === 'Pending'
+  if (input.isMember && isAccepted) {
     actions.push('view_group')
   }
-  if (input.membershipRole === 'admin') {
-    actions.push('add_group_member', 'remove_group_member')
+  if (input.membershipRole === 'admin' && isAccepted) {
+    actions.push('invite_group_member', 'remove_group_member')
+  }
+  if (isPending) {
+    actions.push('respond_group_invitation')
   }
   return actions
 }
@@ -23,5 +30,6 @@ export function canManageGroupMembers(membershipRole?: string | null) {
   return getGroupAvailableActions({
     isMember: Boolean(membershipRole),
     membershipRole,
-  }).some((action) => action === 'add_group_member' || action === 'remove_group_member')
+    membershipStatus: 'Accepted',
+  }).some((action) => action === 'invite_group_member' || action === 'remove_group_member')
 }

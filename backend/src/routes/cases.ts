@@ -44,7 +44,7 @@ function safeParseJson(value: any): any {
   }
 }
 
-function getCaseInclude() {
+function getCaseInclude(viewerId?: string) {
   return {
     owner: { select: { id: true, displayName: true, email: true } },
     package: true,
@@ -53,7 +53,18 @@ function getCaseInclude() {
       include: {
         requester: { select: { id: true, displayName: true } },
         targetUser: { select: { id: true, displayName: true, email: true } },
-        targetGroup: { select: { id: true, name: true } },
+        targetGroup: {
+          select: {
+            id: true,
+            name: true,
+            members: viewerId
+              ? {
+                  where: { userId: viewerId, status: 'Accepted' },
+                  select: { userId: true, status: true },
+                }
+              : false,
+          },
+        },
       },
     },
     comments: {
@@ -267,7 +278,7 @@ router.get('/:id', async (req: AuthenticatedRequest, res) => {
       id: req.params.id,
       ...(canSeeAllCases(req) ? {} : buildCaseReadAccessWhere(req.user!.id)),
     },
-    include: getCaseInclude(),
+    include: getCaseInclude(req.user!.id),
   })
 
   if (!caseItem) {

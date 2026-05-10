@@ -61,6 +61,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <Link to="/cases/open" className={navLinkClass('/cases/open')}>
               Casos abiertos
             </Link>
+            <Link to="/groups" className={navLinkClass('/groups')}>
+              Grupos
+            </Link>
             <Link to="/explore" className={navLinkClass('/explore', '/galleries', '/eegs', '/library', '/queue')}>
               Explorar
             </Link>

@@ -59,6 +59,10 @@ model GroupMember {
   userId   String   @map("user_id")
   groupId  String   @map("group_id")
   role     String   @default("member")
+  status   String   @default("Accepted")
+  invitedBy String? @map("invited_by")
+  invitedAt DateTime @default(now()) @map("invited_at")
+  respondedAt DateTime? @map("responded_at")
   joinedAt DateTime @default(now()) @map("joined_at")
 
   user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)

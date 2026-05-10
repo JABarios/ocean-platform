@@ -30,6 +30,14 @@ router.get('/case/:caseId', async (req: AuthenticatedRequest, res) => {
           requestedBy: true,
           targetUserId: true,
           status: true,
+          targetGroup: {
+            select: {
+              members: {
+                where: { userId: req.user!.id, status: 'Accepted' },
+                select: { userId: true, status: true },
+              },
+            },
+          },
         },
       },
     },
@@ -77,6 +85,14 @@ router.post('/case/:caseId', async (req: AuthenticatedRequest, res) => {
           requestedBy: true,
           targetUserId: true,
           status: true,
+          targetGroup: {
+            select: {
+              members: {
+                where: { userId: req.user!.id, status: 'Accepted' },
+                select: { userId: true, status: true },
+              },
+            },
+          },
         },
       },
     },

@@ -12,6 +12,9 @@ interface ReviewRequestLike {
   requestedBy?: string | null
   targetUserId?: string | null
   status?: string | null
+  targetGroup?: {
+    members?: Array<{ userId: string; status?: string | null }>
+  } | null
 }
 
 interface CasePackageWorkflowInput {

@@ -51,11 +51,13 @@ function mockLoad(
   comments: unknown[] = [],
   users: unknown[] = [OTHER_USER],
   teachingProposal: unknown = null,
+  groups: unknown[] = [],
 ) {
   return mockFetchSequence([
     { data: caseData },   // GET /cases/case-1
     { data: comments },   // GET /comments/case/case-1
     { data: users },      // GET /users
+    { data: groups },     // GET /groups
     { data: teachingProposal }, // GET /teaching/proposals/case/case-1
   ])
 }
@@ -109,6 +111,7 @@ describe('CaseDetail — carga inicial', () => {
       { data: { error: 'Token inválido' }, status: 401 },
       { data: [] },
       { data: [] },
+      { data: [] },
       { data: null },
     ])
     renderDetail()
@@ -123,6 +126,7 @@ describe('CaseDetail — carga inicial', () => {
   it('muestra error cuando el caso no se encuentra', async () => {
     mockFetchSequence([
       { data: { error: 'Caso no encontrado' }, status: 404 },
+      { data: [] },
       { data: [] },
       { data: [] },
       { data: null },
@@ -314,6 +318,7 @@ describe('CaseDetail — flujo docente visible', () => {
       },
       { data: [] },
       { data: [OTHER_USER] },
+      { data: [] },
       {
         data: {
           id: 'proposal-1',
@@ -379,6 +384,7 @@ describe('CaseDetail — cambio de estado', () => {
       { data: { ...BASE_CASE, availableActions: ['send_review_request', 'comment_case', 'request_review'] } },
       { data: [] },
       { data: [OTHER_USER] },
+      { data: [] },
       { data: null },
       { data: { ...BASE_CASE, status: 'Requested', availableActions: ['send_review_request', 'comment_case', 'start_review'] } }, // PATCH response
     ])
@@ -401,6 +407,7 @@ describe('CaseDetail — cambio de estado', () => {
       { data: { ...BASE_CASE, availableActions: ['send_review_request', 'comment_case', 'request_review'] } },
       { data: [] },
       { data: [OTHER_USER] },
+      { data: [] },
       { data: null },
       { data: { ...BASE_CASE, status: 'Requested', availableActions: ['send_review_request', 'comment_case', 'start_review'] } },
     ])
@@ -433,6 +440,7 @@ describe('CaseDetail — comentarios', () => {
       { data: { ...BASE_CASE, availableActions: ['send_review_request', 'comment_case', 'request_review'] } },
       { data: [] },
       { data: [OTHER_USER] },
+      { data: [] },
       { data: null },
       { data: newComment }, // POST comment response
     ])
@@ -459,6 +467,7 @@ describe('CaseDetail — comentarios', () => {
       { data: { ...BASE_CASE, availableActions: ['send_review_request', 'comment_case', 'request_review'] } },
       { data: [] },
       { data: [OTHER_USER] },
+      { data: [] },
       { data: null },
       {
         data: {
@@ -485,6 +494,7 @@ describe('CaseDetail — comentarios', () => {
       { data: { ...BASE_CASE, availableActions: ['send_review_request', 'comment_case', 'request_review'] } },
       { data: [] },
       { data: [OTHER_USER] },
+      { data: [] },
       { data: null },
       {
         data: {
@@ -570,6 +580,7 @@ describe('CaseDetail — sección de paquete EEG', () => {
       },
       { data: [] },
       { data: [OTHER_USER] },
+      { data: [] },
       { data: null },
       { data: { keyBase64: 'stored-base64-key' } },
     ])
@@ -608,6 +619,7 @@ describe('CaseDetail — sección de paquete EEG', () => {
       },
       { data: [] },
       { data: [OTHER_USER] },
+      { data: [] },
       { data: null },
       { data: { keyBase64: 'share-this-key' } },
     ])

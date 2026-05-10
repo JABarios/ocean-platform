@@ -1,0 +1,111 @@
+.groups-page {
+  display: grid;
+  gap: 1rem;
+}
+
+.groups-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.groups-sidebar,
+.groups-main {
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+}
+
+.groups-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.groups-panel-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: start;
+}
+
+.groups-form {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.groups-form.inline {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.groups-list,
+.invitation-list,
+.member-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.group-row {
+  width: 100%;
+  padding: 0.85rem 1rem;
+  border-radius: 14px;
+  border: 1px solid var(--border-color, rgba(148, 163, 184, 0.18));
+  background: var(--surface, #fff);
+  text-align: left;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  cursor: pointer;
+}
+
+.group-row.active {
+  border-color: rgba(14, 116, 144, 0.38);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+}
+
+.group-row-meta,
+.member-meta {
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+}
+
+.invitation-card,
+.member-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.9rem 1rem;
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.82);
+}
+
+.invitation-card p,
+.member-row p {
+  margin: 0.3rem 0 0;
+}
+
+.invitation-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.groups-error {
+  color: var(--error, #b91c1c);
+}
+
+@media (max-width: 920px) {
+  .groups-grid,
+  .groups-form.inline {
+    grid-template-columns: 1fr;
+  }
+
+  .invitation-card,
+  .member-row,
+  .group-row {
+    align-items: start;
+  }
+}

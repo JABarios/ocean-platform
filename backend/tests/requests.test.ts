@@ -68,6 +68,54 @@ describe('POST /requests', () => {
     expect(caseRes.body.status).toBe('Requested')
   })
 
+  it('permite enviar una solicitud a un grupo del que formas parte', async () => {
+    const owner = await createUser({ email: 'req-group-own@ocean.local', displayName: 'ReqGroupOwn', password: 'pass' })
+    const member = await createUser({ email: 'req-group-member@ocean.local', displayName: 'ReqGroupMember', password: 'pass' })
+    const ownerToken = generateToken(owner.id, owner.email, owner.role)
+    const c = await createCase(owner.id)
+
+    const group = await request(app)
+      .post('/groups')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ name: 'Grupo epilepsia' })
+
+    const invitation = await request(app)
+      .post(`/groups/${group.body.id}/members`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ userId: member.id })
+
+    await request(app)
+      .post(`/groups/invitations/${invitation.body.id}/accept`)
+      .set('Authorization', `Bearer ${generateToken(member.id, member.email, member.role)}`)
+
+    const res = await request(app)
+      .post('/requests')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ caseId: c.id, targetGroupId: group.body.id, message: '¿Quién quiere revisar esto?' })
+
+    expect(res.status).toBe(201)
+    expect(res.body.targetGroupId).toBe(group.body.id)
+  })
+
+  it('rechaza enviar un caso a un grupo al que no perteneces', async () => {
+    const owner = await createUser({ email: 'req-group-block-own@ocean.local', displayName: 'ReqGroupBlockOwn', password: 'pass' })
+    const outsider = await createUser({ email: 'req-group-block-out@ocean.local', displayName: 'ReqGroupBlockOut', password: 'pass' })
+    const outsiderToken = generateToken(outsider.id, outsider.email, outsider.role)
+    const c = await createCase(owner.id)
+
+    const group = await request(app)
+      .post('/groups')
+      .set('Authorization', `Bearer ${outsiderToken}`)
+      .send({ name: 'Grupo ajeno' })
+
+    const res = await request(app)
+      .post('/requests')
+      .set('Authorization', `Bearer ${generateToken(owner.id, owner.email, owner.role)}`)
+      .send({ caseId: c.id, targetGroupId: group.body.id })
+
+    expect(res.status).toBe(403)
+  })
+
   it('permite solicitar acceso a la revisión de un caso propuesto', async () => {
     const owner = await createUser({ email: 'acc-prop-own@ocean.local', displayName: 'AccPropOwn', password: 'pass' })
     const outsider = await createUser({ email: 'acc-prop-out@ocean.local', displayName: 'AccPropOut', password: 'pass' })
@@ -202,6 +250,39 @@ describe('POST /requests/:id/accept', () => {
       .set('Authorization', `Bearer ${token}`)
 
     expect(res.status).toBe(404)
+  })
+
+  it('miembro aceptado de un grupo puede aceptar una solicitud dirigida al grupo', async () => {
+    const owner = await createUser({ email: 'acc-group-own@ocean.local', displayName: 'AccGroupOwn', password: 'pass' })
+    const member = await createUser({ email: 'acc-group-member@ocean.local', displayName: 'AccGroupMember', password: 'pass' })
+    const ownerToken = generateToken(owner.id, owner.email, owner.role)
+    const c = await createCase(owner.id, { statusClinical: 'Requested' })
+
+    const group = await request(app)
+      .post('/groups')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ name: 'Grupo sueño' })
+
+    const invitation = await request(app)
+      .post(`/groups/${group.body.id}/members`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ userId: member.id })
+
+    await request(app)
+      .post(`/groups/invitations/${invitation.body.id}/accept`)
+      .set('Authorization', `Bearer ${generateToken(member.id, member.email, member.role)}`)
+
+    const reqToGroup = await request(app)
+      .post('/requests')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ caseId: c.id, targetGroupId: group.body.id })
+
+    const res = await request(app)
+      .post(`/requests/${reqToGroup.body.id}/accept`)
+      .set('Authorization', `Bearer ${generateToken(member.id, member.email, member.role)}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.status).toBe('Accepted')
   })
 
   it('no puede aceptar una solicitud ya aceptada', async () => {

@@ -12,6 +12,9 @@ interface ReviewRequestLike {
   requestedBy?: string | null
   targetUserId?: string | null
   status?: string | null
+  targetGroup?: {
+    members?: Array<{ userId: string; status?: string | null }>
+  } | null
 }
 
 interface TeachingProposalLike {
@@ -34,10 +37,14 @@ function getCaseWorkflowFacts(caseObj: CaseWorkflowCase, viewer: CaseWorkflowVie
   const isOwner = caseObj.ownerId === viewer.id
   const isPublic = caseObj.visibility === 'Public'
   const isReviewer = reviewRequests.some((request) =>
-    (request.targetUserId === viewer.id && request.status === 'Accepted') || request.requestedBy === viewer.id,
+    (request.targetUserId === viewer.id && request.status === 'Accepted')
+      || request.requestedBy === viewer.id
+      || Boolean(request.targetGroup?.members?.some((member) => member.userId === viewer.id && member.status === 'Accepted')),
   )
   const hasReviewRelationship = reviewRequests.some((request) =>
-    request.targetUserId === viewer.id || request.requestedBy === viewer.id,
+    request.targetUserId === viewer.id
+      || request.requestedBy === viewer.id
+      || Boolean(request.targetGroup?.members?.some((member) => member.userId === viewer.id && member.status === 'Accepted')),
   )
 
   return {

@@ -122,12 +122,33 @@ Visible para:
 - revisores con relación válida al caso según flujo actual
 - administradores si el modelo actual ya lo permite
 
-### 5.2. Caso `Institutional`
+### 5.2. Caso `Institutional` (`Grupo` en la UI)
 
-Se mantiene el comportamiento actual.
+`Institutional` pasa a significar:
 
-Este documento no redefine todavía la semántica fina de `Institutional`.
-Solo exige que siga siendo más restringido que `Public`.
+- caso compartido con un **grupo cerrado** de OCEAN
+- creado por un usuario
+- con miembros invitados explícitamente
+- donde cada invitado debe aceptar su entrada
+
+Visible para:
+
+- owner
+- miembros aceptados del grupo destinatario
+- administradores si el modelo actual ya lo permite
+
+No aparece en el feed abierto.
+
+En la interfaz, esta visibilidad debe mostrarse como `Grupo`.
+
+Esto permite una capa intermedia muy útil entre:
+
+- `Private`: te lo mando a ti o al perímetro mínimo
+- `Public`: lo dejo abierto a toda la comunidad autenticada
+
+El detalle del flujo de grupos e invitaciones queda descrito en:
+
+- [GRUPOS_Y_VISIBILIDAD.md](./GRUPOS_Y_VISIBILIDAD.md)
 
 ### 5.3. Caso `Public`
 

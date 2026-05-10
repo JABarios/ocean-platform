@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom'
 import { api, friendlyError } from '../api/client'
 import { useAuthStore } from '../store/authStore'
 import { useCrypto } from '../hooks/useCrypto'
-import type { CaseItem, Comment, TeachingProposal, User } from '../types'
+import type { CaseItem, Comment, TeachingProposal, User, Group } from '../types'
 import {
   getTeachingSupportCount,
   hasAvailableAction,
@@ -45,6 +45,18 @@ function teachingStatusLabel(status: CaseItem['teachingStatus']) {
   }
 }
 
+function visibilityLabel(visibility?: 'Private' | 'Institutional' | 'Public') {
+  switch (visibility) {
+    case 'Institutional':
+      return 'Grupo'
+    case 'Public':
+      return 'Público'
+    case 'Private':
+    default:
+      return 'Privado'
+  }
+}
+
 export default function CaseDetail() {
   const { id } = useParams<{ id: string }>()
   const user = useAuthStore((s) => s.user)
@@ -53,11 +65,14 @@ export default function CaseDetail() {
   const [caseItem, setCaseItem] = useState<CaseItem | null>(null)
   const [comments, setComments] = useState<Comment[]>([])
   const [users, setUsers] = useState<User[]>([])
+  const [groups, setGroups] = useState<Group[]>([])
   const [teachingProposal, setTeachingProposal] = useState<TeachingProposal | null>(null)
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState('')
 
   const [targetUserId, setTargetUserId] = useState('')
+  const [targetGroupId, setTargetGroupId] = useState('')
+  const [requestTargetMode, setRequestTargetMode] = useState<'user' | 'group'>('user')
   const [requestMessage, setRequestMessage] = useState('')
   const [requesting, setRequesting] = useState(false)
   const [accessRequestMessage, setAccessRequestMessage] = useState('')
@@ -101,14 +116,16 @@ export default function CaseDetail() {
     if (!id) return
     const fetchAll = async () => {
       try {
-        const [c, com, u] = await Promise.all([
+        const [c, com, u, g] = await Promise.all([
           api.get<CaseItem>(`/cases/${id}`),
           api.get<Comment[]>(`/comments/case/${id}`),
           api.get<User[]>('/users'),
+          api.get<Group[]>('/groups'),
         ])
         setCaseItem(c)
         setComments(com)
         setUsers(u)
+        setGroups(g)
         try {
           const tp = await api.get<TeachingProposal | null>(`/teaching/proposals/case/${id}`)
           setTeachingProposal(tp)
@@ -145,15 +162,19 @@ export default function CaseDetail() {
 
   const sendRequest = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!id || !targetUserId) return
+    if (!id) return
+    if (requestTargetMode === 'user' && !targetUserId) return
+    if (requestTargetMode === 'group' && !targetGroupId) return
     setRequesting(true)
     try {
       await api.post('/requests', {
         caseId: id,
-        targetUserId,
+        targetUserId: requestTargetMode === 'user' ? targetUserId : undefined,
+        targetGroupId: requestTargetMode === 'group' ? targetGroupId : undefined,
         message: requestMessage,
       })
       setTargetUserId('')
+      setTargetGroupId('')
       setRequestMessage('')
       alert('Solicitud enviada')
     } catch (err) {
@@ -461,9 +482,9 @@ export default function CaseDetail() {
                 value={visibilityValue}
                 onChange={(e) => setVisibilityValue(e.target.value as 'Private' | 'Institutional' | 'Public')}
               >
-                <option value="Private">Private</option>
-                <option value="Institutional">Institutional</option>
-                <option value="Public">Public</option>
+                <option value="Private">Privado</option>
+                <option value="Institutional">Grupo</option>
+                <option value="Public">Público</option>
               </select>
               <button
                 className="btn-secondary"
@@ -475,13 +496,13 @@ export default function CaseDetail() {
               </button>
             </div>
           ) : (
-            <p>{caseItem.visibility || 'Private'}</p>
+            <p>{visibilityLabel(caseItem.visibility)}</p>
           )}
           <span className="ops-subtle">
             {caseItem.visibility === 'Public'
               ? 'Visible para cualquier usuario autenticado de OCEAN.'
               : caseItem.visibility === 'Institutional'
-                ? 'Visible dentro del perímetro restringido del caso.'
+                ? 'Visible para los miembros aceptados del grupo destinatario.'
                 : 'Solo visible para el perímetro privado del caso.'}
           </span>
         </div>
@@ -614,6 +635,14 @@ export default function CaseDetail() {
           <h3>Solicitar revisión</h3>
           <form onSubmit={sendRequest} className="inline-form">
             <select
+              value={requestTargetMode}
+              onChange={(e) => setRequestTargetMode(e.target.value as 'user' | 'group')}
+            >
+              <option value="user">A usuario</option>
+              <option value="group">A grupo</option>
+            </select>
+            {requestTargetMode === 'user' ? (
+            <select
               value={targetUserId}
               onChange={(e) => setTargetUserId(e.target.value)}
               required
@@ -627,6 +656,20 @@ export default function CaseDetail() {
                   </option>
                 ))}
             </select>
+            ) : (
+              <select
+                value={targetGroupId}
+                onChange={(e) => setTargetGroupId(e.target.value)}
+                required
+              >
+                <option value="">Selecciona grupo…</option>
+                {groups.map((group) => (
+                  <option key={group.id} value={group.id}>
+                    {group.name}
+                  </option>
+                ))}
+              </select>
+            )}
             <input
               type="text"
               placeholder="Mensaje opcional"

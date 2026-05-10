@@ -201,20 +201,20 @@ export default function Dashboard() {
         ) : (
           <ul className="request-list request-list-compact">
             {active.map((r) => (
-              <li key={r.id} className="request-row card request-row-compact request-row-full">
-                <div className="request-info request-info-compact request-info-inline">
-                  <div className="request-case">
-                    {r.case ? r.case.title : `Caso ${r.caseId}`}
+                <li key={r.id} className="request-row card request-row-compact request-row-full">
+                  <div className="request-info request-info-compact request-info-inline">
+                    <div className="request-case request-case-inline">
+                      {r.case ? r.case.title : `Caso ${r.caseId}`}
+                    </div>
+                    {r.case?.status && (
+                      <span className={statusBadgeClass(r.case.status as CaseItem['status'])}>
+                        {statusLabel(r.case.status as CaseItem['status'])}
+                      </span>
+                    )}
+                    <div className="request-subline request-subline-inline">
+                      {r.requester?.displayName ? `Solicita: ${r.requester.displayName}` : 'Revisión activa'}
+                    </div>
                   </div>
-                  {r.case?.status && (
-                    <span className={statusBadgeClass(r.case.status as CaseItem['status'])}>
-                      {statusLabel(r.case.status as CaseItem['status'])}
-                    </span>
-                  )}
-                  <div className="request-subline">
-                    {r.requester?.displayName ? `Solicita: ${r.requester.displayName}` : 'Revisión activa'}
-                  </div>
-                </div>
                 <div className="request-inline-links">
                   <Link to={`/cases/${r.caseId}`}>Caso</Link>
                   <a href={`/cases/${r.caseId}/eeg`} target="_blank" rel="noreferrer">

@@ -19,6 +19,10 @@ model User {
   publicKey    String?  @map("public_key")
   preferences  String?  @default("{}")
   lastLoginAt  DateTime? @map("last_login_at")
+  telegramChatId String? @unique @map("telegram_chat_id")
+  telegramUsername String? @map("telegram_username")
+  telegramLinkedAt DateTime? @map("telegram_linked_at")
+  telegramNotificationsEnabled Boolean @default(false) @map("telegram_notifications_enabled")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
@@ -36,11 +40,25 @@ model User {
   createdGalleries   Gallery[]         @relation("CreatedGalleries")
   sharedLinks        SharedLinkBlob[]  @relation("CreatedSharedLinks")
   emailVerificationTokens EmailVerificationToken[]
+  telegramLinkTokens  TelegramLinkToken[]
   notifications      Notification[]    @relation("NotificationRecipient")
   notificationActors Notification[]    @relation("NotificationActor")
   pushSubscriptions  PushSubscription[]
 
   @@map("users")
+}
+
+model TelegramLinkToken {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  token      String   @unique
+  expiresAt  DateTime @map("expires_at")
+  consumedAt DateTime? @map("consumed_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("telegram_link_tokens")
 }
 
 model EmailVerificationToken {

@@ -17,6 +17,7 @@ import cleanupRoutes from './routes/cleanup'
 import sharedLinkRoutes from './routes/shared-links'
 import notificationRoutes from './routes/notifications'
 import pushRoutes from './routes/push'
+import telegramRoutes from './routes/telegram'
 import { startCleanupJob } from './utils/cleanup'
 
 dotenv.config()
@@ -111,6 +112,7 @@ app.use('/cleanup', cleanupRoutes)
 app.use('/shared-links', sharedLinkRoutes)
 app.use('/notifications', notificationRoutes)
 app.use('/push', pushRoutes)
+app.use('/telegram', telegramRoutes)
 
 // 404 handler (ruta no encontrada)
 app.use((_req: express.Request, res: express.Response) => {

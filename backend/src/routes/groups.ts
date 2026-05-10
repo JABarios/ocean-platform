@@ -6,6 +6,7 @@ import { canManageGroupMembers } from '../domain/workflows/groupWorkflow'
 import { buildGroupsUrl, sendGroupInvitationEmail } from '../utils/email'
 import { createNotification } from '../utils/notifications'
 import { sendPushToUser } from '../utils/push'
+import { sendTelegramToUser } from '../utils/telegram'
 
 const router = Router()
 
@@ -303,6 +304,13 @@ router.post('/:id/members', async (req: AuthenticatedRequest, res) => {
       tag: `group-invite-${req.params.id}`,
     }).catch((err) => {
       console.warn('[OCEAN push] No se pudo enviar el push de invitación a grupo', err)
+    })
+
+    sendTelegramToUser(member.user.id, {
+      text: `${inviter.displayName} te ha invitado al grupo ${group.name} en OCEAN.`,
+      url: buildGroupsUrl(),
+    }).catch((err) => {
+      console.warn('[OCEAN telegram] No se pudo enviar el aviso de Telegram de invitación a grupo', err)
     })
   }
 

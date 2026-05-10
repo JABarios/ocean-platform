@@ -21,10 +21,15 @@ CREATE TABLE "users" (
     "public_key" TEXT,
     "preferences" TEXT DEFAULT '{}',
     "last_login_at" DATETIME,
+    "telegram_chat_id" TEXT,
+    "telegram_username" TEXT,
+    "telegram_linked_at" DATETIME,
+    "telegram_notifications_enabled" BOOLEAN NOT NULL DEFAULT false,
     "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" DATETIME NOT NULL
 );
 CREATE UNIQUE INDEX "users_email_key" ON "users"("email");
+CREATE UNIQUE INDEX "users_telegram_chat_id_key" ON "users"("telegram_chat_id");
 
 CREATE TABLE "email_verification_tokens" (
     "id" TEXT NOT NULL PRIMARY KEY,
@@ -36,6 +41,18 @@ CREATE TABLE "email_verification_tokens" (
     CONSTRAINT "email_verification_tokens_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 CREATE UNIQUE INDEX "email_verification_tokens_token_key" ON "email_verification_tokens"("token");
+
+CREATE TABLE "telegram_link_tokens" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "user_id" TEXT NOT NULL,
+    "token" TEXT NOT NULL,
+    "expires_at" DATETIME NOT NULL,
+    "consumed_at" DATETIME,
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "telegram_link_tokens_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE UNIQUE INDEX "telegram_link_tokens_token_key" ON "telegram_link_tokens"("token");
+CREATE INDEX "telegram_link_tokens_user_id_idx" ON "telegram_link_tokens"("user_id");
 
 CREATE TABLE "notifications" (
     "id" TEXT NOT NULL PRIMARY KEY,
@@ -309,6 +326,7 @@ beforeAll(async () => {
   // Limpiar tablas si existen de un test suite anterior
   const drops = [
     'DROP TABLE IF EXISTS "push_subscriptions"',
+    'DROP TABLE IF EXISTS "telegram_link_tokens"',
     'DROP TABLE IF EXISTS "notifications"',
     'DROP TABLE IF EXISTS "audit_events"',
     'DROP TABLE IF EXISTS "eeg_access_secrets"',
@@ -343,6 +361,7 @@ afterAll(async () => {
 afterEach(async () => {
   const tables = [
     'push_subscriptions',
+    'telegram_link_tokens',
     'notifications',
     'audit_events',
     'eeg_access_secrets',

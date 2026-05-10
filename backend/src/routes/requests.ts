@@ -5,6 +5,7 @@ import { authMiddleware, AuthenticatedRequest } from '../middleware/auth'
 import { buildCaseUrl, sendReviewRequestEmail } from '../utils/email'
 import { buildNotificationCaseTitle, createNotification, createNotificationsForUsers } from '../utils/notifications'
 import { sendPushToUser } from '../utils/push'
+import { sendTelegramToUser } from '../utils/telegram'
 import {
   getNextReviewRequestState,
   getReviewRequestAvailableActions,
@@ -234,6 +235,10 @@ async function pushReviewRequest(params: {
 
   if (params.targetUserId) {
     await sendPushToUser(params.targetUserId, pushPayload)
+    await sendTelegramToUser(params.targetUserId, {
+      text: `${requester.displayName} te ha enviado ${caseTitle} para revisar en OCEAN.`,
+      url: buildCaseUrl(caseItem.id),
+    })
     return
   }
 
@@ -253,7 +258,13 @@ async function pushReviewRequest(params: {
       group.members
         .map((member) => member.userId)
         .filter((userId) => userId !== params.requestedBy)
-        .map((userId) => sendPushToUser(userId, pushPayload)),
+        .flatMap((userId) => [
+          sendPushToUser(userId, pushPayload),
+          sendTelegramToUser(userId, {
+            text: `${requester.displayName} ha enviado ${caseTitle} al grupo para revisar en OCEAN.`,
+            url: buildCaseUrl(caseItem.id),
+          }),
+        ]),
     )
   }
 }

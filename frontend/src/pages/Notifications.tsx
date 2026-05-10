@@ -42,6 +42,16 @@ export default function Notifications() {
     subscribed: false,
   })
   const [pushDiagnostics, setPushDiagnostics] = useState<any | null>(null)
+  const [telegramBusy, setTelegramBusy] = useState(false)
+  const [telegramStatus, setTelegramStatus] = useState<{
+    configured: boolean
+    botUsername: string | null
+    linked: boolean
+    username: string | null
+    linkedAt: string | null
+    notificationsEnabled: boolean
+  } | null>(null)
+  const [telegramConnectUrl, setTelegramConnectUrl] = useState<string | null>(null)
 
   const unreadCount = useMemo(() => items.filter((item) => !item.readAt).length, [items])
 
@@ -62,7 +72,20 @@ export default function Notifications() {
     loadNotifications()
     getPushState().then(setPushState).catch(() => {})
     getPushDiagnostics().then(setPushDiagnostics).catch(() => {})
+    loadTelegramStatus().catch(() => {})
   }, [])
+
+  const loadTelegramStatus = async () => {
+    const status = await api.get<{
+      configured: boolean
+      botUsername: string | null
+      linked: boolean
+      username: string | null
+      linkedAt: string | null
+      notificationsEnabled: boolean
+    }>('/telegram/status')
+    setTelegramStatus(status)
+  }
 
   const refreshPushDebug = async () => {
     setPushState(await getPushState())
@@ -115,6 +138,49 @@ export default function Notifications() {
       setError(friendlyError(err))
     } finally {
       setPushBusy(false)
+    }
+  }
+
+  const handleEnableTelegram = async () => {
+    setTelegramBusy(true)
+    setError('')
+    try {
+      const data = await api.post<{ connectUrl: string | null; botUsername: string | null }>('/telegram/link')
+      setTelegramConnectUrl(data.connectUrl)
+      await loadTelegramStatus()
+      if (data.connectUrl) {
+        window.open(data.connectUrl, '_blank', 'noopener,noreferrer')
+      }
+    } catch (err) {
+      setError(friendlyError(err))
+    } finally {
+      setTelegramBusy(false)
+    }
+  }
+
+  const handleRefreshTelegram = async () => {
+    setTelegramBusy(true)
+    setError('')
+    try {
+      await loadTelegramStatus()
+    } catch (err) {
+      setError(friendlyError(err))
+    } finally {
+      setTelegramBusy(false)
+    }
+  }
+
+  const handleUnlinkTelegram = async () => {
+    setTelegramBusy(true)
+    setError('')
+    try {
+      await api.post('/telegram/unlink')
+      setTelegramConnectUrl(null)
+      await loadTelegramStatus()
+    } catch (err) {
+      setError(friendlyError(err))
+    } finally {
+      setTelegramBusy(false)
     }
   }
 
@@ -190,6 +256,56 @@ export default function Notifications() {
             <p className="muted">
               El navegador ha bloqueado los avisos. Toca reactivarlos desde la configuración del sitio.
             </p>
+          )}
+        </div>
+      </section>
+
+      <section className="card notifications-push-card">
+        <div>
+          <h2>Telegram</h2>
+          <p className="page-subtitle">
+            Avisos alternativos por bot de Telegram para invitaciones de revisión y grupos.
+          </p>
+          <div className="notifications-push-state">
+            {!telegramStatus?.configured && <span className="badge">No configurado</span>}
+            {telegramStatus?.configured && telegramStatus.linked && (
+              <span className="badge badge-success">Activo</span>
+            )}
+            {telegramStatus?.configured && !telegramStatus.linked && (
+              <span className="badge badge-pending">Inactivo</span>
+            )}
+          </div>
+          {telegramStatus?.linked && (
+            <p className="muted telegram-summary">
+              Vinculado{telegramStatus.username ? ` como @${telegramStatus.username}` : ''}{telegramStatus.linkedAt ? ` · ${formatTimestamp(telegramStatus.linkedAt)}` : ''}
+            </p>
+          )}
+          {!telegramStatus?.linked && telegramStatus?.botUsername && (
+            <p className="muted telegram-summary">
+              Se abrirá el bot @{telegramStatus.botUsername}. Pulsa <strong>Start</strong> en Telegram y vuelve luego a esta pantalla.
+            </p>
+          )}
+          {!telegramStatus?.linked && telegramConnectUrl && (
+            <p className="muted telegram-summary">
+              Si Telegram no se abrió solo, usa este enlace:
+              {' '}
+              <a href={telegramConnectUrl} target="_blank" rel="noreferrer">abrir bot</a>
+            </p>
+          )}
+        </div>
+        <div className="notifications-push-actions">
+          {telegramStatus?.configured && !telegramStatus.linked && (
+            <button className="btn-primary" onClick={handleEnableTelegram} disabled={telegramBusy}>
+              Activar Telegram
+            </button>
+          )}
+          <button className="btn-secondary" onClick={handleRefreshTelegram} disabled={telegramBusy}>
+            Refrescar Telegram
+          </button>
+          {telegramStatus?.linked && (
+            <button className="btn-secondary" onClick={handleUnlinkTelegram} disabled={telegramBusy}>
+              Desvincular Telegram
+            </button>
           )}
         </div>
       </section>

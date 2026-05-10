@@ -212,4 +212,20 @@ export async function createPushSubscription(data: {
   })
 }
 
+export async function createTelegramLinkToken(data: {
+  userId: string
+  token?: string
+  expiresAt?: Date
+  consumedAt?: Date | null
+}) {
+  return prisma.telegramLinkToken.create({
+    data: {
+      userId: data.userId,
+      token: data.token || `tg-${Math.random().toString(36).slice(2)}`,
+      expiresAt: data.expiresAt || new Date(Date.now() + 15 * 60 * 1000),
+      consumedAt: data.consumedAt ?? null,
+    },
+  })
+}
+
 export { prisma }

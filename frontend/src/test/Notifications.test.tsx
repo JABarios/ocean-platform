@@ -44,6 +44,16 @@ describe('Notifications', () => {
           },
         ],
       },
+      {
+        data: {
+          configured: false,
+          botUsername: null,
+          linked: false,
+          username: null,
+          linkedAt: null,
+          notificationsEnabled: false,
+        },
+      },
     ])
 
     renderNotifications()
@@ -65,6 +75,16 @@ describe('Notifications', () => {
             createdAt: new Date().toISOString(),
           },
         ],
+      },
+      {
+        data: {
+          configured: false,
+          botUsername: null,
+          linked: false,
+          username: null,
+          linkedAt: null,
+          notificationsEnabled: false,
+        },
       },
       { data: {}, status: 204 },
     ])

@@ -183,12 +183,13 @@
 }
 
 .request-info-inline {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  display: flex;
   align-items: center;
   gap: 0.8rem;
   min-width: 0;
   flex: 1;
+  flex-wrap: nowrap;
+  white-space: nowrap;
 }
 
 .request-message {
@@ -209,9 +210,12 @@
 
 .request-row-full {
   width: 100%;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
+  justify-content: space-between;
   align-items: center;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .request-inline-links {
@@ -287,22 +291,6 @@
 
   .request-row-compact {
     align-items: flex-start;
-  }
-
-  .request-info-inline {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.25rem;
-  }
-
-  .request-row-full {
-    display: flex;
-  }
-
-  .request-inline-links {
-    white-space: normal;
-    flex-wrap: wrap;
   }
 
   .request-actions {

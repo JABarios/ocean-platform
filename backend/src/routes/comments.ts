@@ -5,6 +5,8 @@ import { authMiddleware, AuthenticatedRequest } from '../middleware/auth'
 import { canCommentOnCase } from '../domain/workflows/caseWorkflow'
 import { canReadCase } from '../domain/workflows/caseAccessWorkflow'
 import { buildNotificationCaseTitle, createNotificationsForUsers } from '../utils/notifications'
+import { buildCaseUrl } from '../utils/email'
+import { sendPushToUser } from '../utils/push'
 
 const router = Router()
 
@@ -84,6 +86,15 @@ async function createCommentNotifications(params: {
     commentId: params.commentId,
     actorUserId: params.authorId,
   })
+
+  const pushPayload = {
+    title: 'Nuevo comentario en caso',
+    body: `${author.displayName} ha comentado en ${buildNotificationCaseTitle(caseItem)}.`,
+    url: buildCaseUrl(caseItem.id),
+    tag: `case-comment-${caseItem.id}`,
+  }
+
+  await Promise.allSettled([...recipients].map((userId) => sendPushToUser(userId, pushPayload)))
 }
 
 // Listar comentarios de un caso

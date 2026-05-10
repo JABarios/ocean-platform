@@ -194,4 +194,22 @@ export async function createNotification(data: {
   })
 }
 
+export async function createPushSubscription(data: {
+  userId: string
+  endpoint?: string
+  p256dhKey?: string
+  authKey?: string
+  userAgent?: string
+}) {
+  return prisma.pushSubscription.create({
+    data: {
+      userId: data.userId,
+      endpoint: data.endpoint || `https://push.example/${Math.random().toString(36).slice(2)}`,
+      p256dhKey: data.p256dhKey || 'test-p256dh',
+      authKey: data.authKey || 'test-auth',
+      userAgent: data.userAgent || 'Jest',
+    },
+  })
+}
+
 export { prisma }

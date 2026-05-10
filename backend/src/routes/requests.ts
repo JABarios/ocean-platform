@@ -4,6 +4,7 @@ import { prisma } from '../utils/prisma'
 import { authMiddleware, AuthenticatedRequest } from '../middleware/auth'
 import { buildCaseUrl, sendReviewRequestEmail } from '../utils/email'
 import { buildNotificationCaseTitle, createNotification, createNotificationsForUsers } from '../utils/notifications'
+import { sendPushToUser } from '../utils/push'
 import {
   getNextReviewRequestState,
   getReviewRequestAvailableActions,
@@ -202,6 +203,58 @@ async function notifyReviewRequest(params: {
         groupName: group.name,
       }),
     ))
+  }
+}
+
+async function pushReviewRequest(params: {
+  caseId: string
+  requestedBy: string
+  targetUserId?: string
+  targetGroupId?: string
+  message?: string
+}) {
+  const caseItem = await prisma.case.findUnique({
+    where: { id: params.caseId },
+    select: { id: true, title: true },
+  })
+  const requester = await prisma.user.findUnique({
+    where: { id: params.requestedBy },
+    select: { displayName: true },
+  })
+
+  if (!caseItem || !requester) return
+
+  const caseTitle = buildNotificationCaseTitle(caseItem)
+  const pushPayload = {
+    title: 'Nueva solicitud de revisión',
+    body: `${requester.displayName} te ha enviado ${caseTitle} para revisar.`,
+    url: buildCaseUrl(caseItem.id),
+    tag: `review-request-${caseItem.id}`,
+  }
+
+  if (params.targetUserId) {
+    await sendPushToUser(params.targetUserId, pushPayload)
+    return
+  }
+
+  if (params.targetGroupId) {
+    const group = await prisma.group.findUnique({
+      where: { id: params.targetGroupId },
+      select: {
+        members: {
+          where: { status: 'Accepted' },
+          select: { userId: true },
+        },
+      },
+    })
+    if (!group) return
+
+    await Promise.allSettled(
+      group.members
+        .map((member) => member.userId)
+        .filter((userId) => userId !== params.requestedBy)
+        .map((userId) => sendPushToUser(userId, pushPayload)),
+    )
   }
 }
 
@@ -461,6 +514,16 @@ router.post('/', async (req: AuthenticatedRequest, res) => {
     console.warn('[OCEAN email] No se pudo notificar la solicitud de revisión', err)
   })
 
+  pushReviewRequest({
+    caseId,
+    requestedBy: req.user!.id,
+    targetUserId,
+    targetGroupId,
+    message,
+  }).catch((err) => {
+    console.warn('[OCEAN push] No se pudo enviar el push de solicitud de revisión', err)
+  })
+
   res.status(201).json(request)
 })
 
@@ -544,6 +607,15 @@ router.post('/request-access', async (req: AuthenticatedRequest, res) => {
     message,
   }).catch((err) => {
     console.warn('[OCEAN email] No se pudo notificar la solicitud de acceso a revisión', err)
+  })
+
+  pushReviewRequest({
+    caseId,
+    requestedBy: req.user!.id,
+    targetUserId: caseItem.ownerId,
+    message,
+  }).catch((err) => {
+    console.warn('[OCEAN push] No se pudo enviar el push de solicitud de acceso', err)
   })
 
   res.status(201).json(accessRequest)

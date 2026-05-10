@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, friendlyError } from '../api/client'
 import type { NotificationItem } from '../types'
+import { disablePushNotifications, enablePushNotifications, getPushState } from '../push'
 import './Notifications.css'
 
 function formatTimestamp(value?: string) {
@@ -24,6 +25,16 @@ export default function Notifications() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [pushBusy, setPushBusy] = useState(false)
+  const [pushState, setPushState] = useState<{
+    supported: boolean
+    permission: string
+    subscribed: boolean
+  }>({
+    supported: false,
+    permission: 'default',
+    subscribed: false,
+  })
 
   const unreadCount = useMemo(() => items.filter((item) => !item.readAt).length, [items])
 
@@ -42,6 +53,7 @@ export default function Notifications() {
 
   useEffect(() => {
     loadNotifications()
+    getPushState().then(setPushState).catch(() => {})
   }, [])
 
   const markOneRead = async (notificationId: string) => {
@@ -66,6 +78,32 @@ export default function Notifications() {
     }
   }
 
+  const handleEnablePush = async () => {
+    setPushBusy(true)
+    setError('')
+    try {
+      await enablePushNotifications()
+      setPushState(await getPushState())
+    } catch (err) {
+      setError(friendlyError(err))
+    } finally {
+      setPushBusy(false)
+    }
+  }
+
+  const handleDisablePush = async () => {
+    setPushBusy(true)
+    setError('')
+    try {
+      await disablePushNotifications()
+      setPushState(await getPushState())
+    } catch (err) {
+      setError(friendlyError(err))
+    } finally {
+      setPushBusy(false)
+    }
+  }
+
   return (
     <div className="notifications-page">
       <section className="page-hero card notifications-hero">
@@ -84,6 +122,43 @@ export default function Notifications() {
           <button className="btn-secondary" onClick={handleMarkAllRead} disabled={busy || unreadCount === 0}>
             Marcar todas como leídas
           </button>
+        </div>
+      </section>
+
+      <section className="card notifications-push-card">
+        <div>
+          <p className="eyebrow">Dispositivo</p>
+          <h2>Avisos push</h2>
+          <p className="page-subtitle">
+            Recibe avisos en este móvil incluso cuando OCEAN no esté abierto.
+          </p>
+          <div className="notifications-push-state">
+            {!pushState.supported && <span className="badge">No soportado</span>}
+            {pushState.supported && pushState.subscribed && <span className="badge badge-success">Activos</span>}
+            {pushState.supported && !pushState.subscribed && pushState.permission !== 'denied' && (
+              <span className="badge badge-pending">Inactivos</span>
+            )}
+            {pushState.supported && pushState.permission === 'denied' && (
+              <span className="badge badge-danger">Bloqueados</span>
+            )}
+          </div>
+        </div>
+        <div className="notifications-push-actions">
+          {pushState.supported && !pushState.subscribed && pushState.permission !== 'denied' && (
+            <button className="btn-primary" onClick={handleEnablePush} disabled={pushBusy}>
+              Activar avisos en este dispositivo
+            </button>
+          )}
+          {pushState.supported && pushState.subscribed && (
+            <button className="btn-secondary" onClick={handleDisablePush} disabled={pushBusy}>
+              Desactivar avisos
+            </button>
+          )}
+          {pushState.permission === 'denied' && (
+            <p className="muted">
+              El navegador ha bloqueado los avisos. Toca reactivarlos desde la configuración del sitio.
+            </p>
+          )}
         </div>
       </section>
 

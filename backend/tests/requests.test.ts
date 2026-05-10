@@ -1,6 +1,15 @@
 import request from 'supertest'
 import app from '../src/index'
-import { createUser, generateToken, createCase, createReviewRequest, prisma } from './helpers'
+import { createUser, generateToken, createCase, createReviewRequest, createPushSubscription, prisma } from './helpers'
+import webpush from 'web-push'
+
+jest.mock('web-push', () => ({
+  __esModule: true,
+  default: {
+    setVapidDetails: jest.fn(),
+    sendNotification: jest.fn().mockResolvedValue(undefined),
+  },
+}))
 
 describe('POST /requests — validaciones', () => {
   it('rechaza si no se especifica destinatario', async () => {
@@ -36,7 +45,11 @@ describe('POST /requests — validaciones', () => {
 describe('POST /requests', () => {
   afterEach(() => {
     delete process.env.RESEND_API_KEY
+    delete process.env.VAPID_PUBLIC_KEY
+    delete process.env.VAPID_PRIVATE_KEY
+    delete process.env.VAPID_SUBJECT
     ;(global as any).fetch = undefined
+    jest.clearAllMocks()
   })
 
   it('crea una solicitud de revisión', async () => {
@@ -95,7 +108,7 @@ describe('POST /requests', () => {
       .send({ caseId: c.id, targetUserId: reviewer.id, message: 'Revísalo cuando puedas' })
 
     expect(res.status).toBe(201)
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await new Promise((resolve) => setTimeout(resolve, 20))
     expect((global as any).fetch).toHaveBeenCalledWith(
       'https://api.resend.com/emails',
       expect.objectContaining({
@@ -103,6 +116,27 @@ describe('POST /requests', () => {
         body: expect.stringContaining('Caso correo'),
       }),
     )
+  })
+
+  it('envía push al destinatario si hay VAPID configurado y está suscrito', async () => {
+    process.env.VAPID_PUBLIC_KEY = 'BEl7fakePublicKey1234567890abcdefghijklmnopqrstuv'
+    process.env.VAPID_PRIVATE_KEY = 'fakePrivateKey1234567890abcdefghijklmnopqrstuv'
+    process.env.VAPID_SUBJECT = 'mailto:test@ocean.local'
+
+    const owner = await createUser({ email: 'req-push-owner@ocean.local', displayName: 'ReqPushOwner', password: 'pass' })
+    const reviewer = await createUser({ email: 'req-push-rev@ocean.local', displayName: 'ReqPushRev', password: 'pass' })
+    await createPushSubscription({ userId: reviewer.id, endpoint: 'https://push.example/reviewer-1' })
+    const c = await createCase(owner.id, { title: 'Caso push' })
+    const token = generateToken(owner.id, owner.email, owner.role)
+
+    const res = await request(app)
+      .post('/requests')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ caseId: c.id, targetUserId: reviewer.id })
+
+    expect(res.status).toBe(201)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(webpush.sendNotification).toHaveBeenCalled()
   })
 
   it('cambia caso a Requested si estaba en Draft', async () => {

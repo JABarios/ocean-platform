@@ -45,6 +45,31 @@
   gap: 0.85rem;
 }
 
+.notifications-push-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.notifications-push-card h2 {
+  margin: 0 0 0.4rem;
+  font-size: 1.05rem;
+}
+
+.notifications-push-state {
+  margin-top: 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.notifications-push-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
 .notification-card {
   display: flex;
   align-items: flex-start;
@@ -98,15 +123,19 @@
 
 @media (max-width: 760px) {
   .notifications-hero,
+  .notifications-push-card,
   .notification-card {
     flex-direction: column;
   }
 
   .notifications-hero-actions,
+  .notifications-push-actions,
   .notification-card-actions {
     width: 100%;
   }
 
+  .notifications-push-actions .btn-primary,
+  .notifications-push-actions .btn-secondary,
   .notification-card-actions .btn-primary,
   .notification-card-actions .btn-secondary {
     flex: 1;

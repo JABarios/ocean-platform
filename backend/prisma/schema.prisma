@@ -38,6 +38,7 @@ model User {
   emailVerificationTokens EmailVerificationToken[]
   notifications      Notification[]    @relation("NotificationRecipient")
   notificationActors Notification[]    @relation("NotificationActor")
+  pushSubscriptions  PushSubscription[]
 
   @@map("users")
 }
@@ -71,6 +72,22 @@ model Notification {
   user         User           @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
   actor        User?          @relation("NotificationActor", fields: [actorUserId], references: [id], onDelete: SetNull)
   @@map("notifications")
+}
+
+model PushSubscription {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  endpoint   String   @unique
+  p256dhKey  String   @map("p256dh_key")
+  authKey    String   @map("auth_key")
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  lastUsedAt DateTime? @map("last_used_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("push_subscriptions")
 }
 
 model Group {

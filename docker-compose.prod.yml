@@ -20,6 +20,9 @@ services:
       APP_ORIGIN: ${APP_ORIGIN:-https://app.ocean-eeg.org}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-OCEAN EEG <ocean@ndg.report>}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@ocean-eeg.org}
     volumes:
       - ./backend/data:/app/data
       - ./backend/uploads:/app/uploads/cases

@@ -146,6 +146,9 @@ code {
 .badge-inreview { background: #fef3c7; color: #92400e; }
 .badge-resolved { background: #d1fae5; color: #065f46; }
 .badge-archived { background: #f3f4f6; color: #6b7280; }
+.badge-pending { background: #fef3c7; color: #92400e; }
+.badge-success { background: #d1fae5; color: #065f46; }
+.badge-danger { background: #fee2e2; color: #991b1b; }
 
 .page-title {
   font-size: 1.45rem;

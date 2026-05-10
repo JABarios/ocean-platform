@@ -5,6 +5,7 @@ import { authMiddleware, AuthenticatedRequest } from '../middleware/auth'
 import { canManageGroupMembers } from '../domain/workflows/groupWorkflow'
 import { buildGroupsUrl, sendGroupInvitationEmail } from '../utils/email'
 import { createNotification } from '../utils/notifications'
+import { sendPushToUser } from '../utils/push'
 
 const router = Router()
 
@@ -293,6 +294,15 @@ router.post('/:id/members', async (req: AuthenticatedRequest, res) => {
       groupsUrl: buildGroupsUrl(),
     }).catch((err) => {
       console.warn('[OCEAN email] No se pudo enviar la invitación al grupo', err)
+    })
+
+    sendPushToUser(member.user.id, {
+      title: 'Nueva invitación a grupo',
+      body: `${inviter.displayName} te ha invitado al grupo ${group.name}.`,
+      url: buildGroupsUrl(),
+      tag: `group-invite-${req.params.id}`,
+    }).catch((err) => {
+      console.warn('[OCEAN push] No se pudo enviar el push de invitación a grupo', err)
     })
   }
 

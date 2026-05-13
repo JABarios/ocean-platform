@@ -109,6 +109,58 @@ interface KappaInstance {
     logisticViterbiLabels: number[]
     logisticViterbiConfidence: Float32Array
   } | null
+  computeStateSpectralTimeline: (assumeSleepPresent: boolean) => {
+    epochSec: number
+    assumeSleepPresent: boolean
+    labels: number[]
+    confidence: Float32Array
+    alphaScore: Float32Array
+    openEyeScore: Float32Array
+    blinkScore: Float32Array
+    relDelta: Float32Array
+    relTheta: Float32Array
+    relAlpha: Float32Array
+    relSigma: Float32Array
+    relBeta: Float32Array
+    peakHz: Float32Array
+    fmd4to12: Float32Array
+    posteriorAlpha: Float32Array
+    spindleSupportFraction: Float32Array
+    slowWaveFraction: Float32Array
+    arousalFraction: Float32Array
+    validFraction: Float32Array
+    rejectedFraction: Float32Array
+    ocPosteriorAlphaThreshold: number
+    ocPeakHzMin: number
+    ocPeakHzMax: number
+    ocMedianFmd: number
+    sleepFmdThreshold: number
+    blinkSupportThreshold: number
+  } | null
+  computeStateSpectralPanels: (assumeSleepPresent: boolean) => {
+    freqs: Float32Array
+    stateNames: string[]
+    stateLabels: number[]
+    epochCounts: number[]
+    rawSpectra: Float32Array[]
+    flatSpectra: Float32Array[]
+    alphaPeakRaw: number[]
+    alphaPeakFlat: number[]
+    alphaPowerRaw: number[]
+    deltaPowerRaw: number[]
+    thetaPeakFlat: number[]
+    sigmaPeakFlat: number[]
+    aperiodicSlope: number[]
+    aperiodicIntercept: number[]
+    assumeSleepPresent: boolean
+  } | null
+  computeQeegGlobalTimeseries: () => {
+    time_sec: number[]
+    fmd4to12: number[]
+    spectral_entropy: number[]
+    sigma_beta_ratio: number[]
+    delta_0p5to4: number[]
+  } | null
 }
 
 interface KappaModuleInstance {
@@ -272,6 +324,61 @@ interface SleepSketchTimelineData {
   logisticConfidence?: Float32Array
   logisticViterbiLabels?: number[]
   logisticViterbiConfidence?: Float32Array
+}
+
+interface StateSpectralTimelineData {
+  epochSec: number
+  assumeSleepPresent: boolean
+  labels: number[]
+  confidence: Float32Array
+  alphaScore: Float32Array
+  openEyeScore: Float32Array
+  blinkScore: Float32Array
+  relDelta: Float32Array
+  relTheta: Float32Array
+  relAlpha: Float32Array
+  relSigma: Float32Array
+  relBeta: Float32Array
+  peakHz: Float32Array
+  fmd4to12: Float32Array
+  posteriorAlpha: Float32Array
+  spindleSupportFraction: Float32Array
+  slowWaveFraction: Float32Array
+  arousalFraction: Float32Array
+  validFraction: Float32Array
+  rejectedFraction: Float32Array
+  ocPosteriorAlphaThreshold: number
+  ocPeakHzMin: number
+  ocPeakHzMax: number
+  ocMedianFmd: number
+  sleepFmdThreshold: number
+  blinkSupportThreshold: number
+}
+
+interface StateSpectralPanelData {
+  freqs: Float32Array
+  stateNames: string[]
+  stateLabels: number[]
+  epochCounts: number[]
+  rawSpectra: Float32Array[]
+  flatSpectra: Float32Array[]
+  alphaPeakRaw: number[]
+  alphaPeakFlat: number[]
+  alphaPowerRaw: number[]
+  deltaPowerRaw: number[]
+  thetaPeakFlat: number[]
+  sigmaPeakFlat: number[]
+  aperiodicSlope: number[]
+  aperiodicIntercept: number[]
+  assumeSleepPresent: boolean
+}
+
+interface QeegGlobalTimeseriesData {
+  time_sec: number[]
+  fmd4to12: number[]
+  spectral_entropy: number[]
+  sigma_beta_ratio: number[]
+  delta_0p5to4: number[]
 }
 
 interface PersistedTriggerAverageSettings {
@@ -446,6 +553,64 @@ function sleepSketchLabelColor(label: number): string {
   if (label === 1) return '#f59e0b' // N1-like
   if (label === 0) return '#f8fafc' // Wake-like
   return '#cbd5e1' // Unknown
+}
+
+function stateSpectralLabelColor(label: number): string {
+  if (label === 5) return '#1d4ed8' // N3
+  if (label === 4) return '#15803d' // N2
+  if (label === 3) return '#f59e0b' // N1
+  if (label === 2) return '#7c3aed' // OC
+  if (label === 1) return '#f97316' // OA
+  if (label === 6) return '#dc2626' // Artifact
+  return '#cbd5e1' // Unreliable
+}
+
+function stateSpectralShortLabel(label: number): string {
+  if (label === 1) return 'OA'
+  if (label === 2) return 'OC'
+  if (label === 3) return 'N1'
+  if (label === 4) return 'N2'
+  if (label === 5) return 'N3'
+  if (label === 6) return 'Art'
+  return '?'
+}
+
+function LegendRow({
+  title,
+  items,
+}: {
+  title: string
+  items: Array<{ label: string; color: string; border?: string }>
+}) {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.8rem', alignItems: 'center' }}>
+      <span style={{ color: '#0f172a', fontWeight: 600, fontSize: '0.78rem', minWidth: 110 }}>{title}</span>
+      {items.map((item) => (
+        <span
+          key={`${title}-${item.label}`}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.35rem',
+            color: '#334155',
+            fontSize: '0.76rem',
+          }}
+        >
+          <span
+            style={{
+              width: 12,
+              height: 12,
+              borderRadius: 3,
+              background: item.color,
+              border: item.border ?? '1px solid rgba(15,23,42,0.12)',
+              display: 'inline-block',
+            }}
+          />
+          {item.label}
+        </span>
+      ))}
+    </div>
+  )
 }
 
 function fmdHeatColor(t: number): string {
@@ -974,6 +1139,7 @@ function DSAHeatmap({
   onToggleExpand,
   onShowHypnogram,
   onShowSleepAnalyzer,
+  onShowStateSpectra,
   showMetrics = true,
 }: {
   data: DSAData | null
@@ -992,6 +1158,7 @@ function DSAHeatmap({
   onToggleExpand?: () => void
   onShowHypnogram?: () => void
   onShowSleepAnalyzer?: () => void
+  onShowStateSpectra?: () => void
   showMetrics?: boolean
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -1327,7 +1494,7 @@ function DSAHeatmap({
         position: 'relative',
       }}
     >
-      {(onToggleExpand || onShowHypnogram || onShowSleepAnalyzer) && (
+      {(onToggleExpand || onShowHypnogram || onShowSleepAnalyzer || onShowStateSpectra) && (
         <div
           style={{
             position: 'absolute',
@@ -1370,6 +1537,23 @@ function DSAHeatmap({
               }}
             >
               Analizador sueño
+            </button>
+          )}
+          {onShowStateSpectra && (
+            <button
+              type="button"
+              onClick={onShowStateSpectra}
+              style={{
+                border: '1px solid #cbd5e1',
+                background: 'rgba(255,255,255,0.92)',
+                color: '#0f172a',
+                borderRadius: 6,
+                padding: expanded ? '0.35rem 0.55rem' : '0.2rem 0.45rem',
+                fontSize: expanded ? '0.8rem' : '0.72rem',
+                cursor: 'pointer',
+              }}
+            >
+              Espectros
             </button>
           )}
           {onToggleExpand && (
@@ -1599,6 +1783,10 @@ function HypnogramModal({
 function SleepAnalyzerModal({
   dsaData,
   sleepSketchData,
+  qeegGlobalTimeseries,
+  stateSpectralData,
+  assumeSleepPresent,
+  onAssumeSleepPresentChange,
   artifactEnabled,
   dsaLoading,
   sleepSketchLoading,
@@ -1614,6 +1802,10 @@ function SleepAnalyzerModal({
 }: {
   dsaData: DSAData | null
   sleepSketchData: SleepSketchTimelineData | null
+  qeegGlobalTimeseries: QeegGlobalTimeseriesData | null
+  stateSpectralData: StateSpectralTimelineData | null
+  assumeSleepPresent: boolean
+  onAssumeSleepPresentChange: (next: boolean) => void
   artifactEnabled: boolean
   dsaLoading: boolean
   sleepSketchLoading: boolean
@@ -1629,13 +1821,15 @@ function SleepAnalyzerModal({
 }) {
   const fmdCanvasRef = useRef<HTMLCanvasElement>(null)
   const hypCanvasRef = useRef<HTMLCanvasElement>(null)
+  const stateCanvasRef = useRef<HTMLCanvasElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
 
   const redraw = useCallback(() => {
     const wrap = wrapRef.current
     const fmdCanvas = fmdCanvasRef.current
     const hypCanvas = hypCanvasRef.current
-    if (!wrap || !fmdCanvas || !hypCanvas || !dsaData) return
+    const stateCanvas = stateCanvasRef.current
+    if (!wrap || !fmdCanvas || !hypCanvas || !stateCanvas || !dsaData) return
 
     const width = Math.max(980, wrap.clientWidth || 980)
     const plotX = 72
@@ -1660,7 +1854,14 @@ function SleepAnalyzerModal({
         ctx.fillStyle = '#fffdf4'
         ctx.fillRect(0, 0, width, height)
 
-        const finiteFmd = fmdValues.filter((value) => Number.isFinite(value))
+        const qeegTimes = qeegGlobalTimeseries?.time_sec ?? []
+        const qeegFmd = qeegGlobalTimeseries?.fmd4to12 ?? []
+        const qeegSigmaBeta = qeegGlobalTimeseries?.sigma_beta_ratio ?? []
+        const qeegDelta = qeegGlobalTimeseries?.delta_0p5to4 ?? []
+        const hasQeegFmd = qeegTimes.length > 1 && qeegFmd.length === qeegTimes.length
+        const finiteFmd = (hasQeegFmd ? qeegFmd : fmdValues).filter((value) => Number.isFinite(value))
+        const hasQeegSigmaBeta = hasQeegFmd && qeegSigmaBeta.length === qeegTimes.length
+        const hasQeegDelta = hasQeegFmd && qeegDelta.length === qeegTimes.length
         let fmdMin = finiteFmd.length ? Math.min(...finiteFmd) : 4
         let fmdMax = finiteFmd.length ? Math.max(...finiteFmd) : 12
         if (fmdMax - fmdMin < 1e-6) {
@@ -1671,26 +1872,87 @@ function SleepAnalyzerModal({
           fmdMin -= pad
           fmdMax += pad
         }
+        const finiteSigmaBeta = hasQeegSigmaBeta ? qeegSigmaBeta.filter((value) => Number.isFinite(value)) : []
+        const finiteDelta = hasQeegDelta ? qeegDelta.filter((value) => Number.isFinite(value)) : []
+        let sigmaMin = finiteSigmaBeta.length ? Math.min(...finiteSigmaBeta) : 0
+        let sigmaMax = finiteSigmaBeta.length ? Math.max(...finiteSigmaBeta) : 1
+        if (sigmaMax - sigmaMin < 1e-12) {
+          sigmaMin = Math.max(0, sigmaMin - 0.5)
+          sigmaMax += 0.5
+        } else {
+          const pad = (sigmaMax - sigmaMin) * 0.08
+          sigmaMin = Math.max(0, sigmaMin - pad)
+          sigmaMax += pad
+        }
+        let deltaMin = finiteDelta.length ? Math.min(...finiteDelta) : 0
+        let deltaMax = finiteDelta.length ? Math.max(...finiteDelta) : 1
+        if (deltaMax - deltaMin < 1e-12) {
+          deltaMin = Math.max(0, deltaMin - 0.5)
+          deltaMax += 0.5
+        } else {
+          const pad = (deltaMax - deltaMin) * 0.08
+          deltaMin = Math.max(0, deltaMin - pad)
+          deltaMax += pad
+        }
 
-        const top = 24
+        const top = 34
         const bottomPad = 34
-        const laneH = height - top - bottomPad
+        const stageBandH = 12
+        const laneTop = top + stageBandH + 8
+        const laneH = height - laneTop - bottomPad
+
         for (let ep = 0; ep < dsaData.nEpochs; ep++) {
           const x1 = plotX + Math.floor((ep * plotW) / dsaData.nEpochs)
           const x2 = plotX + Math.floor(((ep + 1) * plotW) / dsaData.nEpochs)
           ctx.fillStyle = sleepSketchLabelColor(labels[ep] ?? 4)
-          ctx.fillRect(x1, top, Math.max(1, x2 - x1), laneH)
+          ctx.globalAlpha = 0.9
+          ctx.fillRect(x1, top, Math.max(1, x2 - x1), stageBandH)
         }
-        ctx.strokeStyle = '#0f172a'
-        ctx.strokeRect(plotX, top, plotW, laneH)
+        ctx.globalAlpha = 1
+        ctx.strokeStyle = '#cbd5e1'
+        ctx.strokeRect(plotX, top, plotW, stageBandH)
+
+        const gridTicks = 5
+        for (let i = 0; i <= gridTicks; i++) {
+          const t = i / gridTicks
+          const y = laneTop + laneH - t * laneH
+          ctx.strokeStyle = i === 0 ? '#94a3b8' : '#e2e8f0'
+          ctx.lineWidth = i === 0 ? 1.2 : 1
+          ctx.beginPath()
+          ctx.moveTo(plotX, y)
+          ctx.lineTo(plotX + plotW, y)
+          ctx.stroke()
+          const value = fmdMin + t * (fmdMax - fmdMin)
+          ctx.fillStyle = '#64748b'
+          ctx.font = '10px monospace'
+          ctx.fillText(value.toFixed(1), 18, y + 3)
+          if (hasQeegSigmaBeta) {
+            const sigmaValue = sigmaMin + t * (sigmaMax - sigmaMin)
+            ctx.fillStyle = '#1d4ed8'
+            ctx.fillText(sigmaValue.toFixed(2), plotX + plotW + 6, y + 3)
+          }
+          if (hasQeegDelta) {
+            const deltaValue = deltaMin + t * (deltaMax - deltaMin)
+            ctx.fillStyle = '#b91c1c'
+            ctx.fillText(deltaValue.toFixed(2), plotX + plotW + 54, y + 3)
+          }
+        }
+
+        ctx.strokeStyle = '#94a3b8'
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        ctx.moveTo(plotX, laneTop)
+        ctx.lineTo(plotX, laneTop + laneH)
+        ctx.lineTo(plotX + plotW, laneTop + laneH)
+        ctx.stroke()
 
         const medianFmd = finiteFmd.length
           ? finiteFmd.slice().sort((a, b) => a - b)[Math.floor(finiteFmd.length * 0.5)]
           : null
         if (medianFmd !== null) {
           const t = (medianFmd - fmdMin) / Math.max(1e-6, fmdMax - fmdMin)
-          const y = top + laneH - 1 - t * Math.max(1, laneH - 2)
-          ctx.strokeStyle = 'rgba(15,23,42,0.28)'
+          const y = laneTop + laneH - 1 - t * Math.max(1, laneH - 2)
+          ctx.strokeStyle = 'rgba(15,23,42,0.20)'
           ctx.lineWidth = 1
           ctx.beginPath()
           ctx.moveTo(plotX, y)
@@ -1702,27 +1964,117 @@ function SleepAnalyzerModal({
         }
 
         if (fmdValues.length > 0) {
+          const sourceValues = hasQeegFmd ? qeegFmd : fmdValues
+          const smoothedValues = sourceValues.map((_, ep) => {
+            let sum = 0
+            let count = 0
+            for (let j = Math.max(0, ep - 2); j <= Math.min(sourceValues.length - 1, ep + 2); j++) {
+              const value = sourceValues[j]
+              if (Number.isFinite(value)) {
+                sum += value
+                count += 1
+              }
+            }
+            return count > 0 ? sum / count : sourceValues[ep]
+          })
+
           ctx.strokeStyle = '#0f172a'
-          ctx.lineWidth = 2
+          ctx.lineWidth = 2.3
           ctx.beginPath()
-          fmdValues.forEach((value, ep) => {
-            const x = plotX + ((ep + 0.5) / Math.max(dsaData.nEpochs, 1)) * plotW
+          sourceValues.forEach((value, ep) => {
+            const tSec = hasQeegFmd ? Number(qeegTimes[ep] ?? 0) : (ep + 0.5) * dsaData.epochSec
+            const x = plotX + (Math.max(0, Math.min(totalSec, tSec)) / Math.max(totalSec, 1e-6)) * plotW
             const t = Math.max(0, Math.min(1, ((value ?? fmdMin) - fmdMin) / Math.max(1e-6, fmdMax - fmdMin)))
-            const y = top + laneH - 1 - t * Math.max(1, laneH - 2)
+            const y = laneTop + laneH - 1 - t * Math.max(1, laneH - 2)
             if (ep === 0) ctx.moveTo(x, y)
             else ctx.lineTo(x, y)
           })
           ctx.stroke()
+
+          ctx.strokeStyle = 'rgba(148,163,184,0.95)'
+          ctx.lineWidth = 1.5
+          ctx.beginPath()
+          smoothedValues.forEach((value, ep) => {
+            const tSec = hasQeegFmd ? Number(qeegTimes[ep] ?? 0) : (ep + 0.5) * dsaData.epochSec
+            const x = plotX + (Math.max(0, Math.min(totalSec, tSec)) / Math.max(totalSec, 1e-6)) * plotW
+            const t = Math.max(0, Math.min(1, ((value ?? fmdMin) - fmdMin) / Math.max(1e-6, fmdMax - fmdMin)))
+            const y = laneTop + laneH - 1 - t * Math.max(1, laneH - 2)
+            if (ep === 0) ctx.moveTo(x, y)
+            else ctx.lineTo(x, y)
+          })
+          ctx.stroke()
+
+          if (hasQeegSigmaBeta) {
+            const smoothedSigmaBeta = qeegSigmaBeta.map((_, ep) => {
+              let sum = 0
+              let count = 0
+              for (let j = Math.max(0, ep - 2); j <= Math.min(qeegSigmaBeta.length - 1, ep + 2); j++) {
+                const value = qeegSigmaBeta[j]
+                if (Number.isFinite(value)) {
+                  sum += value
+                  count += 1
+                }
+              }
+              return count > 0 ? sum / count : qeegSigmaBeta[ep]
+            })
+            ctx.strokeStyle = 'rgba(37,99,235,0.38)'
+            ctx.lineWidth = 1.8
+            ctx.beginPath()
+            smoothedSigmaBeta.forEach((value, ep) => {
+              const tSec = Number(qeegTimes[ep] ?? 0)
+              const x = plotX + (Math.max(0, Math.min(totalSec, tSec)) / Math.max(totalSec, 1e-6)) * plotW
+              const t = Math.max(0, Math.min(1, ((value ?? sigmaMin) - sigmaMin) / Math.max(1e-12, sigmaMax - sigmaMin)))
+              const y = laneTop + laneH - 1 - t * Math.max(1, laneH - 2)
+              if (ep === 0) ctx.moveTo(x, y)
+              else ctx.lineTo(x, y)
+            })
+            ctx.stroke()
+          }
+          if (hasQeegDelta) {
+            const smoothedDelta = qeegDelta.map((_, ep) => {
+              let sum = 0
+              let count = 0
+              for (let j = Math.max(0, ep - 2); j <= Math.min(qeegDelta.length - 1, ep + 2); j++) {
+                const value = qeegDelta[j]
+                if (Number.isFinite(value)) {
+                  sum += value
+                  count += 1
+                }
+              }
+              return count > 0 ? sum / count : qeegDelta[ep]
+            })
+            ctx.strokeStyle = 'rgba(220,38,38,0.28)'
+            ctx.lineWidth = 1.8
+            ctx.beginPath()
+            smoothedDelta.forEach((value, ep) => {
+              const tSec = Number(qeegTimes[ep] ?? 0)
+              const x = plotX + (Math.max(0, Math.min(totalSec, tSec)) / Math.max(totalSec, 1e-6)) * plotW
+              const t = Math.max(0, Math.min(1, ((value ?? deltaMin) - deltaMin) / Math.max(1e-12, deltaMax - deltaMin)))
+              const y = laneTop + laneH - 1 - t * Math.max(1, laneH - 2)
+              if (ep === 0) ctx.moveTo(x, y)
+              else ctx.lineTo(x, y)
+            })
+            ctx.stroke()
+          }
         }
 
         ctx.fillStyle = '#0f172a'
         ctx.font = 'bold 13px monospace'
         ctx.fillText('FMD 4-12', 16, 20)
         ctx.font = '11px monospace'
+        ctx.fillText(hasQeegFmd ? 'qEEG global · negro = cruda · gris = suavizada · azul = sigma/beta · rojo = delta' : 'SleepSketch · negro = cruda · gris = suavizada', plotX, 20)
         ctx.fillText(`${fmdMin.toFixed(2)}-${fmdMax.toFixed(2)} Hz`, 16, height - 12)
+        if (hasQeegSigmaBeta) {
+          ctx.fillStyle = '#1d4ed8'
+          ctx.fillText(`σ/β ${sigmaMin.toFixed(2)}-${sigmaMax.toFixed(2)}`, plotX + plotW - 116, height - 12)
+        }
+        if (hasQeegDelta) {
+          ctx.fillStyle = '#b91c1c'
+          ctx.fillText(`δ ${deltaMin.toFixed(2)}-${deltaMax.toFixed(2)}`, plotX + plotW - 200, height - 12)
+        }
 
         const tickEvery = Math.max(1, Math.ceil(70 / Math.max(1, plotW / dsaData.nEpochs)))
-        const axisY = top + laneH + 10
+        const axisY = laneTop + laneH + 10
         ctx.strokeStyle = '#111827'
         ctx.beginPath()
         ctx.moveTo(plotX, axisY)
@@ -1839,7 +2191,87 @@ function SleepAnalyzerModal({
         ctx.fillText(`${Math.round(totalSec / 60)} min`, plotX + plotW - 54, height - 10)
       }
     }
-  }, [artifactEnabled, currentEndSec, currentStartSec, dsaData, dsaError, dsaLoading, onArtifactEpochClick, onEpochClick, onViewerAnnotationSelect, selectedViewerAnnotationId, sleepSketchData, sleepSketchLoading, viewerAnnotations])
+
+    {
+      const height = 186
+      stateCanvas.width = width
+      stateCanvas.height = height
+      const ctx = stateCanvas.getContext('2d')
+      if (ctx) {
+        ctx.fillStyle = '#fffdf4'
+        ctx.fillRect(0, 0, width, height)
+
+        const top = 56
+        const laneH = 70
+        const timelineLabels = remapEpochValues(stateSpectralData?.labels, dsaData.nEpochs)
+        const counts = timelineLabels.reduce<Record<number, number>>((acc, label) => {
+          acc[label] = (acc[label] ?? 0) + 1
+          return acc
+        }, {})
+
+        for (let ep = 0; ep < dsaData.nEpochs; ep++) {
+          const x1 = plotX + Math.floor((ep * plotW) / dsaData.nEpochs)
+          const x2 = plotX + Math.floor(((ep + 1) * plotW) / dsaData.nEpochs)
+          const label = timelineLabels[ep] ?? 0
+          ctx.fillStyle = stateSpectralLabelColor(label)
+          ctx.globalAlpha = 0.82
+          ctx.fillRect(x1, top, Math.max(1, x2 - x1), laneH)
+        }
+        ctx.globalAlpha = 1
+        ctx.strokeStyle = '#0f172a'
+        ctx.strokeRect(plotX, top, plotW, laneH)
+
+        ctx.fillStyle = '#0f172a'
+        ctx.font = 'bold 14px monospace'
+        ctx.fillText('Estados OA/OC/Sueño', 16, 24)
+        ctx.font = '12px monospace'
+        ctx.fillText(
+          `OA ${counts[1] ?? 0} · OC ${counts[2] ?? 0} · N1 ${counts[3] ?? 0} · N2 ${counts[4] ?? 0} · N3 ${counts[5] ?? 0} · ? ${counts[0] ?? 0}`,
+          16,
+          42,
+        )
+
+        ctx.font = '11px monospace'
+        ctx.fillStyle = '#475569'
+        if (stateSpectralData?.blinkScore?.length) {
+          const blinkValues = Array.from(stateSpectralData.blinkScore)
+          const blinkMean = blinkValues.reduce((sum, value) => sum + (Number.isFinite(value) ? value : 0), 0) / Math.max(1, blinkValues.length)
+          ctx.fillText(
+            `blink soporte ${blinkMean.toFixed(2)} · umbral ${stateSpectralData.blinkSupportThreshold.toFixed(2)}`,
+            plotX,
+            height - 30,
+          )
+        }
+        if (stateSpectralData && Number.isFinite(stateSpectralData.ocMedianFmd) && Number.isFinite(stateSpectralData.sleepFmdThreshold)) {
+          ctx.fillText(
+            `OC FMD med ${stateSpectralData.ocMedianFmd.toFixed(2)} · sueño < ${stateSpectralData.sleepFmdThreshold.toFixed(2)} Hz`,
+            plotX,
+            height - 14,
+          )
+        }
+
+        const axisY = top + laneH + 18
+        const tickEvery = Math.max(1, Math.ceil(70 / Math.max(1, plotW / dsaData.nEpochs)))
+        ctx.strokeStyle = '#111827'
+        ctx.beginPath()
+        ctx.moveTo(plotX, axisY)
+        ctx.lineTo(plotX + plotW, axisY)
+        ctx.stroke()
+        for (let ep = 0; ep < dsaData.nEpochs; ep += tickEvery) {
+          const x = plotX + Math.floor((ep * plotW) / dsaData.nEpochs)
+          ctx.beginPath()
+          ctx.moveTo(x, axisY)
+          ctx.lineTo(x, axisY + 5)
+          ctx.stroke()
+          const tSec = ep * dsaData.epochSec
+          const minutes = Math.floor(tSec / 60)
+          const seconds = Math.floor(tSec % 60)
+          ctx.fillText(`${minutes}:${pad2(seconds)}`, x + 2, axisY + 16)
+        }
+      }
+    }
+
+  }, [artifactEnabled, currentEndSec, currentStartSec, dsaData, dsaError, dsaLoading, onArtifactEpochClick, onEpochClick, onViewerAnnotationSelect, selectedViewerAnnotationId, sleepSketchData, sleepSketchLoading, stateSpectralData, viewerAnnotations])
 
   useEffect(() => {
     redraw()
@@ -1882,24 +2314,69 @@ function SleepAnalyzerModal({
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.7rem' }}>
           <div style={{ color: '#0f172a', fontWeight: 700, fontSize: '0.98rem' }}>Analizador de sueño</div>
-          <button
-            type="button"
-            onClick={onClose}
-            style={{
-              border: '1px solid #cbd5e1',
-              background: '#ffffff',
-              color: '#0f172a',
-              borderRadius: 6,
-              padding: '0.32rem 0.62rem',
-              fontSize: '0.8rem',
-              cursor: 'pointer',
-            }}
-          >
-            Cerrar
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                color: '#334155',
+                fontSize: '0.8rem',
+                userSelect: 'none',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={assumeSleepPresent}
+                onChange={(event) => onAssumeSleepPresentChange(event.target.checked)}
+              />
+              Asumir que hay sueño
+            </label>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                border: '1px solid #cbd5e1',
+                background: '#ffffff',
+                color: '#0f172a',
+                borderRadius: 6,
+                padding: '0.32rem 0.62rem',
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+              }}
+            >
+              Cerrar
+            </button>
+          </div>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+          <div
+            style={{
+              border: '1px solid #e2e8f0',
+              borderRadius: 10,
+              background: '#ffffff',
+              padding: '0.65rem 0.8rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.45rem',
+            }}
+          >
+            <LegendRow
+              title="Leyenda común"
+              items={[
+                { label: 'W', color: sleepSketchLabelColor(0), border: '1px solid #94a3b8' },
+                { label: 'OA', color: stateSpectralLabelColor(1) },
+                { label: 'OC', color: stateSpectralLabelColor(2) },
+                { label: 'N1', color: stateSpectralLabelColor(3) },
+                { label: 'N2', color: stateSpectralLabelColor(4) },
+                { label: 'N3', color: stateSpectralLabelColor(5) },
+                { label: 'Artefacto', color: stateSpectralLabelColor(6) },
+                { label: '?', color: stateSpectralLabelColor(0) },
+              ]}
+            />
+          </div>
+
           <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
             <DSAHeatmap
               data={dsaData}
@@ -1926,6 +2403,487 @@ function SleepAnalyzerModal({
           <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', background: '#fffdf4' }}>
             <canvas ref={hypCanvasRef} style={{ display: 'block', width: '100%' }} />
           </div>
+
+          <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', background: '#fffdf4' }}>
+            <canvas ref={stateCanvasRef} style={{ display: 'block', width: '100%' }} />
+          </div>
+
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function StateSpectraModal({
+  stateSpectralPanels,
+  onClose,
+}: {
+  stateSpectralPanels: StateSpectralPanelData | null
+  onClose: () => void
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const [selectedStateIndex, setSelectedStateIndex] = useState(0)
+  const [showAperiodicFit, setShowAperiodicFit] = useState(true)
+  const [showLogFreqAxis, setShowLogFreqAxis] = useState(true)
+  const [showLogPowerAxis, setShowLogPowerAxis] = useState(true)
+  const [showGlobalOverlay, setShowGlobalOverlay] = useState(true)
+
+  const redraw = useCallback(() => {
+    const wrap = wrapRef.current
+    const canvas = canvasRef.current
+    if (!wrap || !canvas) return
+
+    const width = Math.max(980, wrap.clientWidth || 980)
+    const height = 380
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    ctx.fillStyle = '#fffdf4'
+    ctx.fillRect(0, 0, width, height)
+
+    const panels = stateSpectralPanels
+    const freqArray = panels?.freqs ? Array.from(panels.freqs) : []
+    const stateCount = panels?.stateNames?.length ?? 0
+    const selected = stateCount > 0 ? Math.max(0, Math.min(selectedStateIndex, stateCount - 1)) : -1
+    const raw = selected >= 0 ? Array.from(panels!.rawSpectra[selected] ?? []) : []
+    const flat = selected >= 0 ? Array.from(panels!.flatSpectra[selected] ?? []) : []
+    const epochCounts = Array.from(panels?.epochCounts ?? [])
+    const totalStateEpochs = epochCounts.reduce((sum, value) => sum + Number(value ?? 0), 0)
+    const activeStateCount = epochCounts.filter((value) => Number(value ?? 0) > 0).length
+    const selectedEpochs = selected >= 0 ? Number(panels!.epochCounts[selected] ?? 0) : 0
+    const selectedPct = totalStateEpochs > 0 ? (100 * selectedEpochs) / totalStateEpochs : 0
+    const leftX = 24
+    const top = 32
+    const gap = 28
+    const panelW = Math.floor((width - leftX * 2 - gap) / 2)
+    const panelH = 180
+    const rightX = leftX + panelW + gap
+    const fMin = 0.5
+    const fMax = 20
+    const xForFreq = (f: number, x0: number) => {
+      if (showLogFreqAxis) {
+        const lo = Math.log10(fMin)
+        const hi = Math.log10(fMax)
+        const xx = (Math.log10(Math.max(fMin, f)) - lo) / Math.max(1e-6, hi - lo)
+        return x0 + xx * panelW
+      }
+      return x0 + ((f - fMin) / (fMax - fMin)) * panelW
+    }
+    const transformPower = (rawValue: number) => (
+      showLogPowerAxis
+        ? Math.log10(Math.max(1e-9, rawValue) + 1e-6) + 6
+        : rawValue
+    )
+    const buildSharedRange = (allSeries: Float32Array[] | undefined) => {
+      let yMin = Number.POSITIVE_INFINITY
+      let yMax = Number.NEGATIVE_INFINITY
+      let nValid = 0
+      for (const seriesLike of allSeries ?? []) {
+        const series = Array.from(seriesLike ?? [])
+        for (let i = 0; i < series.length && i < freqArray.length; i++) {
+          const f = freqArray[i]
+          if (f < fMin || f > fMax) continue
+          const rawValue = Number(series[i] ?? 0)
+          if (!(rawValue > 0)) continue
+          const value = transformPower(rawValue)
+          yMin = Math.min(yMin, value)
+          yMax = Math.max(yMax, value)
+          nValid += 1
+        }
+      }
+      if (nValid === 0 || !Number.isFinite(yMin) || !Number.isFinite(yMax)) return null
+      let yRange = yMax - yMin
+      if (!Number.isFinite(yRange) || yRange < 1e-3) yRange = Math.max(0.25, Math.abs(yMax) * 0.2)
+      const yPad = yRange * 0.08
+      const yLo = yMin - yPad
+      const yHi = yMax + yPad
+      return { yLo, yHi, ySpan: Math.max(1e-6, yHi - yLo) }
+    }
+    const rawSharedRange = buildSharedRange(panels?.rawSpectra)
+    const flatSharedRange = buildSharedRange(panels?.flatSpectra)
+    const buildGlobalSeries = (allSeries: Float32Array[] | undefined) => {
+      if (!allSeries || allSeries.length === 0) return [] as number[]
+      const maxLen = Math.max(...allSeries.map((series) => series?.length ?? 0), 0)
+      if (maxLen <= 0) return [] as number[]
+      const out = new Array<number>(maxLen).fill(0)
+      const weight = new Array<number>(maxLen).fill(0)
+      allSeries.forEach((seriesLike, seriesIndex) => {
+        const series = Array.from(seriesLike ?? [])
+        const epochWeight = Math.max(0, Number(epochCounts[seriesIndex] ?? 0))
+        if (epochWeight <= 0) return
+        for (let i = 0; i < series.length; i++) {
+          const v = Number(series[i] ?? 0)
+          if (!(v > 0)) continue
+          out[i] += v * epochWeight
+          weight[i] += epochWeight
+        }
+      })
+      return out.map((v, i) => (weight[i] > 0 ? v / weight[i] : 0))
+    }
+    const globalRaw = buildGlobalSeries(panels?.rawSpectra)
+    const globalFlat = buildGlobalSeries(panels?.flatSpectra)
+
+    const drawSpectrum = (
+      series: number[],
+      title: string,
+      x0: number,
+      color: string,
+      markers: Array<{ freq: number; label: string; color: string }>,
+      sharedRange: { yLo: number; yHi: number; ySpan: number } | null,
+      globalSeries: number[] | null,
+      aperiodicFit?: { slope: number; intercept: number } | null,
+    ) => {
+      ctx.strokeStyle = '#cbd5e1'
+      ctx.strokeRect(x0, top, panelW, panelH)
+      ctx.fillStyle = '#334155'
+      ctx.font = '12px monospace'
+      ctx.fillText(title, x0 + 8, top - 8)
+      if (series.length === 0 || freqArray.length === 0) return
+      let yMin = Number.POSITIVE_INFINITY
+      let yMax = Number.NEGATIVE_INFINITY
+      let nValid = 0
+      const transformed: number[] = []
+      for (let i = 0; i < series.length && i < freqArray.length; i++) {
+        if (freqArray[i] < fMin || freqArray[i] > fMax) continue
+        const rawValue = Number(series[i] ?? 0)
+        const value = transformPower(rawValue)
+        transformed.push(value)
+        yMin = Math.min(yMin, value)
+        yMax = Math.max(yMax, value)
+        if (rawValue > 0) nValid += 1
+      }
+      if (nValid === 0) {
+        ctx.fillStyle = '#94a3b8'
+        ctx.font = '11px monospace'
+        ctx.fillText('sin espectro util', x0 + 12, top + 22)
+        return
+      }
+      const yLo = sharedRange?.yLo ?? yMin
+      const yHi = sharedRange?.yHi ?? yMax
+      const ySpan = sharedRange?.ySpan ?? Math.max(1e-6, yHi - yLo)
+
+      ctx.strokeStyle = '#94a3b8'
+      ctx.lineWidth = 1
+      ctx.beginPath()
+      ctx.moveTo(x0, top + panelH)
+      ctx.lineTo(x0 + panelW, top + panelH)
+      ctx.stroke()
+      ctx.beginPath()
+      ctx.moveTo(x0, top)
+      ctx.lineTo(x0, top + panelH)
+      ctx.stroke()
+
+      ctx.strokeStyle = '#e2e8f0'
+      ctx.lineWidth = 1
+      const xTicks = showLogFreqAxis ? [0.5, 1, 2, 4, 8, 10, 12, 16, 20] : [2, 4, 8, 10, 12, 16, 20]
+      for (const tick of xTicks) {
+        const x = xForFreq(tick, x0)
+        ctx.beginPath()
+        ctx.moveTo(x, top)
+        ctx.lineTo(x, top + panelH)
+        ctx.stroke()
+        ctx.strokeStyle = '#94a3b8'
+        ctx.beginPath()
+        ctx.moveTo(x, top + panelH)
+        ctx.lineTo(x, top + panelH + 5)
+        ctx.stroke()
+        ctx.fillStyle = '#64748b'
+        ctx.font = '10px monospace'
+        ctx.fillText(String(tick), x - 6, top + panelH + 16)
+        ctx.strokeStyle = '#e2e8f0'
+      }
+
+      for (const yTick of [0.2, 0.5, 0.8]) {
+        const y = top + panelH - yTick * (panelH - 2)
+        ctx.strokeStyle = '#e2e8f0'
+        ctx.beginPath()
+        ctx.moveTo(x0, y)
+        ctx.lineTo(x0 + panelW, y)
+        ctx.stroke()
+        const value = yLo + yTick * ySpan
+        ctx.fillStyle = '#64748b'
+        ctx.font = '10px monospace'
+        ctx.fillText(value.toFixed(1), x0 - 26, y + 3)
+      }
+
+      ctx.strokeStyle = color
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      let moved = false
+      let validIndex = 0
+      for (let i = 0; i < series.length && i < freqArray.length; i++) {
+        const f = freqArray[i]
+        if (f < fMin || f > fMax) continue
+        const x = xForFreq(f, x0)
+        const scaled = transformed[validIndex] ?? 0
+        validIndex += 1
+        const t = (scaled - yLo) / ySpan
+        const y = top + panelH - t * (panelH - 2)
+        if (!moved) { ctx.moveTo(x, y); moved = true } else ctx.lineTo(x, y)
+      }
+      ctx.stroke()
+
+      if (showGlobalOverlay && globalSeries && globalSeries.length > 0) {
+        ctx.strokeStyle = 'rgba(22,163,74,0.75)'
+        ctx.lineWidth = 1.6
+        ctx.beginPath()
+        let globalMoved = false
+        for (let i = 0; i < globalSeries.length && i < freqArray.length; i++) {
+          const f = freqArray[i]
+          if (f < fMin || f > fMax) continue
+          const rawValue = Number(globalSeries[i] ?? 0)
+          if (!(rawValue > 0)) continue
+          const x = xForFreq(f, x0)
+          const scaled = transformPower(rawValue)
+          const t = (scaled - yLo) / ySpan
+          const y = top + panelH - t * (panelH - 2)
+          if (!globalMoved) { ctx.moveTo(x, y); globalMoved = true } else ctx.lineTo(x, y)
+        }
+        ctx.stroke()
+        ctx.fillStyle = '#15803d'
+        ctx.font = '10px monospace'
+        ctx.fillText('global', x0 + panelW - 42, top + 14)
+      }
+
+      if (showAperiodicFit && aperiodicFit && Number.isFinite(aperiodicFit.slope) && Number.isFinite(aperiodicFit.intercept)) {
+        ctx.strokeStyle = '#dc2626'
+        ctx.lineWidth = 1.5
+        ctx.setLineDash([6, 4])
+        ctx.beginPath()
+        let fitMoved = false
+        for (let i = 0; i < freqArray.length; i++) {
+          const f = freqArray[i]
+          if (f < fMin || f > fMax || f <= 0) continue
+          const bg = Math.exp(aperiodicFit.intercept + aperiodicFit.slope * Math.log(f))
+          const scaled = transformPower(bg)
+          const x = xForFreq(f, x0)
+          const t = (scaled - yLo) / ySpan
+          const y = top + panelH - t * (panelH - 2)
+          if (!fitMoved) { ctx.moveTo(x, y); fitMoved = true } else ctx.lineTo(x, y)
+        }
+        ctx.stroke()
+        ctx.setLineDash([])
+        ctx.fillStyle = '#dc2626'
+        ctx.font = '10px monospace'
+        ctx.fillText('1/f fit', x0 + panelW - 48, top + 14)
+      }
+
+      markers.forEach((marker, index) => {
+        if (!Number.isFinite(marker.freq) || marker.freq < fMin || marker.freq > fMax) return
+        const x = xForFreq(marker.freq, x0)
+        ctx.strokeStyle = marker.color
+        ctx.lineWidth = 1.3
+        ctx.setLineDash([4, 3])
+        ctx.beginPath()
+        ctx.moveTo(x, top)
+        ctx.lineTo(x, top + panelH)
+        ctx.stroke()
+        ctx.setLineDash([])
+        ctx.fillStyle = marker.color
+        ctx.font = '10px monospace'
+        ctx.fillText(`${marker.label} ${marker.freq.toFixed(1)}`, x + 4, top + 14 + index * 12)
+      })
+
+      ctx.fillStyle = '#64748b'
+      ctx.font = '10px monospace'
+      ctx.fillText('Frecuencia (Hz)', x0 + Math.floor(panelW / 2) - 40, top + panelH + 32)
+      ctx.save()
+      ctx.translate(x0 - 42, top + Math.floor(panelH / 2) + 26)
+      ctx.rotate(-Math.PI / 2)
+      ctx.fillText(showLogPowerAxis ? 'Potencia (log)' : 'Potencia', 0, 0)
+      ctx.restore()
+      ctx.fillText(
+        `${showLogPowerAxis ? 'log ' : ''}${yLo.toFixed(1)}..${yHi.toFixed(1)}`,
+        x0 + panelW - 98,
+        top - 8,
+      )
+    }
+
+    const rawMarkers = selected >= 0
+      ? [{ freq: Number(panels!.alphaPeakRaw[selected] ?? 0), label: 'IAF', color: '#0f766e' }]
+      : []
+    const flatMarkers = selected >= 0
+      ? [
+          { freq: Number(panels!.alphaPeakFlat[selected] ?? 0), label: 'IAF', color: '#0f766e' },
+          { freq: Number(panels!.thetaPeakFlat[selected] ?? 0), label: 'TH', color: '#c2410c' },
+          { freq: Number(panels!.sigmaPeakFlat[selected] ?? 0), label: 'SG', color: '#7c3aed' },
+        ]
+      : []
+
+    drawSpectrum(
+      raw,
+      'Raw PSD',
+      leftX,
+      '#0f172a',
+      rawMarkers,
+      rawSharedRange,
+      globalRaw,
+      selected >= 0
+        ? {
+            slope: Number(panels!.aperiodicSlope[selected] ?? 0),
+            intercept: Number(panels!.aperiodicIntercept[selected] ?? 0),
+          }
+        : null,
+    )
+    drawSpectrum(flat, 'Flattened PSD', rightX, '#7c3aed', flatMarkers, flatSharedRange, globalFlat, null)
+
+    if (selected >= 0) {
+      ctx.fillStyle = '#475569'
+      ctx.font = '11px monospace'
+      ctx.fillText(
+        `${panels!.stateNames[selected]} · ${selectedEpochs} épocas (${selectedPct.toFixed(1)}%) · IAF raw ${Number(panels!.alphaPeakRaw[selected] ?? 0).toFixed(2)} Hz · IAF flat ${Number(panels!.alphaPeakFlat[selected] ?? 0).toFixed(2)} Hz`,
+        24,
+        top + panelH + 36,
+      )
+      ctx.fillText(
+        `total ${totalStateEpochs} épocas útiles · ${activeStateCount} estados con espectro · theta flat ${Number(panels!.thetaPeakFlat[selected] ?? 0).toFixed(2)} Hz · sigma flat ${Number(panels!.sigmaPeakFlat[selected] ?? 0).toFixed(2)} Hz · 1/f ${Number(panels!.aperiodicSlope[selected] ?? 0).toFixed(2)}`,
+        24,
+        top + panelH + 54,
+      )
+    }
+
+    if (stateCount > 0) {
+      const tableTop = top + panelH + 82
+      const rowH = 18
+      const colX = [24, 110, 182, 266, 352, 438, 520]
+      ctx.fillStyle = '#0f172a'
+      ctx.font = 'bold 11px monospace'
+      ;['Estado', 'ep', 'IAF raw', 'IAF flat', 'theta', 'sigma', '1/f'].forEach((header, idx) => {
+        ctx.fillText(header, colX[idx], tableTop)
+      })
+      ctx.strokeStyle = '#cbd5e1'
+      ctx.beginPath()
+      ctx.moveTo(24, tableTop + 6)
+      ctx.lineTo(width - 24, tableTop + 6)
+      ctx.stroke()
+
+      for (let i = 0; i < stateCount; i++) {
+        const y = tableTop + 18 + i * rowH
+        const label = stateSpectralShortLabel(panels!.stateLabels[i] ?? 0)
+        const active = i === selected
+        if (active) {
+          ctx.fillStyle = 'rgba(15,23,42,0.08)'
+          ctx.fillRect(20, y - 12, width - 40, rowH)
+        }
+        ctx.fillStyle = active ? '#0f172a' : '#334155'
+        ctx.font = active ? 'bold 11px monospace' : '11px monospace'
+        ctx.fillText(label, colX[0], y)
+        ctx.fillText(String(panels!.epochCounts[i] ?? 0), colX[1], y)
+        ctx.fillText(Number(panels!.alphaPeakRaw[i] ?? 0).toFixed(2), colX[2], y)
+        ctx.fillText(Number(panels!.alphaPeakFlat[i] ?? 0).toFixed(2), colX[3], y)
+        ctx.fillText(Number(panels!.thetaPeakFlat[i] ?? 0).toFixed(2), colX[4], y)
+        ctx.fillText(Number(panels!.sigmaPeakFlat[i] ?? 0).toFixed(2), colX[5], y)
+        ctx.fillText(Number(panels!.aperiodicSlope[i] ?? 0).toFixed(2), colX[6], y)
+      }
+    }
+  }, [selectedStateIndex, showAperiodicFit, showGlobalOverlay, showLogFreqAxis, showLogPowerAxis, stateSpectralPanels])
+
+  useEffect(() => {
+    redraw()
+  }, [redraw])
+
+  useEffect(() => {
+    const wrap = wrapRef.current
+    if (!wrap) return
+    const ro = new ResizeObserver(() => redraw())
+    ro.observe(wrap)
+    return () => ro.disconnect()
+  }, [redraw])
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 1360,
+        background: 'rgba(15,23,42,0.5)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '1.2rem',
+      }}
+      onClick={onClose}
+    >
+      <div
+        ref={wrapRef}
+        style={{
+          width: 'min(96vw, 1500px)',
+          maxHeight: '92vh',
+          overflow: 'auto',
+          background: '#ffffff',
+          borderRadius: 14,
+          boxShadow: '0 30px 80px rgba(15,23,42,0.35)',
+          padding: '0.85rem',
+        }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.7rem' }}>
+          <div style={{ color: '#0f172a', fontWeight: 700, fontSize: '0.98rem' }}>Espectros por estado</div>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              border: '1px solid #cbd5e1',
+              background: '#ffffff',
+              color: '#0f172a',
+              borderRadius: 6,
+              padding: '0.32rem 0.62rem',
+              fontSize: '0.8rem',
+              cursor: 'pointer',
+            }}
+          >
+            Cerrar
+          </button>
+        </div>
+        <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', background: '#fffdf4', padding: '0.75rem' }}>
+          <div style={{ display: 'flex', gap: '0.7rem', flexWrap: 'wrap', marginBottom: '0.55rem', alignItems: 'center' }}>
+            <span style={{ color: '#0f172a', fontWeight: 700, fontSize: '0.82rem', marginRight: '0.2rem' }}>
+              PSD por estado
+            </span>
+            {(stateSpectralPanels?.stateNames ?? []).map((name, index) => {
+              const label = stateSpectralShortLabel(stateSpectralPanels?.stateLabels?.[index] ?? 0)
+              const active = index === selectedStateIndex
+              return (
+                <button
+                  key={`${name}-${index}`}
+                  type="button"
+                  onClick={() => setSelectedStateIndex(index)}
+                  style={{
+                    border: `1px solid ${active ? '#0f172a' : '#cbd5e1'}`,
+                    background: active ? '#0f172a' : '#ffffff',
+                    color: active ? '#ffffff' : '#0f172a',
+                    borderRadius: 7,
+                    padding: '0.22rem 0.5rem',
+                    fontSize: '0.76rem',
+                    fontFamily: 'monospace',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {label}
+                </button>
+              )
+            })}
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#334155', fontSize: '0.76rem', marginLeft: '0.4rem', userSelect: 'none' }}>
+              <input type="checkbox" checked={showAperiodicFit} onChange={(event) => setShowAperiodicFit(event.target.checked)} />
+              Mostrar 1/f
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#334155', fontSize: '0.76rem', userSelect: 'none' }}>
+              <input type="checkbox" checked={showGlobalOverlay} onChange={(event) => setShowGlobalOverlay(event.target.checked)} />
+              Global verde
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#334155', fontSize: '0.76rem', userSelect: 'none' }}>
+              <input type="checkbox" checked={showLogFreqAxis} onChange={(event) => setShowLogFreqAxis(event.target.checked)} />
+              X log
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#334155', fontSize: '0.76rem', userSelect: 'none' }}>
+              <input type="checkbox" checked={showLogPowerAxis} onChange={(event) => setShowLogPowerAxis(event.target.checked)} />
+              Y log
+            </label>
+          </div>
+          <canvas ref={canvasRef} style={{ display: 'block', width: '100%' }} />
         </div>
       </div>
     </div>
@@ -3697,12 +4655,20 @@ export default function EEGViewer() {
   const [artifactMaskLoading, setArtifactMaskLoading] = useState(false)
   const [sleepSketchData, setSleepSketchData] = useState<SleepSketchTimelineData | null>(null)
   const [sleepSketchLoading, setSleepSketchLoading] = useState(false)
+  const [qeegGlobalTimeseries, setQeegGlobalTimeseries] = useState<QeegGlobalTimeseriesData | null>(null)
+  const [qeegGlobalTimeseriesLoading, setQeegGlobalTimeseriesLoading] = useState(false)
+  const [stateSpectralAssumeSleepPresent, setStateSpectralAssumeSleepPresent] = useState(true)
+  const [stateSpectralData, setStateSpectralData] = useState<StateSpectralTimelineData | null>(null)
+  const [stateSpectralLoading, setStateSpectralLoading] = useState(false)
+  const [stateSpectralPanels, setStateSpectralPanels] = useState<StateSpectralPanelData | null>(null)
+  const [stateSpectralPanelsLoading, setStateSpectralPanelsLoading] = useState(false)
   const [dsaData,         setDsaData]         = useState<DSAData | null>(null)
   const [dsaLoading,      setDsaLoading]      = useState(false)
   const [dsaError,        setDsaError]        = useState('')
   const [dsaExpanded,     setDsaExpanded]     = useState(false)
   const [hypnogramOpen,   setHypnogramOpen]   = useState(false)
   const [sleepAnalyzerOpen, setSleepAnalyzerOpen] = useState(false)
+  const [stateSpectraOpen, setStateSpectraOpen] = useState(false)
   const [compactToolbar,  setCompactToolbar]  = useState(false)
   const [mobileControlsOpen, setMobileControlsOpen] = useState(false)
   const [localPickerError, setLocalPickerError] = useState('')
@@ -3762,6 +4728,9 @@ export default function EEGViewer() {
   const dsaCacheRef = useRef<Map<string, DSAData>>(new Map())
   const artifactMaskCacheRef = useRef<ArtifactMaskData | null>(null)
   const sleepSketchCacheRef = useRef<SleepSketchTimelineData | null>(null)
+  const qeegGlobalTimeseriesCacheRef = useRef<QeegGlobalTimeseriesData | null>(null)
+  const stateSpectralCacheRef = useRef<Map<string, StateSpectralTimelineData>>(new Map())
+  const stateSpectralPanelsCacheRef = useRef<Map<string, StateSpectralPanelData>>(new Map())
   const n2ContextCacheRef = useRef<Map<string, N2ContextData>>(new Map())
   const avgRefButtonRef = useRef<HTMLButtonElement>(null)
   const avgRefMenuRef = useRef<HTMLDivElement>(null)
@@ -5181,6 +6150,8 @@ export default function EEGViewer() {
       sbPosRef.current = null
       dsaCacheRef.current.clear()
       sleepSketchCacheRef.current = null
+      stateSpectralCacheRef.current.clear()
+      stateSpectralPanelsCacheRef.current.clear()
       n2ContextCacheRef.current.clear()
       setDsaChannel('off')
       setArtifactReject(false)
@@ -5189,6 +6160,10 @@ export default function EEGViewer() {
       setDsaError('')
       setSleepSketchData(null)
       setSleepSketchLoading(false)
+      setStateSpectralData(null)
+      setStateSpectralLoading(false)
+      setStateSpectralPanels(null)
+      setStateSpectralPanelsLoading(false)
       setN2ContextData(null)
       setN2ContextLoading(false)
       setMeta({ recordingDate: info.recordingDate, channelLabels: info.channelLabels })
@@ -5596,6 +6571,9 @@ export default function EEGViewer() {
     artifactMaskCacheRef.current = null
     n2ContextCacheRef.current.clear()
     sleepSketchCacheRef.current = null
+    qeegGlobalTimeseriesCacheRef.current = null
+    stateSpectralCacheRef.current.clear()
+    stateSpectralPanelsCacheRef.current.clear()
   }, [recordDurationSec, totalSeconds])
 
   useEffect(() => {
@@ -5673,6 +6651,124 @@ export default function EEGViewer() {
       window.clearTimeout(timer)
     }
   }, [phase])
+
+  useEffect(() => {
+    if (phase !== 'viewing') {
+      setQeegGlobalTimeseries(null)
+      setQeegGlobalTimeseriesLoading(false)
+      return
+    }
+
+    if (qeegGlobalTimeseriesCacheRef.current) {
+      setQeegGlobalTimeseries(qeegGlobalTimeseriesCacheRef.current)
+      setQeegGlobalTimeseriesLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setQeegGlobalTimeseries(null)
+    setQeegGlobalTimeseriesLoading(true)
+
+    const timer = window.setTimeout(() => {
+      try {
+        const result = kappaRef.current?.computeQeegGlobalTimeseries()
+        if (cancelled) return
+        if (!result) throw new Error('No se pudo calcular la FMD qEEG global')
+        qeegGlobalTimeseriesCacheRef.current = result
+        setQeegGlobalTimeseries(result)
+        setQeegGlobalTimeseriesLoading(false)
+      } catch {
+        if (cancelled) return
+        setQeegGlobalTimeseries(null)
+        setQeegGlobalTimeseriesLoading(false)
+      }
+    }, 0)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [phase])
+
+  useEffect(() => {
+    if (phase !== 'viewing') {
+      setStateSpectralData(null)
+      setStateSpectralLoading(false)
+      return
+    }
+
+    const cacheKey = stateSpectralAssumeSleepPresent ? 'sleep-on' : 'sleep-off'
+    const cached = stateSpectralCacheRef.current.get(cacheKey)
+    if (cached) {
+      setStateSpectralData(cached)
+      setStateSpectralLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setStateSpectralData(null)
+    setStateSpectralLoading(true)
+
+    const timer = window.setTimeout(() => {
+      try {
+        const result = kappaRef.current?.computeStateSpectralTimeline(stateSpectralAssumeSleepPresent)
+        if (cancelled) return
+        if (!result) throw new Error('No se pudo calcular el timeline de estados')
+        stateSpectralCacheRef.current.set(cacheKey, result)
+        setStateSpectralData(result)
+        setStateSpectralLoading(false)
+      } catch {
+        if (cancelled) return
+        setStateSpectralData(null)
+        setStateSpectralLoading(false)
+      }
+    }, 0)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [phase, stateSpectralAssumeSleepPresent])
+
+  useEffect(() => {
+    if (phase !== 'viewing') {
+      setStateSpectralPanels(null)
+      setStateSpectralPanelsLoading(false)
+      return
+    }
+
+    const cacheKey = stateSpectralAssumeSleepPresent ? 'sleep-on' : 'sleep-off'
+    const cached = stateSpectralPanelsCacheRef.current.get(cacheKey)
+    if (cached) {
+      setStateSpectralPanels(cached)
+      setStateSpectralPanelsLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setStateSpectralPanels(null)
+    setStateSpectralPanelsLoading(true)
+
+    const timer = window.setTimeout(() => {
+      try {
+        const result = kappaRef.current?.computeStateSpectralPanels(stateSpectralAssumeSleepPresent)
+        if (cancelled) return
+        if (!result) throw new Error('No se pudo calcular los espectros por estado')
+        stateSpectralPanelsCacheRef.current.set(cacheKey, result)
+        setStateSpectralPanels(result)
+        setStateSpectralPanelsLoading(false)
+      } catch {
+        if (cancelled) return
+        setStateSpectralPanels(null)
+        setStateSpectralPanelsLoading(false)
+      }
+    }, 0)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [phase, stateSpectralAssumeSleepPresent])
 
   const triggerSourceChannelIndex = useMemo(
     () => resolveTriggerSourceChannelIndex(triggerChannelName, meta?.channelLabels ?? []),
@@ -6984,6 +8080,7 @@ export default function EEGViewer() {
           onToggleExpand={() => setDsaExpanded(true)}
           onShowHypnogram={() => setHypnogramOpen(true)}
           onShowSleepAnalyzer={() => setSleepAnalyzerOpen(true)}
+          onShowStateSpectra={() => setStateSpectraOpen(true)}
           onEpochClick={(epochIndex) => {
             if (!dsaData) return
             goToDSAEpoch(epochIndex, dsaData.epochSec)
@@ -7046,6 +8143,7 @@ export default function EEGViewer() {
               onToggleExpand={() => setDsaExpanded(false)}
               onShowHypnogram={() => setHypnogramOpen(true)}
               onShowSleepAnalyzer={() => setSleepAnalyzerOpen(true)}
+              onShowStateSpectra={() => setStateSpectraOpen(true)}
               onEpochClick={(epochIndex) => {
                 if (!dsaData) return
                 goToDSAEpoch(epochIndex, dsaData.epochSec)
@@ -7070,9 +8168,13 @@ export default function EEGViewer() {
         <SleepAnalyzerModal
           dsaData={dsaData}
           sleepSketchData={sleepSketchData}
+          qeegGlobalTimeseries={qeegGlobalTimeseries}
+          stateSpectralData={stateSpectralData}
+          assumeSleepPresent={stateSpectralAssumeSleepPresent}
+          onAssumeSleepPresentChange={setStateSpectralAssumeSleepPresent}
           artifactEnabled={artifactReject}
           dsaLoading={dsaLoading}
-          sleepSketchLoading={sleepSketchLoading}
+          sleepSketchLoading={sleepSketchLoading || qeegGlobalTimeseriesLoading || stateSpectralLoading || stateSpectralPanelsLoading}
           dsaError={dsaError}
           currentStartSec={tStart}
           currentEndSec={tStart + pageDuration}
@@ -7088,6 +8190,12 @@ export default function EEGViewer() {
             goToDSAEpoch(epochIndex, dsaData.artifactEpochSec)
           }}
           onViewerAnnotationSelect={(annotationId) => jumpToViewerAnnotation(annotationId)}
+        />
+      )}
+      {stateSpectraOpen && dsaChannel !== 'off' && (
+        <StateSpectraModal
+          stateSpectralPanels={stateSpectralPanels}
+          onClose={() => setStateSpectraOpen(false)}
         />
       )}
       {triggerAvgModalOpen && triggerAvgOpen && (

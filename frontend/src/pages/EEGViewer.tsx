@@ -148,6 +148,13 @@ interface KappaInstance {
     rawSpectraRight: Float32Array[]
     flatSpectraLeft: Float32Array[]
     flatSpectraRight: Float32Array[]
+    regionNames: string[]
+    rawRegionSpectra: Float32Array[][]
+    flatRegionSpectra: Float32Array[][]
+    rawRegionSpectraLeft: Float32Array[][]
+    rawRegionSpectraRight: Float32Array[][]
+    flatRegionSpectraLeft: Float32Array[][]
+    flatRegionSpectraRight: Float32Array[][]
     alphaPeakRaw: number[]
     alphaPeakFlat: number[]
     alphaPowerRaw: number[]
@@ -217,6 +224,24 @@ const GAIN_OPTIONS: { label: string; value: number }[] = [
   { label: '2×',   value: 2   },
   { label: '4×',   value: 4   },
 ]
+
+const FIXED_SENSITIVITY_OPTIONS: { label: string; value: number }[] = [
+  { label: '3 µV/mm', value: 3 },
+  { label: '7 µV/mm', value: 7 },
+  { label: '10 µV/mm', value: 10 },
+  { label: '15 µV/mm', value: 15 },
+  { label: '150 µV/mm', value: 150 },
+  { label: '500 µV/mm', value: 500 },
+]
+
+const SWEEP_SPEED_LABELS: Record<number, string> = {
+  10: '30 mm/s',
+  20: '15 mm/s',
+  30: '10 mm/s',
+  60: '5 mm/s',
+}
+
+const BASELINE_SENSITIVITY_UV_PER_MM = 10
 
 const SCALE_BAR_VALUES_UV = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000]
 const TRIGGER_THRESHOLD_POSITIONS = 25
@@ -374,6 +399,13 @@ interface StateSpectralPanelData {
   rawSpectraRight: Float32Array[]
   flatSpectraLeft: Float32Array[]
   flatSpectraRight: Float32Array[]
+  regionNames: string[]
+  rawRegionSpectra: Float32Array[][]
+  flatRegionSpectra: Float32Array[][]
+  rawRegionSpectraLeft: Float32Array[][]
+  rawRegionSpectraRight: Float32Array[][]
+  flatRegionSpectraLeft: Float32Array[][]
+  flatRegionSpectraRight: Float32Array[][]
   alphaPeakRaw: number[]
   alphaPeakFlat: number[]
   alphaPowerRaw: number[]
@@ -587,6 +619,60 @@ function stateSpectralShortLabel(label: number): string {
   return '?'
 }
 
+function stateSpectralRegionLabel(name: string): string {
+  if (name === 'parieto_occipital') return 'parieto-occ'
+  return name
+}
+
+function spectralPeakFrequency(
+  freqs: number[],
+  power: number[],
+  f0: number,
+  f1: number,
+): number {
+  let bestP = -Infinity
+  let bestF = 0
+  for (let i = 0; i < freqs.length && i < power.length; i++) {
+    const f = freqs[i]
+    const p = Number(power[i] ?? 0)
+    if (!Number.isFinite(f) || !Number.isFinite(p) || f < f0 || f > f1 || !(p > 0)) continue
+    if (p > bestP) {
+      bestP = p
+      bestF = f
+    }
+  }
+  return bestF
+}
+
+function fitAperiodicLine(
+  freqs: number[],
+  power: number[],
+): { slope: number; intercept: number } | null {
+  let sumX = 0
+  let sumY = 0
+  let sumXY = 0
+  let sumX2 = 0
+  let n = 0
+  for (let i = 0; i < freqs.length && i < power.length; i++) {
+    const f = freqs[i]
+    const p = Number(power[i] ?? 0)
+    if (!Number.isFinite(f) || !Number.isFinite(p) || f < 1 || f > 30 || !(p > 0)) continue
+    const lf = Math.log(f)
+    const lp = Math.log(p)
+    sumX += lf
+    sumY += lp
+    sumXY += lf * lp
+    sumX2 += lf * lf
+    n += 1
+  }
+  if (n <= 2) return null
+  const denom = n * sumX2 - sumX * sumX
+  if (Math.abs(denom) < 1e-12) return null
+  const slope = (n * sumXY - sumX * sumY) / denom
+  const intercept = (sumY - slope * sumX) / n
+  return { slope, intercept }
+}
+
 function LegendRow({
   title,
   items,
@@ -651,6 +737,12 @@ function computeScales(
   gainMult: number,
   normalizeNonEEG: boolean,
   gainOverrides: Record<string, number>,
+  options?: {
+    autoScale?: boolean
+    fixedSensitivityUvPerMm?: number
+    containerHeightPx?: number
+    fixedRefRange?: number
+  },
 ): { scales: { p2: number; p98: number }[]; refRange: number } {
   const perCh = epoch.data.map((d) => {
     const sorted = Float32Array.from(d).sort()
@@ -660,6 +752,8 @@ function computeScales(
       center: sorted[Math.floor(sorted.length * 0.5)]  ?? 0,
     }
   })
+
+  const autoScale = options?.autoScale !== false
 
   // Shared reference from EEG channels when normalizing (avoids z-scored channels skewing scale)
   const refIdxs = normalizeNonEEG
@@ -671,17 +765,80 @@ function computeScales(
     .filter((r) => r > 0)
     .sort((a, b) => a - b)
 
-  const refRange  = refRanges.length > 0 ? refRanges[Math.floor(refRanges.length * 0.5)] : 1
+  const computedRefRange = refRanges.length > 0 ? refRanges[Math.floor(refRanges.length * 0.5)] : 1
+  const refRange = Number.isFinite(options?.fixedRefRange) && (options?.fixedRefRange ?? 0) > 0
+    ? options?.fixedRefRange ?? computedRefRange
+    : computedRefRange
+
+  const fixedSensitivityUvPerMm = Number.isFinite(options?.fixedSensitivityUvPerMm) && (options?.fixedSensitivityUvPerMm ?? 0) > 0
+    ? options?.fixedSensitivityUvPerMm ?? BASELINE_SENSITIVITY_UV_PER_MM
+    : BASELINE_SENSITIVITY_UV_PER_MM
+  const sensitivityGain = autoScale ? 1 : (BASELINE_SENSITIVITY_UV_PER_MM / fixedSensitivityUvPerMm)
 
   const scales = perCh.map((s, i) => {
     const type = epoch.channelTypes[i] ?? 'EEG'
     if (normalizeNonEEG && type !== 'EEG') return { p2: s.p2, p98: s.p98 }
-    const channelGain = gainOverrides[epoch.channelNames[i] ?? ''] ?? gainMult
+    const baseGain = gainOverrides[epoch.channelNames[i] ?? ''] ?? gainMult
+    const channelGain = baseGain * sensitivityGain
     const halfRange = refRange / channelGain / 2
     return { p2: s.center - halfRange, p98: s.center + halfRange }
   })
 
   return { scales, refRange }
+}
+
+function getAverageReferenceHemisphereGroup(name: string): 'left' | 'midline' | 'right' | null {
+  const base = name.split(' - ')[0]?.trim() ?? name
+  const upper = base.toUpperCase()
+  if (upper.endsWith('Z')) return 'midline'
+  if (/[13579]$/.test(upper)) return 'left'
+  if (/[02468]$/.test(upper)) return 'right'
+  return null
+}
+
+function computeRowTops(
+  channelNames: string[],
+  chanH: number,
+  montageName?: MontageName,
+): { tops: number[]; totalHeight: number } {
+  if (montageName !== 'promedio' || channelNames.length === 0) {
+    const tops = channelNames.map((_, index) => index * chanH)
+    return {
+      tops,
+      totalHeight: channelNames.length * chanH,
+    }
+  }
+
+  const boundaryCount = Math.max(
+    0,
+    channelNames.slice(1).filter((name, index) => {
+      const previousGroup = getAverageReferenceHemisphereGroup(channelNames[index] ?? '')
+      const currentGroup = getAverageReferenceHemisphereGroup(name)
+      return previousGroup && currentGroup && previousGroup !== currentGroup
+    }).length,
+  )
+  const transitionCount = Math.max(channelNames.length - 1, 1)
+  const extraGap = chanH * 0.52
+  const compactReduction = boundaryCount > 0 ? (extraGap * boundaryCount) / transitionCount : 0
+  const compactStep = chanH - compactReduction
+  const groupGap = chanH + extraGap
+  const tops: number[] = []
+  let cursor = 0
+  let previousGroup: 'left' | 'midline' | 'right' | null = null
+
+  channelNames.forEach((name, index) => {
+    const group = getAverageReferenceHemisphereGroup(name)
+    if (index > 0) {
+      cursor += group && previousGroup && group !== previousGroup ? groupGap : compactStep
+    }
+    tops.push(cursor)
+    previousGroup = group
+  })
+
+  return {
+    tops,
+    totalHeight: channelNames.length * chanH,
+  }
 }
 
 function drawEpoch(
@@ -699,10 +856,12 @@ function drawEpoch(
   artifactStatuses?: number[],
   artifactEpochSec?: number,
   showArtifactReviewOverlay?: boolean,
+  montageName?: MontageName,
 ): number {                // returns chanH used
   canvas.width  = canvas.offsetWidth || 1200
   const chanH   = Math.max(MIN_CHAN_H, Math.floor(containerH / Math.max(epoch.nChannels, 1)))
-  canvas.height = epoch.nChannels * chanH
+  const { tops: rowTops, totalHeight } = computeRowTops(epoch.channelNames, chanH, montageName)
+  canvas.height = Math.max(chanH, Math.ceil(totalHeight))
 
   const ctx = canvas.getContext('2d')
   if (!ctx) return chanH
@@ -716,7 +875,7 @@ function drawEpoch(
 
   // ── Channel rows ───────────────────────────────────────────────────────────
   for (let c = 0; c < epoch.nChannels; c++) {
-    const y0    = c * chanH
+    const y0    = rowTops[c] ?? c * chanH
     const data  = epoch.data[c]
     const type  = epoch.channelTypes[c] ?? 'EEG'
     const name  = epoch.channelNames[c]  ?? `Ch${c + 1}`
@@ -1041,7 +1200,17 @@ function ToolbarSelect({
 }) {
   return (
     <label style={{ display: 'flex' }}>
-      <select value={value} title={label} aria-label={label} onChange={(e) => onChange(e.target.value)} style={{
+      <select
+        value={value}
+        title={label}
+        aria-label={label}
+        onChange={(e) => {
+          onChange(e.target.value)
+          window.requestAnimationFrame(() => {
+            e.target.blur()
+          })
+        }}
+        style={{
         background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 4,
         color: '#1e293b', fontSize: compact ? '0.72rem' : '0.75rem', padding: compact ? '0.14rem 0.28rem' : '0.16rem 0.35rem',
         cursor: 'pointer', outline: 'none',
@@ -1152,6 +1321,8 @@ function DSAHeatmap({
   onShowHypnogram,
   onShowSleepAnalyzer,
   onShowStateSpectra,
+  sleepAnalyzerBusy = false,
+  stateSpectraBusy = false,
   showMetrics = true,
 }: {
   data: DSAData | null
@@ -1171,6 +1342,8 @@ function DSAHeatmap({
   onShowHypnogram?: () => void
   onShowSleepAnalyzer?: () => void
   onShowStateSpectra?: () => void
+  sleepAnalyzerBusy?: boolean
+  stateSpectraBusy?: boolean
   showMetrics?: boolean
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -1548,7 +1721,10 @@ function DSAHeatmap({
                 cursor: 'pointer',
               }}
             >
-              Analizador sueño
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <span>Analizador sueño</span>
+                {sleepAnalyzerBusy ? <span className="viewer-inline-spinner" aria-hidden="true" /> : null}
+              </span>
             </button>
           )}
           {onShowStateSpectra && (
@@ -1565,7 +1741,10 @@ function DSAHeatmap({
                 cursor: 'pointer',
               }}
             >
-              Espectros
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <span>Espectros</span>
+                {stateSpectraBusy ? <span className="viewer-inline-spinner" aria-hidden="true" /> : null}
+              </span>
             </button>
           )}
           {onToggleExpand && (
@@ -1871,11 +2050,23 @@ function SleepAnalyzerModal({
         const qeegSigmaBeta = qeegGlobalTimeseries?.sigma_beta_ratio ?? []
         const qeegDelta = qeegGlobalTimeseries?.delta_0p5to4 ?? []
         const hasQeegFmd = qeegTimes.length > 1 && qeegFmd.length === qeegTimes.length
+        const fmdSourceLabel = hasQeegFmd ? 'qEEG global' : 'SleepSketch fallback'
+        const fmdSourceCount = hasQeegFmd ? qeegFmd.length : fmdValues.length
         const finiteFmd = (hasQeegFmd ? qeegFmd : fmdValues).filter((value) => Number.isFinite(value))
         const hasQeegSigmaBeta = hasQeegFmd && qeegSigmaBeta.length === qeegTimes.length
         const hasQeegDelta = hasQeegFmd && qeegDelta.length === qeegTimes.length
-        let fmdMin = finiteFmd.length ? Math.min(...finiteFmd) : 4
-        let fmdMax = finiteFmd.length ? Math.max(...finiteFmd) : 12
+        const percentile = (values: number[], q: number) => {
+          if (values.length === 0) return Number.NaN
+          const sorted = values.slice().sort((a, b) => a - b)
+          const pos = Math.max(0, Math.min(sorted.length - 1, (sorted.length - 1) * q))
+          const lo = Math.floor(pos)
+          const hi = Math.ceil(pos)
+          if (lo === hi) return sorted[lo]
+          const t = pos - lo
+          return sorted[lo] * (1 - t) + sorted[hi] * t
+        }
+        let fmdMin = finiteFmd.length ? percentile(finiteFmd, 0.05) : 4
+        let fmdMax = finiteFmd.length ? percentile(finiteFmd, 0.95) : 12
         if (fmdMax - fmdMin < 1e-6) {
           fmdMin -= 0.5
           fmdMax += 0.5
@@ -1886,8 +2077,8 @@ function SleepAnalyzerModal({
         }
         const finiteSigmaBeta = hasQeegSigmaBeta ? qeegSigmaBeta.filter((value) => Number.isFinite(value)) : []
         const finiteDelta = hasQeegDelta ? qeegDelta.filter((value) => Number.isFinite(value)) : []
-        let sigmaMin = finiteSigmaBeta.length ? Math.min(...finiteSigmaBeta) : 0
-        let sigmaMax = finiteSigmaBeta.length ? Math.max(...finiteSigmaBeta) : 1
+        let sigmaMin = finiteSigmaBeta.length ? percentile(finiteSigmaBeta, 0.05) : 0
+        let sigmaMax = finiteSigmaBeta.length ? percentile(finiteSigmaBeta, 0.95) : 1
         if (sigmaMax - sigmaMin < 1e-12) {
           sigmaMin = Math.max(0, sigmaMin - 0.5)
           sigmaMax += 0.5
@@ -1896,8 +2087,8 @@ function SleepAnalyzerModal({
           sigmaMin = Math.max(0, sigmaMin - pad)
           sigmaMax += pad
         }
-        let deltaMin = finiteDelta.length ? Math.min(...finiteDelta) : 0
-        let deltaMax = finiteDelta.length ? Math.max(...finiteDelta) : 1
+        let deltaMin = finiteDelta.length ? percentile(finiteDelta, 0.05) : 0
+        let deltaMax = finiteDelta.length ? percentile(finiteDelta, 0.95) : 1
         if (deltaMax - deltaMin < 1e-12) {
           deltaMin = Math.max(0, deltaMin - 0.5)
           deltaMax += 0.5
@@ -2074,7 +2265,18 @@ function SleepAnalyzerModal({
         ctx.font = 'bold 13px monospace'
         ctx.fillText('FMD 4-12', 16, 20)
         ctx.font = '11px monospace'
-        ctx.fillText(hasQeegFmd ? 'qEEG global · negro = cruda · gris = suavizada · azul = sigma/beta · rojo = delta' : 'SleepSketch · negro = cruda · gris = suavizada', plotX, 20)
+        ctx.fillText(
+          hasQeegFmd
+            ? 'qEEG global · negro = cruda · gris = suavizada · azul = sigma/beta · rojo = delta'
+            : 'SleepSketch fallback · negro = cruda · gris = suavizada',
+          plotX,
+          20,
+        )
+        ctx.fillStyle = hasQeegFmd ? '#065f46' : '#92400e'
+        ctx.font = 'bold 11px monospace'
+        ctx.fillText(`Fuente: ${fmdSourceLabel} · n=${fmdSourceCount}`, plotX, height - 12)
+        ctx.fillStyle = '#0f172a'
+        ctx.font = '11px monospace'
         ctx.fillText(`${fmdMin.toFixed(2)}-${fmdMax.toFixed(2)} Hz`, 16, height - 12)
         if (hasQeegSigmaBeta) {
           ctx.fillStyle = '#1d4ed8'
@@ -2435,7 +2637,7 @@ function StateSpectraModal({
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
-  const [selectedStateIndex, setSelectedStateIndex] = useState(0)
+  const [selectedStateIndex, setSelectedStateIndex] = useState(-1)
   const [showAperiodicFit, setShowAperiodicFit] = useState(true)
   const [showLogFreqAxis, setShowLogFreqAxis] = useState(true)
   const [showLogPowerAxis, setShowLogPowerAxis] = useState(true)
@@ -2448,7 +2650,24 @@ function StateSpectraModal({
     if (!wrap || !canvas) return
 
     const width = Math.max(980, wrap.clientWidth || 980)
-    const height = 380
+    const panels = stateSpectralPanels
+    const freqArray = panels?.freqs ? Array.from(panels.freqs) : []
+    const stateCount = panels?.stateNames?.length ?? 0
+    const selected = stateCount > 0 && selectedStateIndex >= 0 ? Math.max(0, Math.min(selectedStateIndex, stateCount - 1)) : -1
+    const regionNames = Array.from(panels?.regionNames ?? [])
+    const epochCounts = Array.from(panels?.epochCounts ?? [])
+    const totalStateEpochs = epochCounts.reduce((sum, value) => sum + Number(value ?? 0), 0)
+    const activeStateCount = epochCounts.filter((value) => Number(value ?? 0) > 0).length
+    const leftX = 24
+    const top = 32
+    const gap = 28
+    const panelW = Math.floor((width - leftX * 2 - gap) / 2)
+    const panelH = 180
+    const rightX = leftX + panelW + gap
+    const regionTop = top + panelH + 86
+    const regionPanelH = 150
+    const tableTop = regionTop + regionPanelH + 42
+    const height = tableTop + 28 + Math.max(1, stateCount) * 18 + 22
     canvas.width = width
     canvas.height = height
     const ctx = canvas.getContext('2d')
@@ -2456,28 +2675,6 @@ function StateSpectraModal({
 
     ctx.fillStyle = '#fffdf4'
     ctx.fillRect(0, 0, width, height)
-
-    const panels = stateSpectralPanels
-    const freqArray = panels?.freqs ? Array.from(panels.freqs) : []
-    const stateCount = panels?.stateNames?.length ?? 0
-    const selected = stateCount > 0 ? Math.max(0, Math.min(selectedStateIndex, stateCount - 1)) : -1
-    const raw = selected >= 0 ? Array.from(panels?.rawSpectra?.[selected] ?? []) : []
-    const flat = selected >= 0 ? Array.from(panels?.flatSpectra?.[selected] ?? []) : []
-    const rawLeft = selected >= 0 ? Array.from(panels?.rawSpectraLeft?.[selected] ?? []) : []
-    const rawRight = selected >= 0 ? Array.from(panels?.rawSpectraRight?.[selected] ?? []) : []
-    const flatLeft = selected >= 0 ? Array.from(panels?.flatSpectraLeft?.[selected] ?? []) : []
-    const flatRight = selected >= 0 ? Array.from(panels?.flatSpectraRight?.[selected] ?? []) : []
-    const epochCounts = Array.from(panels?.epochCounts ?? [])
-    const totalStateEpochs = epochCounts.reduce((sum, value) => sum + Number(value ?? 0), 0)
-    const activeStateCount = epochCounts.filter((value) => Number(value ?? 0) > 0).length
-    const selectedEpochs = selected >= 0 ? Number(panels!.epochCounts[selected] ?? 0) : 0
-    const selectedPct = totalStateEpochs > 0 ? (100 * selectedEpochs) / totalStateEpochs : 0
-    const leftX = 24
-    const top = 32
-    const gap = 28
-    const panelW = Math.floor((width - leftX * 2 - gap) / 2)
-    const panelH = 180
-    const rightX = leftX + panelW + gap
     const fMin = 0.5
     const fMax = 20
     const xForFreq = (f: number, x0: number) => {
@@ -2519,10 +2716,27 @@ function StateSpectraModal({
       const yHi = yMax + yPad
       return { yLo, yHi, ySpan: Math.max(1e-6, yHi - yLo) }
     }
+    const flattenNestedSeries = (nested: Float32Array[][] | undefined) => {
+      const out: Float32Array[] = []
+      for (const stateSeries of nested ?? []) {
+        for (const series of stateSeries ?? []) out.push(series)
+      }
+      return out
+    }
     const rawSharedRange = buildSharedRange(panels?.rawSpectra)
     const flatSharedRange = buildSharedRange(panels?.flatSpectra)
     const rawHemisphereRange = buildSharedRange([...(panels?.rawSpectraLeft ?? []), ...(panels?.rawSpectraRight ?? [])])
     const flatHemisphereRange = buildSharedRange([...(panels?.flatSpectraLeft ?? []), ...(panels?.flatSpectraRight ?? [])])
+    const rawRegionRange = buildSharedRange(flattenNestedSeries(panels?.rawRegionSpectra))
+    const flatRegionRange = buildSharedRange(flattenNestedSeries(panels?.flatRegionSpectra))
+    const rawRegionHemisphereRange = buildSharedRange([
+      ...flattenNestedSeries(panels?.rawRegionSpectraLeft),
+      ...flattenNestedSeries(panels?.rawRegionSpectraRight),
+    ])
+    const flatRegionHemisphereRange = buildSharedRange([
+      ...flattenNestedSeries(panels?.flatRegionSpectraLeft),
+      ...flattenNestedSeries(panels?.flatRegionSpectraRight),
+    ])
     const buildGlobalSeries = (allSeries: Float32Array[] | undefined) => {
       if (!allSeries || allSeries.length === 0) return [] as number[]
       const maxLen = Math.max(...allSeries.map((series) => series?.length ?? 0), 0)
@@ -2544,6 +2758,68 @@ function StateSpectraModal({
     }
     const globalRaw = buildGlobalSeries(panels?.rawSpectra)
     const globalFlat = buildGlobalSeries(panels?.flatSpectra)
+    const globalRawLeft = buildGlobalSeries(panels?.rawSpectraLeft)
+    const globalRawRight = buildGlobalSeries(panels?.rawSpectraRight)
+    const globalFlatLeft = buildGlobalSeries(panels?.flatSpectraLeft)
+    const globalFlatRight = buildGlobalSeries(panels?.flatSpectraRight)
+    const buildGlobalRegionSeries = (allStates: Float32Array[][] | undefined) => {
+      return regionNames.map((_, regionIndex) => {
+        const out: number[] = []
+        const weight: number[] = []
+        for (let stateIndex = 0; stateIndex < (allStates?.length ?? 0); stateIndex++) {
+          const stateRegions = allStates?.[stateIndex] ?? []
+          const seriesLike = stateRegions?.[regionIndex]
+          const series = Array.from(seriesLike ?? [])
+          const epochWeight = Math.max(0, Number(epochCounts[stateIndex] ?? 0))
+          if (epochWeight <= 0) continue
+          for (let i = 0; i < series.length; i++) {
+            const v = Number(series[i] ?? 0)
+            if (!(v > 0)) continue
+            out[i] = (out[i] ?? 0) + v * epochWeight
+            weight[i] = (weight[i] ?? 0) + epochWeight
+          }
+        }
+        return out.map((v, i) => ((weight[i] ?? 0) > 0 ? v / (weight[i] ?? 1) : 0))
+      })
+    }
+    const globalRawRegions = buildGlobalRegionSeries(panels?.rawRegionSpectra)
+    const globalFlatRegions = buildGlobalRegionSeries(panels?.flatRegionSpectra)
+    const globalRawRegionsLeft = buildGlobalRegionSeries(panels?.rawRegionSpectraLeft)
+    const globalRawRegionsRight = buildGlobalRegionSeries(panels?.rawRegionSpectraRight)
+    const globalFlatRegionsLeft = buildGlobalRegionSeries(panels?.flatRegionSpectraLeft)
+    const globalFlatRegionsRight = buildGlobalRegionSeries(panels?.flatRegionSpectraRight)
+    const raw = selected >= 0 ? Array.from(panels?.rawSpectra?.[selected] ?? []) : globalRaw
+    const flat = selected >= 0 ? Array.from(panels?.flatSpectra?.[selected] ?? []) : globalFlat
+    const rawLeft = selected >= 0 ? Array.from(panels?.rawSpectraLeft?.[selected] ?? []) : globalRawLeft
+    const rawRight = selected >= 0 ? Array.from(panels?.rawSpectraRight?.[selected] ?? []) : globalRawRight
+    const flatLeft = selected >= 0 ? Array.from(panels?.flatSpectraLeft?.[selected] ?? []) : globalFlatLeft
+    const flatRight = selected >= 0 ? Array.from(panels?.flatSpectraRight?.[selected] ?? []) : globalFlatRight
+    const rawRegions = selected >= 0 ? Array.from(panels?.rawRegionSpectra?.[selected] ?? []).map((series) => Array.from(series ?? [])) : globalRawRegions
+    const flatRegions = selected >= 0 ? Array.from(panels?.flatRegionSpectra?.[selected] ?? []).map((series) => Array.from(series ?? [])) : globalFlatRegions
+    const rawRegionsLeft = selected >= 0 ? Array.from(panels?.rawRegionSpectraLeft?.[selected] ?? []).map((series) => Array.from(series ?? [])) : globalRawRegionsLeft
+    const rawRegionsRight = selected >= 0 ? Array.from(panels?.rawRegionSpectraRight?.[selected] ?? []).map((series) => Array.from(series ?? [])) : globalRawRegionsRight
+    const flatRegionsLeft = selected >= 0 ? Array.from(panels?.flatRegionSpectraLeft?.[selected] ?? []).map((series) => Array.from(series ?? [])) : globalFlatRegionsLeft
+    const flatRegionsRight = selected >= 0 ? Array.from(panels?.flatRegionSpectraRight?.[selected] ?? []).map((series) => Array.from(series ?? [])) : globalFlatRegionsRight
+    const selectedEpochs = selected >= 0 ? Number(panels!.epochCounts[selected] ?? 0) : totalStateEpochs
+    const selectedPct = totalStateEpochs > 0 ? (100 * selectedEpochs) / totalStateEpochs : 0
+    const selectedAlphaPeakRaw = selected >= 0
+      ? Number(panels!.alphaPeakRaw[selected] ?? 0)
+      : spectralPeakFrequency(freqArray, raw, 7.5, 13)
+    const selectedAlphaPeakFlat = selected >= 0
+      ? Number(panels!.alphaPeakFlat[selected] ?? 0)
+      : spectralPeakFrequency(freqArray, flat, 7.5, 13)
+    const selectedThetaPeakFlat = selected >= 0
+      ? Number(panels!.thetaPeakFlat[selected] ?? 0)
+      : spectralPeakFrequency(freqArray, flat, 4, 8)
+    const selectedSigmaPeakFlat = selected >= 0
+      ? Number(panels!.sigmaPeakFlat[selected] ?? 0)
+      : spectralPeakFrequency(freqArray, flat, 11, 16)
+    const selectedAperiodic = selected >= 0
+      ? {
+          slope: Number(panels!.aperiodicSlope[selected] ?? 0),
+          intercept: Number(panels!.aperiodicIntercept[selected] ?? 0),
+        }
+      : fitAperiodicLine(freqArray, raw)
 
     const drawSpectrum = (
       series: number[],
@@ -2754,16 +3030,104 @@ function StateSpectraModal({
       )
     }
 
-    const rawMarkers = selected >= 0
-      ? [{ freq: Number(panels!.alphaPeakRaw[selected] ?? 0), label: 'IAF', color: '#0f766e' }]
+    const drawRegionSpectrum = (
+      regionSeries: number[][],
+      title: string,
+      x0: number,
+      sharedRange: { yLo: number; yHi: number; ySpan: number } | null,
+      regionSeriesLeft?: number[][],
+      regionSeriesRight?: number[][],
+    ) => {
+      ctx.strokeStyle = '#cbd5e1'
+      ctx.strokeRect(x0, regionTop, panelW, regionPanelH)
+      ctx.fillStyle = '#334155'
+      ctx.font = '12px monospace'
+      ctx.fillText(title, x0 + 8, regionTop - 8)
+
+      const yLo = sharedRange?.yLo ?? 0
+      const ySpan = sharedRange?.ySpan ?? 1
+      ctx.strokeStyle = '#94a3b8'
+      ctx.lineWidth = 1
+      ctx.beginPath()
+      ctx.moveTo(x0, regionTop + regionPanelH)
+      ctx.lineTo(x0 + panelW, regionTop + regionPanelH)
+      ctx.stroke()
+      ctx.beginPath()
+      ctx.moveTo(x0, regionTop)
+      ctx.lineTo(x0, regionTop + regionPanelH)
+      ctx.stroke()
+
+      ctx.strokeStyle = '#e2e8f0'
+      const xTicks = showLogFreqAxis ? [0.5, 1, 2, 4, 8, 10, 12, 16, 20] : [2, 4, 8, 10, 12, 16, 20]
+      for (const tick of xTicks) {
+        const x = xForFreq(tick, x0)
+        ctx.beginPath()
+        ctx.moveTo(x, regionTop)
+        ctx.lineTo(x, regionTop + regionPanelH)
+        ctx.stroke()
+      }
+      for (const yTick of [0.2, 0.5, 0.8]) {
+        const y = regionTop + regionPanelH - yTick * (regionPanelH - 2)
+        ctx.strokeStyle = '#e2e8f0'
+        ctx.beginPath()
+        ctx.moveTo(x0, y)
+        ctx.lineTo(x0 + panelW, y)
+        ctx.stroke()
+      }
+
+      const regionColors = ['#15803d', '#ea580c', '#7c3aed']
+      regionNames.forEach((regionName, idx) => {
+        const series = regionSeries[idx] ?? []
+        const leftSeries = regionSeriesLeft?.[idx] ?? []
+        const rightSeries = regionSeriesRight?.[idx] ?? []
+        const color = regionColors[idx % regionColors.length]
+        const drawOne = (values: number[], dashed: boolean, alpha = 1.0) => {
+          if (!values.length) return
+          ctx.strokeStyle = color.replace('rgb', 'rgba')
+          ctx.strokeStyle = alpha < 1 ? color : color
+          ctx.lineWidth = dashed ? 1.5 : 2
+          ctx.setLineDash(dashed ? [5, 3] : [])
+          ctx.beginPath()
+          let moved = false
+          for (let i = 0; i < values.length && i < freqArray.length; i++) {
+            const f = freqArray[i]
+            if (f < fMin || f > fMax) continue
+            const rawValue = Number(values[i] ?? 0)
+            if (!(rawValue > 0)) continue
+            const scaled = transformPower(rawValue)
+            const x = xForFreq(f, x0)
+            const t = (scaled - yLo) / ySpan
+            const y = regionTop + regionPanelH - t * (regionPanelH - 2)
+            if (!moved) { ctx.moveTo(x, y); moved = true } else ctx.lineTo(x, y)
+          }
+          if (moved) ctx.stroke()
+          ctx.setLineDash([])
+        }
+        if (showHemispheres) {
+          drawOne(leftSeries, false)
+          drawOne(rightSeries, true)
+        } else {
+          drawOne(series, false)
+        }
+        ctx.fillStyle = color
+        ctx.font = '10px monospace'
+        const suffix = showHemispheres ? ' izq/der' : ''
+        ctx.fillText(`${stateSpectralRegionLabel(regionName)}${suffix}`, x0 + panelW - 132, regionTop + 14 + idx * 12)
+      })
+
+      ctx.fillStyle = '#64748b'
+      ctx.font = '10px monospace'
+      ctx.fillText('Frecuencia (Hz)', x0 + Math.floor(panelW / 2) - 40, regionTop + regionPanelH + 24)
+    }
+
+    const rawMarkers = selectedAlphaPeakRaw > 0
+      ? [{ freq: selectedAlphaPeakRaw, label: 'IAF', color: '#0f766e' }]
       : []
-    const flatMarkers = selected >= 0
-      ? [
-          { freq: Number(panels!.alphaPeakFlat[selected] ?? 0), label: 'IAF', color: '#0f766e' },
-          { freq: Number(panels!.thetaPeakFlat[selected] ?? 0), label: 'TH', color: '#c2410c' },
-          { freq: Number(panels!.sigmaPeakFlat[selected] ?? 0), label: 'SG', color: '#7c3aed' },
-        ]
-      : []
+    const flatMarkers = [
+      selectedAlphaPeakFlat > 0 ? { freq: selectedAlphaPeakFlat, label: 'IAF', color: '#0f766e' } : null,
+      selectedThetaPeakFlat > 0 ? { freq: selectedThetaPeakFlat, label: 'TH', color: '#c2410c' } : null,
+      selectedSigmaPeakFlat > 0 ? { freq: selectedSigmaPeakFlat, label: 'SG', color: '#7c3aed' } : null,
+    ].filter((marker): marker is { freq: number; label: string; color: string } => !!marker)
 
     drawSpectrum(
       showHemispheres ? [] : raw,
@@ -2779,12 +3143,7 @@ function StateSpectraModal({
             { series: rawRight, color: '#dc2626', label: 'der' },
           ]
         : undefined,
-      selected >= 0
-        ? {
-            slope: Number(panels!.aperiodicSlope[selected] ?? 0),
-            intercept: Number(panels!.aperiodicIntercept[selected] ?? 0),
-          }
-        : null,
+      selectedAperiodic,
     )
     drawSpectrum(
       showHemispheres ? [] : flat,
@@ -2803,23 +3162,22 @@ function StateSpectraModal({
       null,
     )
 
-    if (selected >= 0) {
+    {
       ctx.fillStyle = '#475569'
       ctx.font = '11px monospace'
       ctx.fillText(
-        `${panels!.stateNames[selected]} · ${selectedEpochs} épocas (${selectedPct.toFixed(1)}%) · IAF raw ${Number(panels!.alphaPeakRaw[selected] ?? 0).toFixed(2)} Hz · IAF flat ${Number(panels!.alphaPeakFlat[selected] ?? 0).toFixed(2)} Hz`,
+        `${selected >= 0 ? panels!.stateNames[selected] : 'All'} · ${selectedEpochs} épocas (${selectedPct.toFixed(1)}%) · IAF raw ${selectedAlphaPeakRaw.toFixed(2)} Hz · IAF flat ${selectedAlphaPeakFlat.toFixed(2)} Hz`,
         24,
         top + panelH + 36,
       )
       ctx.fillText(
-        `total ${totalStateEpochs} épocas útiles · ${activeStateCount} estados con espectro · theta flat ${Number(panels!.thetaPeakFlat[selected] ?? 0).toFixed(2)} Hz · sigma flat ${Number(panels!.sigmaPeakFlat[selected] ?? 0).toFixed(2)} Hz · 1/f ${Number(panels!.aperiodicSlope[selected] ?? 0).toFixed(2)}`,
+        `total ${totalStateEpochs} épocas útiles · ${activeStateCount} estados con espectro · IAF raw ${selectedAlphaPeakRaw.toFixed(2)} Hz · IAF flat ${selectedAlphaPeakFlat.toFixed(2)} Hz · theta flat ${selectedThetaPeakFlat.toFixed(2)} Hz · sigma flat ${selectedSigmaPeakFlat.toFixed(2)} Hz · 1/f ${Number(selectedAperiodic?.slope ?? 0).toFixed(2)}`,
         24,
         top + panelH + 54,
       )
     }
 
     if (stateCount > 0) {
-      const tableTop = top + panelH + 82
       const rowH = 18
       const colX = [24, 110, 182, 266, 352, 438, 520]
       ctx.fillStyle = '#0f172a'
@@ -2852,6 +3210,23 @@ function StateSpectraModal({
         ctx.fillText(Number(panels!.aperiodicSlope[i] ?? 0).toFixed(2), colX[6], y)
       }
     }
+
+    drawRegionSpectrum(
+      rawRegions,
+      'Promedio por regiones · Raw PSD',
+      leftX,
+      showHemispheres ? rawRegionHemisphereRange : rawRegionRange,
+      rawRegionsLeft,
+      rawRegionsRight,
+    )
+    drawRegionSpectrum(
+      flatRegions,
+      'Promedio por regiones · Flattened PSD',
+      rightX,
+      showHemispheres ? flatRegionHemisphereRange : flatRegionRange,
+      flatRegionsLeft,
+      flatRegionsRight,
+    )
   }, [selectedStateIndex, showAperiodicFit, showGlobalOverlay, showHemispheres, showLogFreqAxis, showLogPowerAxis, stateSpectralPanels])
 
   useEffect(() => {
@@ -2916,6 +3291,22 @@ function StateSpectraModal({
             <span style={{ color: '#0f172a', fontWeight: 700, fontSize: '0.82rem', marginRight: '0.2rem' }}>
               PSD por estado
             </span>
+            <button
+              type="button"
+              onClick={() => setSelectedStateIndex(-1)}
+              style={{
+                border: `1px solid ${selectedStateIndex < 0 ? '#0f172a' : '#cbd5e1'}`,
+                background: selectedStateIndex < 0 ? '#0f172a' : '#ffffff',
+                color: selectedStateIndex < 0 ? '#ffffff' : '#0f172a',
+                borderRadius: 7,
+                padding: '0.22rem 0.5rem',
+                fontSize: '0.76rem',
+                fontFamily: 'monospace',
+                cursor: 'pointer',
+              }}
+            >
+              All
+            </button>
             {(stateSpectralPanels?.stateNames ?? []).map((name, index) => {
               const label = stateSpectralShortLabel(stateSpectralPanels?.stateLabels?.[index] ?? 0)
               const active = index === selectedStateIndex
@@ -4717,10 +5108,16 @@ export default function EEGViewer() {
   const [lp,              setLp]              = useState(45)
   const [notch,           setNotch]           = useState(50)
   const [gainMult,        setGainMult]        = useState(1)
+  const [autoScale,       setAutoScale]       = useState(false)
+  const [fixedSensitivityUvPerMm, setFixedSensitivityUvPerMm] = useState(10)
+  const [recordAutoScaleRefRange, setRecordAutoScaleRefRange] = useState<number | null>(null)
   const [normalizeNonEEG, setNormalizeNonEEG] = useState(false)
   const [montage,         setMontage]         = useState<MontageName>('promedio')
   const [excludedAverageReferenceChannels, setExcludedAverageReferenceChannels] = useState<string[]>([])
   const [includedHiddenChannels, setIncludedHiddenChannels] = useState<string[]>([])
+  const [montageToolsOpen, setMontageToolsOpen] = useState(false)
+  const [montageToolsMenuPos, setMontageToolsMenuPos] = useState<{ top: number; left: number } | null>(null)
+  const [montageToolsSection, setMontageToolsSection] = useState<'avg' | 'extras' | null>(null)
   const [avgRefOpen, setAvgRefOpen] = useState(false)
   const [avgRefMenuPos, setAvgRefMenuPos] = useState<{ top: number; left: number } | null>(null)
   const [extrasOpen, setExtrasOpen] = useState(false)
@@ -4748,6 +5145,7 @@ export default function EEGViewer() {
   const [stateSpectraOpen, setStateSpectraOpen] = useState(false)
   const [compactToolbar,  setCompactToolbar]  = useState(false)
   const [mobileControlsOpen, setMobileControlsOpen] = useState(false)
+  const [viewerWrapHeight, setViewerWrapHeight] = useState(0)
   const [localPickerError, setLocalPickerError] = useState('')
   const [selectedChannelName, setSelectedChannelName] = useState<string | null>(null)
   const [channelGainOverrides, setChannelGainOverrides] = useState<Record<string, number>>({})
@@ -4786,6 +5184,34 @@ export default function EEGViewer() {
   const [lockedRecordSpindleAdaptiveThreshold, setLockedRecordSpindleAdaptiveThreshold] = useState<number | null>(null)
   const [fullRecordTriggerAverageResult, setFullRecordTriggerAverageResult] = useState<TriggeredAverageResult | null>(null)
   const [fullRecordTriggerAverageLoading, setFullRecordTriggerAverageLoading] = useState(false)
+
+  const artifactMaskNeeded =
+    phase === 'viewing' &&
+    (
+      artifactReject ||
+      artifactReviewOverlay ||
+      sleepAnalyzerOpen ||
+      (triggerAvgOpen && excludeArtifactEvents)
+    )
+
+  const sleepSketchNeeded =
+    phase === 'viewing' &&
+    (
+      hypnogramOpen ||
+      sleepAnalyzerOpen ||
+      dsaChannel !== 'off'
+    )
+
+  const qeegGlobalTimeseriesNeeded = phase === 'viewing' && sleepAnalyzerOpen
+  const stateSpectralTimelineNeeded = phase === 'viewing' && sleepAnalyzerOpen
+  const stateSpectralPanelsNeeded = phase === 'viewing' && (sleepAnalyzerOpen || stateSpectraOpen)
+  const sleepAnalyzerBusy =
+    artifactMaskLoading ||
+    sleepSketchLoading ||
+    qeegGlobalTimeseriesLoading ||
+    stateSpectralLoading ||
+    stateSpectralPanelsLoading
+  const stateSpectraBusy = stateSpectralPanelsLoading
   const [fullRecordTriggerAverageError, setFullRecordTriggerAverageError] = useState('')
   const [n2ContextData, setN2ContextData] = useState<N2ContextData | null>(null)
   const [n2ContextLoading, setN2ContextLoading] = useState(false)
@@ -4818,6 +5244,8 @@ export default function EEGViewer() {
   const avgRefMenuRef = useRef<HTMLDivElement>(null)
   const extrasButtonRef = useRef<HTMLButtonElement>(null)
   const extrasMenuRef = useRef<HTMLDivElement>(null)
+  const montageToolsButtonRef = useRef<HTMLButtonElement>(null)
+  const montageToolsMenuRef = useRef<HTMLDivElement>(null)
   const loadVersionRef = useRef(0)
   const triggerAverageLoadVersionRef = useRef(0)
   const restoreInFlightRef = useRef(false)
@@ -4938,6 +5366,53 @@ export default function EEGViewer() {
   const hiddenMontageCandidates = useMemo(() => getMontageHiddenCandidates(epoch, montage), [epoch, montage])
 
   useEffect(() => {
+    if (phase !== 'viewing') {
+      setRecordAutoScaleRefRange(null)
+      return
+    }
+    const kappa = kappaRef.current
+    if (!kappa || totalSeconds <= 0 || recordDurationSec <= 0) return
+
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      try {
+        const sampleCount = Math.max(6, Math.min(12, Math.ceil(totalSeconds / Math.max(windowSecs, 10))))
+        const candidateRanges: number[] = []
+
+        for (let i = 0; i < sampleCount; i++) {
+          const rel = sampleCount === 1 ? 0 : i / Math.max(sampleCount - 1, 1)
+          const targetSec = rel * Math.max(0, totalSeconds - windowSecs)
+          const sampled = readEpochWindow(kappa, targetSec, windowSecs, totalSeconds, recordDurationSec)
+          if (!sampled) continue
+          const sampledProcessed = processEpochForViewer(sampled.epoch)
+          const sampledScales = computeScales(sampledProcessed, 1, normalizeNonEEG, {}, { autoScale: true })
+          if (Number.isFinite(sampledScales.refRange) && sampledScales.refRange > 0) {
+            candidateRanges.push(sampledScales.refRange)
+          }
+        }
+
+        if (cancelled) return
+        if (candidateRanges.length === 0) {
+          setRecordAutoScaleRefRange(null)
+          return
+        }
+
+        candidateRanges.sort((a, b) => a - b)
+        const robustRange = candidateRanges[Math.floor(candidateRanges.length * 0.5)] ?? candidateRanges[0]
+        setRecordAutoScaleRefRange(robustRange > 0 ? robustRange : null)
+      } catch {
+        if (cancelled) return
+        setRecordAutoScaleRefRange(null)
+      }
+    }, 0)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [phase, totalSeconds, recordDurationSec, windowSecs, processEpochForViewer, normalizeNonEEG])
+
+  useEffect(() => {
     setExcludedAverageReferenceChannels((current) =>
       current.filter((name) => averageReferenceCandidates.includes(name)),
     )
@@ -4993,6 +5468,43 @@ export default function EEGViewer() {
   }, [avgRefOpen])
 
   useEffect(() => {
+    if (!montageToolsOpen) {
+      setMontageToolsMenuPos(null)
+      return
+    }
+
+    const updateMenuPosition = () => {
+      const rect = montageToolsButtonRef.current?.getBoundingClientRect()
+      if (!rect) return
+      setMontageToolsMenuPos({
+        top: rect.bottom + 6,
+        left: Math.max(8, rect.left),
+      })
+    }
+
+    const handleOutside = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (
+        montageToolsButtonRef.current?.contains(target) ||
+        montageToolsMenuRef.current?.contains(target)
+      ) {
+        return
+      }
+      setMontageToolsOpen(false)
+    }
+
+    updateMenuPosition()
+    window.addEventListener('resize', updateMenuPosition)
+    window.addEventListener('scroll', updateMenuPosition, true)
+    document.addEventListener('mousedown', handleOutside)
+    return () => {
+      window.removeEventListener('resize', updateMenuPosition)
+      window.removeEventListener('scroll', updateMenuPosition, true)
+      document.removeEventListener('mousedown', handleOutside)
+    }
+  }, [montageToolsOpen])
+
+  useEffect(() => {
     if (!extrasOpen) {
       setExtrasMenuPos(null)
       return
@@ -5034,13 +5546,15 @@ export default function EEGViewer() {
 
   const { scales, refRange } = useMemo(() => {
     if (!processedEpoch) return { scales: [] as { p2: number; p98: number }[], refRange: 1 }
-    return computeScales(processedEpoch, gainMult, normalizeNonEEG, channelGainOverrides)
-  }, [processedEpoch, gainMult, normalizeNonEEG, channelGainOverrides])
+    return computeScales(processedEpoch, gainMult, normalizeNonEEG, channelGainOverrides, {
+      autoScale,
+      fixedSensitivityUvPerMm,
+      containerHeightPx: viewerWrapHeight,
+      fixedRefRange: recordAutoScaleRefRange ?? undefined,
+    })
+  }, [processedEpoch, gainMult, normalizeNonEEG, channelGainOverrides, autoScale, fixedSensitivityUvPerMm, viewerWrapHeight, recordAutoScaleRefRange])
 
-  const effectiveGainMult = selectedChannelName
-    ? (channelGainOverrides[selectedChannelName] ?? gainMult)
-    : gainMult
-  const selectedChannelHasOwnGain = !!(selectedChannelName && Object.prototype.hasOwnProperty.call(channelGainOverrides, selectedChannelName))
+  const selectedChannelHasOwnGain = autoScale && !!(selectedChannelName && Object.prototype.hasOwnProperty.call(channelGainOverrides, selectedChannelName))
 
   const triggerChannelOptions = useMemo(() => {
     if (!processedEpoch) return []
@@ -5834,9 +6348,9 @@ export default function EEGViewer() {
   function computeSBSize(chanH: number, totalH: number): { sbMuV: number; sbPxH: number } {
     const drawH = chanH * 0.8
     const safeRange = Number.isFinite(refRange) && refRange > 0 ? refRange : 1
-    const pxPerUV = (drawH * gainMult) / safeRange
-
-    const sbMuV = pickScaleBarValue(safeRange)
+    const sensitivityGain = autoScale ? 1 : (BASELINE_SENSITIVITY_UV_PER_MM / Math.max(fixedSensitivityUvPerMm, 0.5))
+    const pxPerUV = (drawH * gainMult * sensitivityGain) / safeRange
+    const sbMuV = pickScaleBarValue(safeRange / Math.max(gainMult * sensitivityGain, 1e-6))
 
     const rawPx = Number.isFinite(pxPerUV) && pxPerUV > 0 ? sbMuV * pxPerUV : 0
     const sbPxH = Math.max(20, Math.min(totalH * 0.35, rawPx))
@@ -5867,6 +6381,7 @@ export default function EEGViewer() {
       artifactMaskData?.artifactStatuses,
       artifactMaskData?.artifactEpochSec,
       artifactReviewOverlay,
+      montage,
     )
     const { sbMuV, sbPxH } = computeSBSize(chanH, canvas.height)
 
@@ -5878,7 +6393,7 @@ export default function EEGViewer() {
     }
     refreshOverlay()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [processedEpoch, scales, refRange, gainMult, recordOffset, pageDuration, refreshOverlay, edfAnnotations, viewerAnnotations, selectedViewerAnnotationId, selectedChannelName, triggerOverlay, artifactMaskData, artifactReviewOverlay])
+  }, [processedEpoch, scales, refRange, gainMult, autoScale, fixedSensitivityUvPerMm, recordOffset, pageDuration, refreshOverlay, edfAnnotations, viewerAnnotations, selectedViewerAnnotationId, selectedChannelName, triggerOverlay, artifactMaskData, artifactReviewOverlay])
 
   // ── Draw effect ───────────────────────────────────────────────────────────────
 
@@ -5891,8 +6406,14 @@ export default function EEGViewer() {
 
   useEffect(() => {
     if (phase !== 'viewing' || !wrapRef.current) return
-    const ro = new ResizeObserver(() => redraw())
+    const updateWrapHeight = () => {
+      if (!wrapRef.current) return
+      setViewerWrapHeight(wrapRef.current.clientHeight || 0)
+      redraw()
+    }
+    const ro = new ResizeObserver(() => updateWrapHeight())
     ro.observe(wrapRef.current)
+    updateWrapHeight()
     return () => ro.disconnect()
   }, [phase, redraw])
 
@@ -6288,6 +6809,8 @@ export default function EEGViewer() {
       const nextLp = restoredState?.lp ?? 45
       const nextNotch = restoredState?.notch ?? 50
       const nextGainMult = restoredState?.gainMult ?? 1
+      const nextAutoScale = false
+      const nextFixedSensitivityUvPerMm = restoredState?.fixedSensitivityUvPerMm ?? 10
       const nextNormalizeNonEEG = restoredState?.normalizeNonEEG ?? false
       const nextMontage = restoredState?.montage ?? 'promedio'
       const nextExcludedAverageReferenceChannels = restoredState?.excludedAverageReferenceChannels ?? []
@@ -6305,6 +6828,8 @@ export default function EEGViewer() {
       setLp(nextLp)
       setNotch(nextNotch)
       setGainMult(nextGainMult)
+      setAutoScale(nextAutoScale)
+      setFixedSensitivityUvPerMm(nextFixedSensitivityUvPerMm)
       setNormalizeNonEEG(nextNormalizeNonEEG)
       setMontage(nextMontage)
       setExcludedAverageReferenceChannels(nextExcludedAverageReferenceChannels)
@@ -6565,17 +7090,11 @@ export default function EEGViewer() {
     kappaRef.current?.setFilters(hp, lp, nextNotch)
     refreshEpoch(recordOffset, windowSecs)
   }
-  const handleGainChange = useCallback((val: string) => {
-    const nextGain = parseFloat(val)
-    if (selectedChannelName) {
-      setChannelGainOverrides((current) => ({
-        ...current,
-        [selectedChannelName]: nextGain,
-      }))
-      return
-    }
-    setGainMult(nextGain)
-  }, [selectedChannelName])
+  const handleFixedSensitivityChange = useCallback((val: string) => {
+    const nextSensitivity = parseFloat(val)
+    if (!Number.isFinite(nextSensitivity) || nextSensitivity <= 0) return
+    setFixedSensitivityUvPerMm(nextSensitivity)
+  }, [])
   const releaseSelectedChannelGainOverride = useCallback(() => {
     if (!selectedChannelName) return
     setChannelGainOverrides((current) => {
@@ -6614,6 +7133,8 @@ export default function EEGViewer() {
     const defaultLp = 45
     const defaultNotch = 50
     const defaultGainMult = 1
+    const defaultAutoScale = false
+    const defaultFixedSensitivityUvPerMm = 10
     const defaultMontage: MontageName = 'promedio'
     kappaRef.current?.setFilters(defaultHp, defaultLp, defaultNotch)
 
@@ -6631,6 +7152,8 @@ export default function EEGViewer() {
     setLp(defaultLp)
     setNotch(defaultNotch)
     setGainMult(defaultGainMult)
+    setAutoScale(defaultAutoScale)
+    setFixedSensitivityUvPerMm(defaultFixedSensitivityUvPerMm)
     setNormalizeNonEEG(false)
     setMontage(defaultMontage)
     setExcludedAverageReferenceChannels([])
@@ -6673,7 +7196,7 @@ export default function EEGViewer() {
   }, [recordDurationSec, totalSeconds])
 
   useEffect(() => {
-    if (phase !== 'viewing') {
+    if (!artifactMaskNeeded) {
       setArtifactMaskData(null)
       setArtifactMaskLoading(false)
       return
@@ -6708,10 +7231,10 @@ export default function EEGViewer() {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [phase])
+  }, [artifactMaskNeeded])
 
   useEffect(() => {
-    if (phase !== 'viewing') {
+    if (!sleepSketchNeeded) {
       setSleepSketchData(null)
       setSleepSketchLoading(false)
       return
@@ -6746,10 +7269,10 @@ export default function EEGViewer() {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [phase])
+  }, [sleepSketchNeeded])
 
   useEffect(() => {
-    if (phase !== 'viewing') {
+    if (!qeegGlobalTimeseriesNeeded) {
       setQeegGlobalTimeseries(null)
       setQeegGlobalTimeseriesLoading(false)
       return
@@ -6784,10 +7307,10 @@ export default function EEGViewer() {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [phase])
+  }, [qeegGlobalTimeseriesNeeded])
 
   useEffect(() => {
-    if (phase !== 'viewing') {
+    if (!stateSpectralTimelineNeeded) {
       setStateSpectralData(null)
       setStateSpectralLoading(false)
       return
@@ -6824,10 +7347,10 @@ export default function EEGViewer() {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [phase, stateSpectralAssumeSleepPresent])
+  }, [stateSpectralTimelineNeeded, stateSpectralAssumeSleepPresent])
 
   useEffect(() => {
-    if (phase !== 'viewing') {
+    if (!stateSpectralPanelsNeeded) {
       setStateSpectralPanels(null)
       setStateSpectralPanelsLoading(false)
       return
@@ -6864,7 +7387,7 @@ export default function EEGViewer() {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [phase, stateSpectralAssumeSleepPresent])
+  }, [stateSpectralPanelsNeeded, stateSpectralAssumeSleepPresent])
 
   const triggerSourceChannelIndex = useMemo(
     () => resolveTriggerSourceChannelIndex(triggerChannelName, meta?.channelLabels ?? []),
@@ -7007,6 +7530,8 @@ export default function EEGViewer() {
       lp,
       notch,
       gainMult,
+      autoScale,
+      fixedSensitivityUvPerMm,
       normalizeNonEEG,
       montage,
       excludedAverageReferenceChannels,
@@ -7041,6 +7566,8 @@ export default function EEGViewer() {
     lp,
     notch,
     gainMult,
+    autoScale,
+    fixedSensitivityUvPerMm,
     normalizeNonEEG,
     montage,
     excludedAverageReferenceChannels,
@@ -7083,6 +7610,14 @@ export default function EEGViewer() {
       if (e.key === 'ArrowRight' && currentPage < maxPage)  goToPage(currentPage + 1)
       if (e.key === 'ArrowUp') {
         e.preventDefault()
+        if (!autoScale) {
+          const idx = FIXED_SENSITIVITY_OPTIONS.findIndex((o) => o.value === fixedSensitivityUvPerMm)
+          const fallbackIndex = FIXED_SENSITIVITY_OPTIONS.findIndex((o) => o.value === 10)
+          const currentIndex = idx >= 0 ? idx : fallbackIndex
+          const nextSensitivity = FIXED_SENSITIVITY_OPTIONS[Math.max(currentIndex - 1, 0)].value
+          setFixedSensitivityUvPerMm(nextSensitivity)
+          return
+        }
         const currentGain = selectedChannelName
           ? (channelGainOverrides[selectedChannelName] ?? gainMult)
           : gainMult
@@ -7099,6 +7634,14 @@ export default function EEGViewer() {
       }
       if (e.key === 'ArrowDown') {
         e.preventDefault()
+        if (!autoScale) {
+          const idx = FIXED_SENSITIVITY_OPTIONS.findIndex((o) => o.value === fixedSensitivityUvPerMm)
+          const fallbackIndex = FIXED_SENSITIVITY_OPTIONS.findIndex((o) => o.value === 10)
+          const currentIndex = idx >= 0 ? idx : fallbackIndex
+          const nextSensitivity = FIXED_SENSITIVITY_OPTIONS[Math.min(currentIndex + 1, FIXED_SENSITIVITY_OPTIONS.length - 1)].value
+          setFixedSensitivityUvPerMm(nextSensitivity)
+          return
+        }
         const currentGain = selectedChannelName
           ? (channelGainOverrides[selectedChannelName] ?? gainMult)
           : gainMult
@@ -7116,7 +7659,7 @@ export default function EEGViewer() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [phase, currentPage, maxPage, goToPage, shiftBySeconds, selectedChannelName, channelGainOverrides, gainMult, triggerAvgOpen, triggerChannelName, nudgeTriggerThreshold])
+  }, [phase, currentPage, maxPage, goToPage, shiftBySeconds, selectedChannelName, channelGainOverrides, gainMult, autoScale, fixedSensitivityUvPerMm, triggerAvgOpen, triggerChannelName, nudgeTriggerThreshold])
 
   // ── Cleanup ───────────────────────────────────────────────────────────────────
 
@@ -7393,8 +7936,8 @@ export default function EEGViewer() {
 
       {/* Toolbar */}
       <div style={{
-        display: 'flex', alignItems: 'center', gap: compactToolbar ? '0.32rem' : '0.65rem', flexWrap: 'nowrap',
-        overflowX: compactToolbar ? 'hidden' : 'auto',
+        display: 'flex', alignItems: 'center', gap: compactToolbar ? '0.32rem' : '0.5rem', flexWrap: 'nowrap',
+        overflowX: 'hidden',
         padding: compactToolbar ? '0.22rem 0.42rem' : '0.35rem 0.6rem', background: '#ffffff',
         borderBottom: '1px solid #e2e8f0', flexShrink: 0,
       }}>
@@ -7436,81 +7979,60 @@ export default function EEGViewer() {
 
         {!compactToolbar && (
           <>
-            <NumericSuggestInput
-              label="HP"
-              value={hp}
-              onCommit={(value) => handleHpChange(String(value))}
-              suggestions={HP_OPTIONS.map((option) => option.value)}
-            />
-            <NumericSuggestInput
-              label="LP"
-              value={lp}
-              onCommit={(value) => handleLpChange(String(value))}
-              suggestions={[0, ...LP_OPTIONS.map((option) => option.value)]}
-            />
-            <ToolbarSelect label="Notch" value={notch} onChange={handleNotchChange}>
-              {NOTCH_OPTIONS.map((o) => <option key={o.value} value={o.value}>{`Notch ${o.label}`}</option>)}
+            <ToolbarSelect label="LFF" value={hp} onChange={handleHpChange} width={76}>
+              {HP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </ToolbarSelect>
-
-            <div style={{ width: 1, height: 36, background: '#e2e8f0', flexShrink: 0 }} />
+            <ToolbarSelect label="HFF" value={lp} onChange={handleLpChange} width={76}>
+              {LP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </ToolbarSelect>
+            <ToolbarSelect label="Notch" value={notch} onChange={handleNotchChange} width={78}>
+              {NOTCH_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </ToolbarSelect>
           </>
         )}
 
-        <ToolbarSelect label="Vent" value={windowSecs} onChange={handleWindowChange} width={compactToolbar ? 62 : undefined} compact={compactToolbar}>
-          {WINDOW_OPTIONS.map((s) => <option key={s} value={s}>{`Vent ${s}s`}</option>)}
+        {!compactToolbar && (
+          <ToolbarSelect label="Sens" value={fixedSensitivityUvPerMm} onChange={handleFixedSensitivityChange} width={92}>
+            {FIXED_SENSITIVITY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </ToolbarSelect>
+        )}
+        <ToolbarSelect label={compactToolbar ? "Vent" : "Barrido"} value={windowSecs} onChange={handleWindowChange} width={compactToolbar ? 62 : 82} compact={compactToolbar}>
+          {WINDOW_OPTIONS.map((s) => <option key={s} value={s}>{SWEEP_SPEED_LABELS[s] ?? `${s} s`}</option>)}
         </ToolbarSelect>
         <ToolbarSelect label="Mont" value={montage} onChange={(v) => setMontage(v as MontageName)} width={compactToolbar ? 82 : 108} compact={compactToolbar}>
           {MONTAGE_OPTIONS.map((name) => <option key={name} value={name}>{name}</option>)}
         </ToolbarSelect>
-        {!compactToolbar && showAvgRefControl && (
-          <div>
+        {!compactToolbar && <div style={{ width: 1, height: 36, background: '#e2e8f0', flexShrink: 0 }} />}
+        {!compactToolbar && (showAvgRefControl || showExtrasControl) && (
+          <div style={{ flexShrink: 0 }}>
             <button
-              ref={avgRefButtonRef}
+              ref={montageToolsButtonRef}
               type="button"
-              onClick={() => setAvgRefOpen((open) => !open)}
+              onClick={() => {
+                setMontageToolsOpen((open) => {
+                  const nextOpen = !open
+                  if (!nextOpen) setMontageToolsSection(null)
+                  return nextOpen
+                })
+              }}
               style={{
-                background: '#f8fafc',
-                border: '1px solid #cbd5e1',
-                borderRadius: 4,
-                padding: '0.16rem 0.42rem',
+                background: montageToolsOpen ? '#eff6ff' : '#f8fafc',
+                border: `1px solid ${montageToolsOpen ? '#93c5fd' : '#cbd5e1'}`,
+                borderRadius: 8,
+                padding: '0.16rem 0.5rem',
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: 6,
+                gap: 8,
                 cursor: 'pointer',
                 userSelect: 'none',
-                color: '#1e293b',
-                fontSize: '0.75rem',
+                color: montageToolsOpen ? '#1d4ed8' : '#1e293b',
+                fontSize: '0.74rem',
                 whiteSpace: 'nowrap',
+                fontWeight: montageToolsOpen ? 600 : 500,
               }}
             >
-              <span>{`AVG ${averageReferenceCandidates.length - excludedAverageReferenceChannels.length}/${averageReferenceCandidates.length}`}</span>
-              <span style={{ color: '#64748b' }}>{avgRefOpen ? '▴' : '▾'}</span>
-            </button>
-          </div>
-        )}
-        {!compactToolbar && showExtrasControl && (
-          <div>
-            <button
-              ref={extrasButtonRef}
-              type="button"
-              onClick={() => setExtrasOpen((open) => !open)}
-              style={{
-                background: '#f8fafc',
-                border: '1px solid #cbd5e1',
-                borderRadius: 4,
-                padding: '0.16rem 0.42rem',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                cursor: 'pointer',
-                userSelect: 'none',
-                color: '#1e293b',
-                fontSize: '0.75rem',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              <span>{`Extras ${includedHiddenChannels.length}/${hiddenMontageCandidates.length}`}</span>
-              <span style={{ color: '#64748b' }}>{extrasOpen ? '▴' : '▾'}</span>
+              <span>Montaje</span>
+              <span style={{ color: montageToolsOpen ? '#1d4ed8' : '#64748b' }}>{montageToolsOpen ? '▴' : '▾'}</span>
             </button>
           </div>
         )}
@@ -7626,48 +8148,6 @@ export default function EEGViewer() {
                 Rev Artef · R
               </div>
             )}
-
-            <ToolbarSelect label="Ganancia" value={effectiveGainMult} onChange={handleGainChange}>
-              {GAIN_OPTIONS.map((o) => <option key={o.value} value={o.value}>{`Gan ${o.label}`}</option>)}
-            </ToolbarSelect>
-
-            <div style={{ width: 1, height: 32, background: '#e2e8f0', flexShrink: 0 }} />
-
-            <label style={{ display: 'flex', cursor: 'pointer' }}>
-              <button
-                onClick={() => setNormalizeNonEEG((v) => !v)}
-                title="Normalizar canales no-EEG a z-score (media=0, σ=1)"
-                style={{
-                  background: normalizeNonEEG ? '#dbeafe' : '#f8fafc',
-                  border: `1px solid ${normalizeNonEEG ? '#93c5fd' : '#cbd5e1'}`,
-                  borderRadius: 4, color: normalizeNonEEG ? '#1d4ed8' : '#475569',
-                  fontSize: '0.75rem', padding: '0.16rem 0.38rem',
-                  cursor: 'pointer', fontWeight: normalizeNonEEG ? 600 : 400,
-                  minWidth: 66,
-                }}
-              >
-                {normalizeNonEEG ? 'Norm z ✓' : 'Norm z'}
-              </button>
-            </label>
-
-            <label style={{ display: 'flex' }}>
-              <button
-                onClick={resetViewerState}
-                title="Restaurar montaje y controles por defecto para este EEG"
-                style={{
-                  background: '#f8fafc',
-                  border: '1px solid #cbd5e1',
-                  borderRadius: 4,
-                  color: '#475569',
-                  fontSize: '0.75rem',
-                  padding: '0.16rem 0.52rem',
-                  cursor: 'pointer',
-                  minWidth: 62,
-                }}
-              >
-                Reset
-              </button>
-            </label>
           </>
         )}
 
@@ -7714,16 +8194,31 @@ export default function EEGViewer() {
 
         <div style={{ flex: 1, minWidth: 8 }} />
 
-        <div style={{ display: 'flex', gap: compactToolbar ? '0.2rem' : '0.3rem', alignItems: 'center', flexShrink: 0 }}>
-          <span style={{ color: '#94a3b8', fontSize: compactToolbar ? '0.6rem' : '0.7rem', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>t={timeOffsetSec}s</span>
-          <button onClick={() => shiftBySeconds(-1)} disabled={tStart <= 0} title="Retroceder 1 segundo (Shift+←)" style={navBtnStyle(tStart <= 0)}>-1s</button>
-          <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 0} title="Anterior (←)" style={navBtnStyle(currentPage === 0)}>←</button>
-          <span style={{ color: '#475569', fontSize: compactToolbar ? '0.66rem' : '0.75rem', fontFamily: 'monospace', minWidth: compactToolbar ? 38 : 54, textAlign: 'center', whiteSpace: 'nowrap' }}>
-            {currentPage + 1} / {totalPages}
-          </span>
-          <button onClick={() => goToPage(currentPage + 1)} disabled={currentPage >= maxPage} title="Siguiente (→)" style={navBtnStyle(currentPage >= maxPage)}>→</button>
-          <button onClick={() => shiftBySeconds(1)} disabled={tStart + pageDuration >= totalSeconds} title="Avanzar 1 segundo (Shift+→)" style={navBtnStyle(tStart + pageDuration >= totalSeconds)}>+1s</button>
-        </div>
+        {!compactToolbar && (
+          <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center', flexShrink: 0 }}>
+            <span style={{ color: '#94a3b8', fontSize: '0.7rem', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>t={timeOffsetSec}s</span>
+            <button onClick={() => shiftBySeconds(-1)} disabled={tStart <= 0} title="Retroceder 1 segundo (Shift+←)" style={navBtnStyle(tStart <= 0)}>-1s</button>
+            <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 0} title="Anterior (←)" style={navBtnStyle(currentPage === 0)}>←</button>
+            <span style={{ color: '#475569', fontSize: '0.75rem', fontFamily: 'monospace', minWidth: 54, textAlign: 'center', whiteSpace: 'nowrap' }}>
+              {currentPage + 1} / {totalPages}
+            </span>
+            <button onClick={() => goToPage(currentPage + 1)} disabled={currentPage >= maxPage} title="Siguiente (→)" style={navBtnStyle(currentPage >= maxPage)}>→</button>
+            <button onClick={() => shiftBySeconds(1)} disabled={tStart + pageDuration >= totalSeconds} title="Avanzar 1 segundo (Shift+→)" style={navBtnStyle(tStart + pageDuration >= totalSeconds)}>+1s</button>
+          </div>
+        )}
+
+        {compactToolbar && (
+          <div style={{ display: 'flex', gap: '0.2rem', alignItems: 'center', flexShrink: 0 }}>
+            <span style={{ color: '#94a3b8', fontSize: '0.6rem', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>t={timeOffsetSec}s</span>
+            <button onClick={() => shiftBySeconds(-1)} disabled={tStart <= 0} title="Retroceder 1 segundo (Shift+←)" style={navBtnStyle(tStart <= 0)}>-1s</button>
+            <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 0} title="Anterior (←)" style={navBtnStyle(currentPage === 0)}>←</button>
+            <span style={{ color: '#475569', fontSize: '0.66rem', fontFamily: 'monospace', minWidth: 38, textAlign: 'center', whiteSpace: 'nowrap' }}>
+              {currentPage + 1} / {totalPages}
+            </span>
+            <button onClick={() => goToPage(currentPage + 1)} disabled={currentPage >= maxPage} title="Siguiente (→)" style={navBtnStyle(currentPage >= maxPage)}>→</button>
+            <button onClick={() => shiftBySeconds(1)} disabled={tStart + pageDuration >= totalSeconds} title="Avanzar 1 segundo (Shift+→)" style={navBtnStyle(tStart + pageDuration >= totalSeconds)}>+1s</button>
+          </div>
+        )}
       </div>
 
       {compactToolbar && mobileControlsOpen && (
@@ -7808,8 +8303,8 @@ export default function EEGViewer() {
           <ToolbarSelect label="Notch" value={notch} onChange={handleNotchChange}>
             {NOTCH_OPTIONS.map((o) => <option key={o.value} value={o.value}>{`Notch ${o.label}`}</option>)}
           </ToolbarSelect>
-          <ToolbarSelect label="Gan" value={effectiveGainMult} onChange={handleGainChange}>
-            {GAIN_OPTIONS.map((o) => <option key={o.value} value={o.value}>{`Gan ${o.label}`}</option>)}
+          <ToolbarSelect label="Sens" value={fixedSensitivityUvPerMm} onChange={handleFixedSensitivityChange} width={104}>
+            {FIXED_SENSITIVITY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </ToolbarSelect>
 
           <label style={{ display: 'flex', cursor: 'pointer' }}>
@@ -8059,6 +8554,196 @@ export default function EEGViewer() {
         </div>
       )}
 
+      {montageToolsOpen && montageToolsMenuPos && (
+        <div
+          ref={montageToolsMenuRef}
+          style={{
+            position: 'fixed',
+            top: montageToolsMenuPos.top,
+            left: montageToolsMenuPos.left,
+            zIndex: 20,
+            background: 'rgba(255,255,255,0.98)',
+            border: '1px solid #cbd5e1',
+            borderRadius: 10,
+            boxShadow: '0 14px 30px rgba(15,23,42,0.16)',
+            padding: '0.55rem',
+            minWidth: 260,
+            maxWidth: 320,
+            maxHeight: 340,
+            overflowY: 'auto',
+          }}
+        >
+          {showAvgRefControl && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: showExtrasControl ? 10 : 0 }}>
+              <button
+                type="button"
+                onClick={() => setMontageToolsSection((current) => current === 'avg' ? null : 'avg')}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 8,
+                  background: montageToolsSection === 'avg' ? '#eff6ff' : '#f8fafc',
+                  border: `1px solid ${montageToolsSection === 'avg' ? '#93c5fd' : '#dbe4f0'}`,
+                  borderRadius: 8,
+                  padding: '0.38rem 0.5rem',
+                  cursor: 'pointer',
+                  color: montageToolsSection === 'avg' ? '#1d4ed8' : '#334155',
+                }}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+                  <div style={{ fontSize: '0.73rem', fontWeight: 700 }}>Referencia media</div>
+                  <div style={{ fontSize: '0.66rem', color: '#64748b' }}>Cambiar canales de la media</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                  <div style={{ fontSize: '0.68rem', color: '#64748b' }}>
+                    {averageReferenceCandidates.length - excludedAverageReferenceChannels.length}/{averageReferenceCandidates.length}
+                  </div>
+                  <span style={{ color: montageToolsSection === 'avg' ? '#1d4ed8' : '#64748b' }}>{montageToolsSection === 'avg' ? '▴' : '▾'}</span>
+                </div>
+              </button>
+              {montageToolsSection === 'avg' && (
+                <>
+                  <div style={{ fontSize: '0.66rem', color: '#64748b' }}>
+                    Desmarca canales ruidosos de la referencia media.
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {averageReferenceCandidates.map((name) => {
+                      const checked = !excludedAverageReferenceChannels.includes(name)
+                      return (
+                        <label key={name} style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          fontSize: '0.74rem',
+                          color: '#334155',
+                          padding: '0.08rem 0',
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                        }}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleAverageReferenceChannel(name)}
+                          />
+                          <span>{name}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {showExtrasControl && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {showAvgRefControl && <div style={{ height: 1, background: '#e2e8f0', margin: '0.1rem 0 0.15rem 0' }} />}
+              <button
+                type="button"
+                onClick={() => setMontageToolsSection((current) => current === 'extras' ? null : 'extras')}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 8,
+                  background: montageToolsSection === 'extras' ? '#eff6ff' : '#f8fafc',
+                  border: `1px solid ${montageToolsSection === 'extras' ? '#93c5fd' : '#dbe4f0'}`,
+                  borderRadius: 8,
+                  padding: '0.38rem 0.5rem',
+                  cursor: 'pointer',
+                  color: montageToolsSection === 'extras' ? '#1d4ed8' : '#334155',
+                }}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+                  <div style={{ fontSize: '0.73rem', fontWeight: 700 }}>Canales extra</div>
+                  <div style={{ fontSize: '0.66rem', color: '#64748b' }}>Añadir canales al montaje</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                  <div style={{ fontSize: '0.68rem', color: '#64748b' }}>
+                    {includedHiddenChannels.length}/{hiddenMontageCandidates.length}
+                  </div>
+                  <span style={{ color: montageToolsSection === 'extras' ? '#1d4ed8' : '#64748b' }}>{montageToolsSection === 'extras' ? '▴' : '▾'}</span>
+                </div>
+              </button>
+              {montageToolsSection === 'extras' && (
+                <>
+                  <div style={{ fontSize: '0.66rem', color: '#64748b' }}>
+                    Incluye canales que no aparecen por defecto en este montaje.
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {hiddenMontageCandidates.map((name) => {
+                      const checked = includedHiddenChannels.includes(name)
+                      return (
+                        <label key={name} style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          fontSize: '0.74rem',
+                          color: '#334155',
+                          padding: '0.08rem 0',
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                        }}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleHiddenMontageChannel(name)}
+                          />
+                          <span>{name}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          <div style={{ height: 1, background: '#e2e8f0', margin: '0.35rem 0 0.15rem 0' }} />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
+            <button
+              type="button"
+              onClick={() => setNormalizeNonEEG((v) => !v)}
+              title="Normalizar canales no-EEG a z-score (media=0, σ=1)"
+              style={{
+                background: normalizeNonEEG ? '#dbeafe' : '#f8fafc',
+                border: `1px solid ${normalizeNonEEG ? '#93c5fd' : '#cbd5e1'}`,
+                borderRadius: 8,
+                color: normalizeNonEEG ? '#1d4ed8' : '#475569',
+                fontSize: '0.72rem',
+                padding: '0.3rem 0.5rem',
+                cursor: 'pointer',
+                fontWeight: normalizeNonEEG ? 600 : 500,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {normalizeNonEEG ? 'Norm z ✓' : 'Norm z'}
+            </button>
+            <button
+              type="button"
+              onClick={resetViewerState}
+              title="Restaurar montaje y controles por defecto para este EEG"
+              style={{
+                background: '#f8fafc',
+                border: '1px solid #cbd5e1',
+                borderRadius: 8,
+                color: '#475569',
+                fontSize: '0.72rem',
+                padding: '0.3rem 0.5rem',
+                cursor: 'pointer',
+                fontWeight: 500,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+      )}
+
       {extrasOpen && extrasMenuPos && (
         <div
           ref={extrasMenuRef}
@@ -8107,6 +8792,15 @@ export default function EEGViewer() {
 
       {/* Canvas area — overflow:hidden so canvas fills exact height */}
       <div className="viewer-main-row">
+        {edfAnnotations.length > 0 && annotationsOpen && (
+          <AnnotationPanel
+            annotations={edfAnnotations}
+            currentStartSec={tStart}
+            currentEndSec={Math.min(totalSeconds, tStart + pageDuration)}
+            onClose={() => setAnnotationsOpen(false)}
+            onSelect={(targetSec) => goToSecondPosition(targetSec, true)}
+          />
+        )}
         <div
           ref={wrapRef}
           style={{ flex: 1, height: '100%', overflow: 'hidden', background: '#f1f5f9' }}
@@ -8146,15 +8840,6 @@ export default function EEGViewer() {
                 <div>{meta.recordingDate}</div>
               </div>
             )}
-            {edfAnnotations.length > 0 && annotationsOpen && (
-              <AnnotationPanel
-                annotations={edfAnnotations}
-                currentStartSec={tStart}
-                currentEndSec={Math.min(totalSeconds, tStart + pageDuration)}
-                onClose={() => setAnnotationsOpen(false)}
-                onSelect={(targetSec) => goToSecondPosition(targetSec, true)}
-              />
-            )}
             <canvas ref={canvasRef} style={{ display: 'block', width: '100%' }} />
             <canvas ref={overlayRef} style={{ position: 'absolute', top: 0, left: 0, width: '100%', pointerEvents: 'none' }} />
           </div>
@@ -8177,6 +8862,8 @@ export default function EEGViewer() {
           onShowHypnogram={() => setHypnogramOpen(true)}
           onShowSleepAnalyzer={() => setSleepAnalyzerOpen(true)}
           onShowStateSpectra={() => setStateSpectraOpen(true)}
+          sleepAnalyzerBusy={sleepAnalyzerBusy}
+          stateSpectraBusy={stateSpectraBusy}
           onEpochClick={(epochIndex) => {
             if (!dsaData) return
             goToDSAEpoch(epochIndex, dsaData.epochSec)
@@ -8240,6 +8927,8 @@ export default function EEGViewer() {
               onShowHypnogram={() => setHypnogramOpen(true)}
               onShowSleepAnalyzer={() => setSleepAnalyzerOpen(true)}
               onShowStateSpectra={() => setStateSpectraOpen(true)}
+              sleepAnalyzerBusy={sleepAnalyzerBusy}
+              stateSpectraBusy={stateSpectraBusy}
               onEpochClick={(epochIndex) => {
                 if (!dsaData) return
                 goToDSAEpoch(epochIndex, dsaData.epochSec)

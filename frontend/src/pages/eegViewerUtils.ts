@@ -11,7 +11,7 @@ export interface EpochData {
 }
 
 export const LABEL_WIDTH = 76
-export const WINDOW_OPTIONS = [10, 20, 30, 150] as const
+export const WINDOW_OPTIONS = [10, 20, 30, 60] as const
 
 const CHANNEL_COLORS: Record<string, string> = {
   EEG: '#1d4ed8',
@@ -36,6 +36,8 @@ export interface PersistedViewerState {
   lp: number
   notch: number | boolean
   gainMult: number
+  autoScale?: boolean
+  fixedSensitivityUvPerMm?: number
   normalizeNonEEG: boolean
   montage: string
   excludedAverageReferenceChannels: string[]
@@ -52,6 +54,8 @@ export interface SanitizedViewerState {
   lp: number
   notch: number
   gainMult: number
+  autoScale: boolean
+  fixedSensitivityUvPerMm: number
   normalizeNonEEG: boolean
   montage: MontageName
   excludedAverageReferenceChannels: string[]
@@ -1130,6 +1134,8 @@ export function sanitizePersistedViewerState(
     lp: Number.isFinite(state.lp) ? Math.max(1, state.lp) : 45,
     notch: sanitizeNotch(state.notch),
     gainMult: Number.isFinite(state.gainMult) ? Math.max(0.1, state.gainMult) : 1,
+    autoScale: state.autoScale !== false,
+    fixedSensitivityUvPerMm: Number.isFinite(state.fixedSensitivityUvPerMm) ? Math.max(0.5, state.fixedSensitivityUvPerMm as number) : 10,
     normalizeNonEEG: Boolean(state.normalizeNonEEG),
     montage,
     excludedAverageReferenceChannels: (state.excludedAverageReferenceChannels ?? [])

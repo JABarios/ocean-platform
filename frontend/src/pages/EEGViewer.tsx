@@ -172,9 +172,13 @@ interface KappaModuleInstance {
   FS: { writeFile: (path: string, data: Uint8Array) => void; unlink: (path: string) => void }
 }
 
+interface KappaModuleConfig {
+  locateFile?: (path: string, prefix: string) => string
+}
+
 declare global {
   interface Window {
-    KappaModule?: () => Promise<KappaModuleInstance>
+    KappaModule?: (config?: KappaModuleConfig) => Promise<KappaModuleInstance>
   }
 }
 
@@ -2457,12 +2461,12 @@ function StateSpectraModal({
     const freqArray = panels?.freqs ? Array.from(panels.freqs) : []
     const stateCount = panels?.stateNames?.length ?? 0
     const selected = stateCount > 0 ? Math.max(0, Math.min(selectedStateIndex, stateCount - 1)) : -1
-    const raw = selected >= 0 ? Array.from(panels!.rawSpectra[selected] ?? []) : []
-    const flat = selected >= 0 ? Array.from(panels!.flatSpectra[selected] ?? []) : []
-    const rawLeft = selected >= 0 ? Array.from(panels!.rawSpectraLeft[selected] ?? []) : []
-    const rawRight = selected >= 0 ? Array.from(panels!.rawSpectraRight[selected] ?? []) : []
-    const flatLeft = selected >= 0 ? Array.from(panels!.flatSpectraLeft[selected] ?? []) : []
-    const flatRight = selected >= 0 ? Array.from(panels!.flatSpectraRight[selected] ?? []) : []
+    const raw = selected >= 0 ? Array.from(panels?.rawSpectra?.[selected] ?? []) : []
+    const flat = selected >= 0 ? Array.from(panels?.flatSpectra?.[selected] ?? []) : []
+    const rawLeft = selected >= 0 ? Array.from(panels?.rawSpectraLeft?.[selected] ?? []) : []
+    const rawRight = selected >= 0 ? Array.from(panels?.rawSpectraRight?.[selected] ?? []) : []
+    const flatLeft = selected >= 0 ? Array.from(panels?.flatSpectraLeft?.[selected] ?? []) : []
+    const flatRight = selected >= 0 ? Array.from(panels?.flatSpectraRight?.[selected] ?? []) : []
     const epochCounts = Array.from(panels?.epochCounts ?? [])
     const totalStateEpochs = epochCounts.reduce((sum, value) => sum + Number(value ?? 0), 0)
     const activeStateCount = epochCounts.filter((value) => Number(value ?? 0) > 0).length
@@ -4797,6 +4801,11 @@ export default function EEGViewer() {
   const localFileInputRef = useRef<HTMLInputElement>(null)
   const kappaRef   = useRef<KappaInstance | null>(null)
   const moduleRef  = useRef<KappaModuleInstance | null>(null)
+  const wasmCacheTokenRef = useRef<string>(
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  )
   const currentEdfPathRef = useRef<string | null>(null)
   const dsaCacheRef = useRef<Map<string, DSAData>>(new Map())
   const artifactMaskCacheRef = useRef<ArtifactMaskData | null>(null)
@@ -6039,17 +6048,31 @@ export default function EEGViewer() {
   const loadModule = useCallback((): Promise<KappaModuleInstance> => {
     if (moduleRef.current) return Promise.resolve(moduleRef.current)
     return new Promise((resolve, reject) => {
+      const version = encodeURIComponent(wasmCacheTokenRef.current)
+      const instantiateModule = () => {
+        if (!window.KappaModule) {
+          reject(new Error('KappaModule no disponible'))
+          return
+        }
+        window.KappaModule({
+          locateFile: (path) => `/wasm/${path}?v=${version}`,
+        }).then((m) => {
+          moduleRef.current = m
+          resolve(m)
+        }).catch(reject)
+      }
       if (window.KappaModule) {
-        window.KappaModule().then((m) => { moduleRef.current = m; resolve(m) }).catch(reject)
+        instantiateModule()
         return
       }
       const script = document.createElement('script')
-      script.src = '/wasm/kappa_wasm.js?v=2026-05-06-sleep-sketch-timeline'
+      script.src = `/wasm/kappa_wasm.js?v=${version}`
+      script.dataset.kappaWasmLoader = version
       script.onload = () => {
         const poll = setInterval(() => {
           if (window.KappaModule) {
             clearInterval(poll)
-            window.KappaModule().then((m) => { moduleRef.current = m; resolve(m) }).catch(reject)
+            instantiateModule()
           }
         }, 50)
         setTimeout(() => { clearInterval(poll); reject(new Error('KappaModule no disponible')) }, 10000)

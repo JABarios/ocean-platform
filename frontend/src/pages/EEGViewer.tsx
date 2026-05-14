@@ -144,6 +144,10 @@ interface KappaInstance {
     epochCounts: number[]
     rawSpectra: Float32Array[]
     flatSpectra: Float32Array[]
+    rawSpectraLeft: Float32Array[]
+    rawSpectraRight: Float32Array[]
+    flatSpectraLeft: Float32Array[]
+    flatSpectraRight: Float32Array[]
     alphaPeakRaw: number[]
     alphaPeakFlat: number[]
     alphaPowerRaw: number[]
@@ -362,6 +366,10 @@ interface StateSpectralPanelData {
   epochCounts: number[]
   rawSpectra: Float32Array[]
   flatSpectra: Float32Array[]
+  rawSpectraLeft: Float32Array[]
+  rawSpectraRight: Float32Array[]
+  flatSpectraLeft: Float32Array[]
+  flatSpectraRight: Float32Array[]
   alphaPeakRaw: number[]
   alphaPeakFlat: number[]
   alphaPowerRaw: number[]
@@ -2428,6 +2436,7 @@ function StateSpectraModal({
   const [showLogFreqAxis, setShowLogFreqAxis] = useState(true)
   const [showLogPowerAxis, setShowLogPowerAxis] = useState(true)
   const [showGlobalOverlay, setShowGlobalOverlay] = useState(true)
+  const [showHemispheres, setShowHemispheres] = useState(false)
 
   const redraw = useCallback(() => {
     const wrap = wrapRef.current
@@ -2450,6 +2459,10 @@ function StateSpectraModal({
     const selected = stateCount > 0 ? Math.max(0, Math.min(selectedStateIndex, stateCount - 1)) : -1
     const raw = selected >= 0 ? Array.from(panels!.rawSpectra[selected] ?? []) : []
     const flat = selected >= 0 ? Array.from(panels!.flatSpectra[selected] ?? []) : []
+    const rawLeft = selected >= 0 ? Array.from(panels!.rawSpectraLeft[selected] ?? []) : []
+    const rawRight = selected >= 0 ? Array.from(panels!.rawSpectraRight[selected] ?? []) : []
+    const flatLeft = selected >= 0 ? Array.from(panels!.flatSpectraLeft[selected] ?? []) : []
+    const flatRight = selected >= 0 ? Array.from(panels!.flatSpectraRight[selected] ?? []) : []
     const epochCounts = Array.from(panels?.epochCounts ?? [])
     const totalStateEpochs = epochCounts.reduce((sum, value) => sum + Number(value ?? 0), 0)
     const activeStateCount = epochCounts.filter((value) => Number(value ?? 0) > 0).length
@@ -2504,6 +2517,8 @@ function StateSpectraModal({
     }
     const rawSharedRange = buildSharedRange(panels?.rawSpectra)
     const flatSharedRange = buildSharedRange(panels?.flatSpectra)
+    const rawHemisphereRange = buildSharedRange([...(panels?.rawSpectraLeft ?? []), ...(panels?.rawSpectraRight ?? [])])
+    const flatHemisphereRange = buildSharedRange([...(panels?.flatSpectraLeft ?? []), ...(panels?.flatSpectraRight ?? [])])
     const buildGlobalSeries = (allSeries: Float32Array[] | undefined) => {
       if (!allSeries || allSeries.length === 0) return [] as number[]
       const maxLen = Math.max(...allSeries.map((series) => series?.length ?? 0), 0)
@@ -2534,6 +2549,7 @@ function StateSpectraModal({
       markers: Array<{ freq: number; label: string; color: string }>,
       sharedRange: { yLo: number; yHi: number; ySpan: number } | null,
       globalSeries: number[] | null,
+      hemisphereSeries?: Array<{ series: number[]; color: string; label: string }>,
       aperiodicFit?: { slope: number; intercept: number } | null,
     ) => {
       ctx.strokeStyle = '#cbd5e1'
@@ -2541,7 +2557,8 @@ function StateSpectraModal({
       ctx.fillStyle = '#334155'
       ctx.font = '12px monospace'
       ctx.fillText(title, x0 + 8, top - 8)
-      if (series.length === 0 || freqArray.length === 0) return
+      const hasHemisphereData = (hemisphereSeries ?? []).some((entry) => (entry.series?.length ?? 0) > 0)
+      if ((series.length === 0 && !hasHemisphereData) || freqArray.length === 0) return
       let yMin = Number.POSITIVE_INFINITY
       let yMax = Number.NEGATIVE_INFINITY
       let nValid = 0
@@ -2555,7 +2572,7 @@ function StateSpectraModal({
         yMax = Math.max(yMax, value)
         if (rawValue > 0) nValid += 1
       }
-      if (nValid === 0) {
+      if (nValid === 0 && !hasHemisphereData) {
         ctx.fillStyle = '#94a3b8'
         ctx.font = '11px monospace'
         ctx.fillText('sin espectro util', x0 + 12, top + 22)
@@ -2609,22 +2626,53 @@ function StateSpectraModal({
         ctx.fillText(value.toFixed(1), x0 - 26, y + 3)
       }
 
-      ctx.strokeStyle = color
-      ctx.lineWidth = 2
-      ctx.beginPath()
-      let moved = false
-      let validIndex = 0
-      for (let i = 0; i < series.length && i < freqArray.length; i++) {
-        const f = freqArray[i]
-        if (f < fMin || f > fMax) continue
-        const x = xForFreq(f, x0)
-        const scaled = transformed[validIndex] ?? 0
-        validIndex += 1
-        const t = (scaled - yLo) / ySpan
-        const y = top + panelH - t * (panelH - 2)
-        if (!moved) { ctx.moveTo(x, y); moved = true } else ctx.lineTo(x, y)
+      if (series.length > 0) {
+        ctx.strokeStyle = color
+        ctx.lineWidth = 2
+        ctx.beginPath()
+        let moved = false
+        let validIndex = 0
+        for (let i = 0; i < series.length && i < freqArray.length; i++) {
+          const f = freqArray[i]
+          if (f < fMin || f > fMax) continue
+          const x = xForFreq(f, x0)
+          const scaled = transformed[validIndex] ?? 0
+          validIndex += 1
+          const t = (scaled - yLo) / ySpan
+          const y = top + panelH - t * (panelH - 2)
+          if (!moved) { ctx.moveTo(x, y); moved = true } else ctx.lineTo(x, y)
+        }
+        ctx.stroke()
       }
-      ctx.stroke()
+
+      if (showHemispheres && hemisphereSeries && hemisphereSeries.length > 0) {
+        hemisphereSeries.forEach((entry, idx) => {
+          if (!entry.series || entry.series.length === 0) return
+          ctx.strokeStyle = entry.color
+          ctx.lineWidth = 1.7
+          ctx.beginPath()
+          let movedH = false
+          let found = 0
+          for (let i = 0; i < entry.series.length && i < freqArray.length; i++) {
+            const f = freqArray[i]
+            if (f < fMin || f > fMax) continue
+            const rawValue = Number(entry.series[i] ?? 0)
+            if (!(rawValue > 0)) continue
+            found += 1
+            const x = xForFreq(f, x0)
+            const scaled = transformPower(rawValue)
+            const t = (scaled - yLo) / ySpan
+            const y = top + panelH - t * (panelH - 2)
+            if (!movedH) { ctx.moveTo(x, y); movedH = true } else ctx.lineTo(x, y)
+          }
+          if (found > 0) {
+            ctx.stroke()
+            ctx.fillStyle = entry.color
+            ctx.font = '10px monospace'
+            ctx.fillText(entry.label, x0 + panelW - 42, top + 14 + idx * 12)
+          }
+        })
+      }
 
       if (showGlobalOverlay && globalSeries && globalSeries.length > 0) {
         ctx.strokeStyle = 'rgba(22,163,74,0.75)'
@@ -2714,13 +2762,19 @@ function StateSpectraModal({
       : []
 
     drawSpectrum(
-      raw,
+      showHemispheres ? [] : raw,
       'Raw PSD',
       leftX,
       '#0f172a',
       rawMarkers,
-      rawSharedRange,
+      showHemispheres ? rawHemisphereRange : rawSharedRange,
       globalRaw,
+      showHemispheres
+        ? [
+            { series: rawLeft, color: '#2563eb', label: 'izq' },
+            { series: rawRight, color: '#dc2626', label: 'der' },
+          ]
+        : undefined,
       selected >= 0
         ? {
             slope: Number(panels!.aperiodicSlope[selected] ?? 0),
@@ -2728,7 +2782,22 @@ function StateSpectraModal({
           }
         : null,
     )
-    drawSpectrum(flat, 'Flattened PSD', rightX, '#7c3aed', flatMarkers, flatSharedRange, globalFlat, null)
+    drawSpectrum(
+      showHemispheres ? [] : flat,
+      'Flattened PSD',
+      rightX,
+      '#7c3aed',
+      flatMarkers,
+      showHemispheres ? flatHemisphereRange : flatSharedRange,
+      globalFlat,
+      showHemispheres
+        ? [
+            { series: flatLeft, color: '#2563eb', label: 'izq' },
+            { series: flatRight, color: '#dc2626', label: 'der' },
+          ]
+        : undefined,
+      null,
+    )
 
     if (selected >= 0) {
       ctx.fillStyle = '#475569'
@@ -2779,7 +2848,7 @@ function StateSpectraModal({
         ctx.fillText(Number(panels!.aperiodicSlope[i] ?? 0).toFixed(2), colX[6], y)
       }
     }
-  }, [selectedStateIndex, showAperiodicFit, showGlobalOverlay, showLogFreqAxis, showLogPowerAxis, stateSpectralPanels])
+  }, [selectedStateIndex, showAperiodicFit, showGlobalOverlay, showHemispheres, showLogFreqAxis, showLogPowerAxis, stateSpectralPanels])
 
   useEffect(() => {
     redraw()
@@ -2873,6 +2942,10 @@ function StateSpectraModal({
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#334155', fontSize: '0.76rem', userSelect: 'none' }}>
               <input type="checkbox" checked={showGlobalOverlay} onChange={(event) => setShowGlobalOverlay(event.target.checked)} />
               Global verde
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#334155', fontSize: '0.76rem', userSelect: 'none' }}>
+              <input type="checkbox" checked={showHemispheres} onChange={(event) => setShowHemispheres(event.target.checked)} />
+              Hemisferios
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#334155', fontSize: '0.76rem', userSelect: 'none' }}>
               <input type="checkbox" checked={showLogFreqAxis} onChange={(event) => setShowLogFreqAxis(event.target.checked)} />

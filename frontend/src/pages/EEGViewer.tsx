@@ -9,9 +9,11 @@ import {
   WINDOW_OPTIONS,
   applyMontage,
   computeAdaptiveStdThreshold,
+  computeAverageTfMap,
   computeTriggerPreviewSignal,
   computeTriggerThresholdRange,
   computeTriggeredAverage,
+  buildTriggeredAverageFromEvents,
   getAverageReferenceCandidates,
   getChannelColor,
   getContralateralChannelName,
@@ -25,11 +27,18 @@ import {
   sanitizePersistedViewerState,
   shouldShowMetadataForPointer,
 } from './eegViewerUtils'
-import type { EpochData, MontageName, PersistedViewerState, TriggeredAverageResult } from './eegViewerUtils'
+import type { AverageTfMap, EpochData, MontageName, PersistedViewerState, TriggeredAverageResult } from './eegViewerUtils'
 import type { CaseItem, SharedLinkBlobInfo } from '../types'
 import { getEncryptedPackageFromCache, getEncryptedPackageSummaryFromCache, saveEncryptedPackageToCache } from './encryptedPackageCache'
 import { extractEdfAnnotations } from '../utils/edfAnnotations'
-import { clearLocalEegSession, createLocalEegSession, getLocalEegSession, replaceLocalEegSession } from './localEegSession'
+import {
+  clearLocalEegSession,
+  createLocalEegSession,
+  getLastLocalEegSession,
+  getOrRestoreLocalEegSession,
+  replaceLocalEegSession,
+  type LocalEegSession,
+} from './localEegSession'
 import './EEGViewer.css'
 
 // ─── WASM types ───────────────────────────────────────────────────────────────
@@ -137,11 +146,12 @@ interface KappaInstance {
     sleepFmdThreshold: number
     blinkSupportThreshold: number
   } | null
-  computeStateSpectralPanels: (assumeSleepPresent: boolean) => {
+  computeStateSpectralPanels: (assumeSleepPresent: boolean, epochSelection: number, artifactMode: number, sigmaLowHz: number, sigmaHighHz: number) => {
     freqs: Float32Array
     stateNames: string[]
     stateLabels: number[]
     epochCounts: number[]
+    blockCounts: number[]
     rawSpectra: Float32Array[]
     flatSpectra: Float32Array[]
     rawSpectraLeft: Float32Array[]
@@ -164,6 +174,45 @@ interface KappaInstance {
     aperiodicSlope: number[]
     aperiodicIntercept: number[]
     assumeSleepPresent: boolean
+    epochSelection: number
+    artifactMode: number
+    summary: {
+      totalEpochs: number
+      cleanEpochs: number
+      artifactEpochs: number
+      spindlePositiveEpochs: number
+      spindleNegativeEpochs: number
+      totalBlocks: number
+      usableBlocks: number
+      artifactBlocks: number
+      spindlePositiveBlocks: number
+      spindleNegativeBlocks: number
+    }
+  } | null
+  computeStateSpectralSpindleSnippets: (assumeSleepPresent: boolean, artifactMode: number, sigmaLowHz: number, sigmaHighHz: number) => {
+    sampleRate: number
+    preSec: number
+    postSec: number
+    sigmaFractionThreshold: number
+    eegChannelCount: number
+    candidateBlocks: number
+    spindlePositiveCandidates: number
+    acceptedEvents: number
+    rejectedByFeatures: number
+    templateCorrelationMedian: number
+    templateCorrelationMad: number
+    templateCorrelationScores: Float32Array
+    acceptedOnsetSec: Float32Array
+    artifactMode: number
+    assumeSleepPresent: boolean
+    regions: Array<{
+      name: string
+      channelCount: number
+      snippetCount: number
+      meanSnippet: Float32Array
+      onsetSec: Float32Array
+      snippets: Float32Array[]
+    }>
   } | null
   computeQeegGlobalTimeseries: () => {
     time_sec: number[]
@@ -233,6 +282,22 @@ const FIXED_SENSITIVITY_OPTIONS: { label: string; value: number }[] = [
   { label: '150 µV/mm', value: 150 },
   { label: '500 µV/mm', value: 500 },
 ]
+
+const KEYBOARD_FIXED_SENSITIVITY_STEPS = [3, 7, 10, 15, 30, 50, 70, 90, 120, 150]
+
+function getNextKeyboardSensitivity(current: number, direction: 'up' | 'down') {
+  if (!Number.isFinite(current) || current <= 0) return 10
+  if (direction === 'up') {
+    for (let i = KEYBOARD_FIXED_SENSITIVITY_STEPS.length - 1; i >= 0; i -= 1) {
+      if (KEYBOARD_FIXED_SENSITIVITY_STEPS[i] < current) return KEYBOARD_FIXED_SENSITIVITY_STEPS[i]
+    }
+    return KEYBOARD_FIXED_SENSITIVITY_STEPS[0]
+  }
+  for (let i = 0; i < KEYBOARD_FIXED_SENSITIVITY_STEPS.length; i += 1) {
+    if (KEYBOARD_FIXED_SENSITIVITY_STEPS[i] > current) return KEYBOARD_FIXED_SENSITIVITY_STEPS[i]
+  }
+  return KEYBOARD_FIXED_SENSITIVITY_STEPS[KEYBOARD_FIXED_SENSITIVITY_STEPS.length - 1]
+}
 
 const SWEEP_SPEED_LABELS: Record<number, string> = {
   10: '30 mm/s',
@@ -393,6 +458,7 @@ interface StateSpectralPanelData {
   stateNames: string[]
   stateLabels: number[]
   epochCounts: number[]
+  blockCounts: number[]
   rawSpectra: Float32Array[]
   flatSpectra: Float32Array[]
   rawSpectraLeft: Float32Array[]
@@ -415,7 +481,52 @@ interface StateSpectralPanelData {
   aperiodicSlope: number[]
   aperiodicIntercept: number[]
   assumeSleepPresent: boolean
+  epochSelection: number
+  artifactMode: number
+  summary: {
+    totalEpochs: number
+    cleanEpochs: number
+    artifactEpochs: number
+    spindlePositiveEpochs: number
+    spindleNegativeEpochs: number
+    totalBlocks: number
+    usableBlocks: number
+    artifactBlocks: number
+    spindlePositiveBlocks: number
+    spindleNegativeBlocks: number
+  }
 }
+
+interface StateSpectralSpindleSnippetRegionData {
+  name: string
+  channelCount: number
+  snippetCount: number
+  meanSnippet: Float32Array
+  onsetSec: Float32Array
+  snippets: Float32Array[]
+}
+
+interface StateSpectralSpindleSnippetData {
+  sampleRate: number
+  preSec: number
+  postSec: number
+  sigmaFractionThreshold: number
+  eegChannelCount: number
+  candidateBlocks: number
+  spindlePositiveCandidates: number
+  acceptedEvents: number
+  rejectedByFeatures: number
+  templateCorrelationMedian: number
+  templateCorrelationMad: number
+  templateCorrelationScores: Float32Array
+  acceptedOnsetSec: Float32Array
+  artifactMode: number
+  assumeSleepPresent: boolean
+  regions: StateSpectralSpindleSnippetRegionData[]
+}
+
+type StateSpectralEpochSelectionMode = 'all-clean' | 'with-spindles' | 'without-spindles'
+type StateSpectralArtifactMode = 'clean-only' | 'clean-plus-artifact' | 'artifact-only'
 
 interface QeegGlobalTimeseriesData {
   time_sec: number[]
@@ -428,7 +539,11 @@ interface QeegGlobalTimeseriesData {
 interface PersistedTriggerAverageSettings {
   triggerChannelName: string
   showTriggerContralateralOverlay: boolean
+  invertTriggerPolarity: boolean
+  randomizeTriggerMarker: boolean
+  randomizeTriggerMarkerRangeSec: number
   triggerDetectionMode: 'event' | 'burst' | 'spindle' | 'slow'
+  triggerUseSpatialSpindleFilter: boolean
   triggerHp: number
   triggerLp: number
   triggerNotch: number
@@ -447,6 +562,12 @@ interface PersistedTriggerAverageSettings {
   averageLp: number
   averageNotch: number
   averageGainMult: number
+  averageAutoScale: boolean
+  lockedAverageRefRange: number | null
+  averagePostRectifySmoothPoints: number
+  overlayAverageChannels: boolean
+  overlayCompareChannelA: string
+  overlayCompareChannelB: string
   triggerRectifyAverage: boolean
   excludeArtifactEvents: boolean
   useN2ContextGate: boolean
@@ -471,7 +592,7 @@ interface ViewerAnnotation {
   durationSec: number
   text: string
   color: string
-  source: 'trigger'
+  source: 'trigger' | 'spectra'
 }
 
 interface TriggerOverlayData {
@@ -1255,45 +1376,90 @@ function NumericSuggestInput({
 
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <input
-        type="text"
-        inputMode="decimal"
-        list={listId}
-        aria-label={label}
-        title={`${label} — escribe cualquier valor o elige una sugerencia${Number.isFinite(step) ? ` (paso sugerido ${step})` : ''}`}
-        value={text}
-        onChange={(e) => {
-          const nextText = e.target.value
-          setText(nextText)
-          const parsed = parseFloat(nextText)
-          if (Number.isFinite(parsed)) {
-            const clamped = Math.max(min, Math.min(max ?? parsed, parsed))
-            onCommit(clamped)
-          }
-        }}
-        onBlur={() => {
-          const parsed = parseFloat(text)
-          if (Number.isFinite(parsed)) {
-            const clamped = Math.max(min, Math.min(max ?? parsed, parsed))
-            onCommit(clamped)
-            setText(String(clamped))
-          } else {
-            setText(String(value))
-          }
-        }}
+      <div
         style={{
+          display: 'flex',
+          alignItems: 'stretch',
+          width,
+          maxWidth: width,
           background: '#f8fafc',
           border: '1px solid #cbd5e1',
           borderRadius: 4,
-          color: '#1e293b',
-          fontSize: compact ? '0.72rem' : '0.75rem',
-          padding: compact ? '0.16rem 0.32rem' : '0.18rem 0.4rem',
-          outline: 'none',
-          width,
-          maxWidth: width,
-          lineHeight: 1.15,
+          overflow: 'hidden',
         }}
-      />
+      >
+        <input
+          type="text"
+          inputMode="decimal"
+          list={listId}
+          aria-label={label}
+          title={`${label} — escribe cualquier valor o elige una sugerencia${Number.isFinite(step) ? ` (paso sugerido ${step})` : ''}`}
+          value={text}
+          onChange={(e) => {
+            const nextText = e.target.value
+            setText(nextText)
+            const parsed = parseFloat(nextText)
+            if (Number.isFinite(parsed)) {
+              const clamped = Math.max(min, Math.min(max ?? parsed, parsed))
+              onCommit(clamped)
+            }
+          }}
+          onBlur={() => {
+            const parsed = parseFloat(text)
+            if (Number.isFinite(parsed)) {
+              const clamped = Math.max(min, Math.min(max ?? parsed, parsed))
+              onCommit(clamped)
+              setText(String(clamped))
+            } else {
+              setText(String(value))
+            }
+          }}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            color: '#1e293b',
+            fontSize: compact ? '0.72rem' : '0.75rem',
+            padding: compact ? '0.16rem 0.32rem' : '0.18rem 0.4rem',
+            outline: 'none',
+            flex: '1 1 auto',
+            minWidth: 0,
+            lineHeight: 1.15,
+          }}
+        />
+        <select
+          aria-label={`${label} sugerencias`}
+          value=""
+          onChange={(e) => {
+            const nextText = e.target.value
+            if (!nextText) return
+            setText(nextText)
+            const parsed = parseFloat(nextText)
+            if (Number.isFinite(parsed)) {
+              const clamped = Math.max(min, Math.min(max ?? parsed, parsed))
+              onCommit(clamped)
+              setText(String(clamped))
+            }
+          }}
+          style={{
+            border: 'none',
+            borderLeft: '1px solid #cbd5e1',
+            background: '#f1f5f9',
+            color: '#475569',
+            fontSize: compact ? '0.7rem' : '0.74rem',
+            padding: compact ? '0 0.2rem' : '0 0.25rem',
+            width: compact ? 22 : 24,
+            cursor: 'pointer',
+            outline: 'none',
+            flexShrink: 0,
+          }}
+          title={`${label} — valores sugeridos`}
+        >
+          <option value="">▾</option>
+          {suggestions.map((suggestion) => (
+            <option key={suggestion} value={suggestion}>{suggestion}</option>
+          ))}
+        </select>
+      </div>
       <datalist id={listId}>
         {suggestions.map((suggestion) => (
           <option key={suggestion} value={suggestion} />
@@ -1902,14 +2068,6 @@ function HypnogramModal({
 
   useEffect(() => {
     redraw()
-  }, [redraw])
-
-  useEffect(() => {
-    const wrap = wrapRef.current
-    if (!wrap) return
-    const ro = new ResizeObserver(() => redraw())
-    ro.observe(wrap)
-    return () => ro.disconnect()
   }, [redraw])
 
   return (
@@ -2630,12 +2788,33 @@ function SleepAnalyzerModal({
 
 function StateSpectraModal({
   stateSpectralPanels,
+  spindleSnippetData,
+  spindleSnippetLoading,
+  epochSelectionMode,
+  artifactMode,
+  sigmaLowHz,
+  sigmaHighHz,
+  onEpochSelectionModeChange,
+  onArtifactModeChange,
+  onSigmaLowHzChange,
+  onSigmaHighHzChange,
   onClose,
 }: {
   stateSpectralPanels: StateSpectralPanelData | null
+  spindleSnippetData: StateSpectralSpindleSnippetData | null
+  spindleSnippetLoading: boolean
+  epochSelectionMode: StateSpectralEpochSelectionMode
+  artifactMode: StateSpectralArtifactMode
+  sigmaLowHz: number
+  sigmaHighHz: number
+  onEpochSelectionModeChange: (value: StateSpectralEpochSelectionMode) => void
+  onArtifactModeChange: (value: StateSpectralArtifactMode) => void
+  onSigmaLowHzChange: (value: number) => void
+  onSigmaHighHzChange: (value: number) => void
   onClose: () => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const spindleCanvasRef = useRef<HTMLCanvasElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const [selectedStateIndex, setSelectedStateIndex] = useState(-1)
   const [showAperiodicFit, setShowAperiodicFit] = useState(true)
@@ -2643,6 +2822,35 @@ function StateSpectraModal({
   const [showLogPowerAxis, setShowLogPowerAxis] = useState(true)
   const [showGlobalOverlay, setShowGlobalOverlay] = useState(true)
   const [showHemispheres, setShowHemispheres] = useState(false)
+  const [spindleTfRegion, setSpindleTfRegion] = useState<'frontal' | 'parietal'>('parietal')
+  const [sigmaLowDraft, setSigmaLowDraft] = useState(() => String(Number.isFinite(sigmaLowHz) ? sigmaLowHz : 11))
+  const [sigmaHighDraft, setSigmaHighDraft] = useState(() => String(Number.isFinite(sigmaHighHz) ? sigmaHighHz : 16))
+
+  useEffect(() => {
+    setSigmaLowDraft(String(Number.isFinite(sigmaLowHz) ? sigmaLowHz : 11))
+  }, [sigmaLowHz])
+
+  useEffect(() => {
+    setSigmaHighDraft(String(Number.isFinite(sigmaHighHz) ? sigmaHighHz : 16))
+  }, [sigmaHighHz])
+
+  const commitSigmaLowDraft = useCallback(() => {
+    const parsed = Number(sigmaLowDraft)
+    if (!Number.isFinite(parsed)) {
+      setSigmaLowDraft(String(Number.isFinite(sigmaLowHz) ? sigmaLowHz : 11))
+      return
+    }
+    onSigmaLowHzChange(parsed)
+  }, [onSigmaLowHzChange, sigmaLowDraft, sigmaLowHz])
+
+  const commitSigmaHighDraft = useCallback(() => {
+    const parsed = Number(sigmaHighDraft)
+    if (!Number.isFinite(parsed)) {
+      setSigmaHighDraft(String(Number.isFinite(sigmaHighHz) ? sigmaHighHz : 16))
+      return
+    }
+    onSigmaHighHzChange(parsed)
+  }, [onSigmaHighHzChange, sigmaHighDraft, sigmaHighHz])
 
   const redraw = useCallback(() => {
     const wrap = wrapRef.current
@@ -2653,11 +2861,17 @@ function StateSpectraModal({
     const panels = stateSpectralPanels
     const freqArray = panels?.freqs ? Array.from(panels.freqs) : []
     const stateCount = panels?.stateNames?.length ?? 0
+    const allPanelIndex = Array.from(panels?.stateLabels ?? []).findIndex((value) => Number(value) < 0)
     const selected = stateCount > 0 && selectedStateIndex >= 0 ? Math.max(0, Math.min(selectedStateIndex, stateCount - 1)) : -1
+    const selectedOrAll = selected >= 0 ? selected : allPanelIndex
     const regionNames = Array.from(panels?.regionNames ?? [])
     const epochCounts = Array.from(panels?.epochCounts ?? [])
-    const totalStateEpochs = epochCounts.reduce((sum, value) => sum + Number(value ?? 0), 0)
-    const activeStateCount = epochCounts.filter((value) => Number(value ?? 0) > 0).length
+    const blockCounts = Array.from(panels?.blockCounts ?? [])
+    const totalStateEpochs = epochCounts.reduce((sum, value, index) => {
+      if (index === allPanelIndex) return sum
+      return sum + Number(value ?? 0)
+    }, 0)
+    const activeStateCount = epochCounts.filter((value, index) => index !== allPanelIndex && Number(value ?? 0) > 0).length
     const leftX = 24
     const top = 32
     const gap = 28
@@ -2666,7 +2880,7 @@ function StateSpectraModal({
     const rightX = leftX + panelW + gap
     const regionTop = top + panelH + 86
     const regionPanelH = 150
-    const tableTop = regionTop + regionPanelH + 42
+    const tableTop = regionTop + regionPanelH + 54
     const height = tableTop + 28 + Math.max(1, stateCount) * 18 + 22
     canvas.width = width
     canvas.height = height
@@ -2676,7 +2890,7 @@ function StateSpectraModal({
     ctx.fillStyle = '#fffdf4'
     ctx.fillRect(0, 0, width, height)
     const fMin = 0.5
-    const fMax = 20
+    const fMax = 45
     const xForFreq = (f: number, x0: number) => {
       if (showLogFreqAxis) {
         const lo = Math.log10(fMin)
@@ -2788,36 +3002,37 @@ function StateSpectraModal({
     const globalRawRegionsRight = buildGlobalRegionSeries(panels?.rawRegionSpectraRight)
     const globalFlatRegionsLeft = buildGlobalRegionSeries(panels?.flatRegionSpectraLeft)
     const globalFlatRegionsRight = buildGlobalRegionSeries(panels?.flatRegionSpectraRight)
-    const raw = selected >= 0 ? Array.from(panels?.rawSpectra?.[selected] ?? []) : globalRaw
-    const flat = selected >= 0 ? Array.from(panels?.flatSpectra?.[selected] ?? []) : globalFlat
-    const rawLeft = selected >= 0 ? Array.from(panels?.rawSpectraLeft?.[selected] ?? []) : globalRawLeft
-    const rawRight = selected >= 0 ? Array.from(panels?.rawSpectraRight?.[selected] ?? []) : globalRawRight
-    const flatLeft = selected >= 0 ? Array.from(panels?.flatSpectraLeft?.[selected] ?? []) : globalFlatLeft
-    const flatRight = selected >= 0 ? Array.from(panels?.flatSpectraRight?.[selected] ?? []) : globalFlatRight
-    const rawRegions = selected >= 0 ? Array.from(panels?.rawRegionSpectra?.[selected] ?? []).map((series) => Array.from(series ?? [])) : globalRawRegions
-    const flatRegions = selected >= 0 ? Array.from(panels?.flatRegionSpectra?.[selected] ?? []).map((series) => Array.from(series ?? [])) : globalFlatRegions
-    const rawRegionsLeft = selected >= 0 ? Array.from(panels?.rawRegionSpectraLeft?.[selected] ?? []).map((series) => Array.from(series ?? [])) : globalRawRegionsLeft
-    const rawRegionsRight = selected >= 0 ? Array.from(panels?.rawRegionSpectraRight?.[selected] ?? []).map((series) => Array.from(series ?? [])) : globalRawRegionsRight
-    const flatRegionsLeft = selected >= 0 ? Array.from(panels?.flatRegionSpectraLeft?.[selected] ?? []).map((series) => Array.from(series ?? [])) : globalFlatRegionsLeft
-    const flatRegionsRight = selected >= 0 ? Array.from(panels?.flatRegionSpectraRight?.[selected] ?? []).map((series) => Array.from(series ?? [])) : globalFlatRegionsRight
-    const selectedEpochs = selected >= 0 ? Number(panels!.epochCounts[selected] ?? 0) : totalStateEpochs
+    const raw = selectedOrAll >= 0 ? Array.from(panels?.rawSpectra?.[selectedOrAll] ?? []) : globalRaw
+    const flat = selectedOrAll >= 0 ? Array.from(panels?.flatSpectra?.[selectedOrAll] ?? []) : globalFlat
+    const rawLeft = selectedOrAll >= 0 ? Array.from(panels?.rawSpectraLeft?.[selectedOrAll] ?? []) : globalRawLeft
+    const rawRight = selectedOrAll >= 0 ? Array.from(panels?.rawSpectraRight?.[selectedOrAll] ?? []) : globalRawRight
+    const flatLeft = selectedOrAll >= 0 ? Array.from(panels?.flatSpectraLeft?.[selectedOrAll] ?? []) : globalFlatLeft
+    const flatRight = selectedOrAll >= 0 ? Array.from(panels?.flatSpectraRight?.[selectedOrAll] ?? []) : globalFlatRight
+    const rawRegions = selectedOrAll >= 0 ? Array.from(panels?.rawRegionSpectra?.[selectedOrAll] ?? []).map((series) => Array.from(series ?? [])) : globalRawRegions
+    const flatRegions = selectedOrAll >= 0 ? Array.from(panels?.flatRegionSpectra?.[selectedOrAll] ?? []).map((series) => Array.from(series ?? [])) : globalFlatRegions
+    const rawRegionsLeft = selectedOrAll >= 0 ? Array.from(panels?.rawRegionSpectraLeft?.[selectedOrAll] ?? []).map((series) => Array.from(series ?? [])) : globalRawRegionsLeft
+    const rawRegionsRight = selectedOrAll >= 0 ? Array.from(panels?.rawRegionSpectraRight?.[selectedOrAll] ?? []).map((series) => Array.from(series ?? [])) : globalRawRegionsRight
+    const flatRegionsLeft = selectedOrAll >= 0 ? Array.from(panels?.flatRegionSpectraLeft?.[selectedOrAll] ?? []).map((series) => Array.from(series ?? [])) : globalFlatRegionsLeft
+    const flatRegionsRight = selectedOrAll >= 0 ? Array.from(panels?.flatRegionSpectraRight?.[selectedOrAll] ?? []).map((series) => Array.from(series ?? [])) : globalFlatRegionsRight
+    const selectedEpochs = selectedOrAll >= 0 ? Number(panels!.epochCounts[selectedOrAll] ?? 0) : totalStateEpochs
+    const selectedBlocks = selectedOrAll >= 0 ? Number(blockCounts[selectedOrAll] ?? 0) : Number(panels?.summary?.usableBlocks ?? 0)
     const selectedPct = totalStateEpochs > 0 ? (100 * selectedEpochs) / totalStateEpochs : 0
-    const selectedAlphaPeakRaw = selected >= 0
-      ? Number(panels!.alphaPeakRaw[selected] ?? 0)
+    const selectedAlphaPeakRaw = selectedOrAll >= 0
+      ? Number(panels!.alphaPeakRaw[selectedOrAll] ?? 0)
       : spectralPeakFrequency(freqArray, raw, 7.5, 13)
-    const selectedAlphaPeakFlat = selected >= 0
-      ? Number(panels!.alphaPeakFlat[selected] ?? 0)
+    const selectedAlphaPeakFlat = selectedOrAll >= 0
+      ? Number(panels!.alphaPeakFlat[selectedOrAll] ?? 0)
       : spectralPeakFrequency(freqArray, flat, 7.5, 13)
-    const selectedThetaPeakFlat = selected >= 0
-      ? Number(panels!.thetaPeakFlat[selected] ?? 0)
+    const selectedThetaPeakFlat = selectedOrAll >= 0
+      ? Number(panels!.thetaPeakFlat[selectedOrAll] ?? 0)
       : spectralPeakFrequency(freqArray, flat, 4, 8)
-    const selectedSigmaPeakFlat = selected >= 0
-      ? Number(panels!.sigmaPeakFlat[selected] ?? 0)
+    const selectedSigmaPeakFlat = selectedOrAll >= 0
+      ? Number(panels!.sigmaPeakFlat[selectedOrAll] ?? 0)
       : spectralPeakFrequency(freqArray, flat, 11, 16)
-    const selectedAperiodic = selected >= 0
+    const selectedAperiodic = selectedOrAll >= 0
       ? {
-          slope: Number(panels!.aperiodicSlope[selected] ?? 0),
-          intercept: Number(panels!.aperiodicIntercept[selected] ?? 0),
+          slope: Number(panels!.aperiodicSlope[selectedOrAll] ?? 0),
+          intercept: Number(panels!.aperiodicIntercept[selectedOrAll] ?? 0),
         }
       : fitAperiodicLine(freqArray, raw)
 
@@ -2875,7 +3090,7 @@ function StateSpectraModal({
 
       ctx.strokeStyle = '#e2e8f0'
       ctx.lineWidth = 1
-      const xTicks = showLogFreqAxis ? [0.5, 1, 2, 4, 8, 10, 12, 16, 20] : [2, 4, 8, 10, 12, 16, 20]
+      const xTicks = showLogFreqAxis ? [0.5, 1, 2, 4, 8, 10, 12, 16, 20, 30, 40] : [2, 4, 8, 10, 12, 16, 20, 30, 40]
       for (const tick of xTicks) {
         const x = xForFreq(tick, x0)
         ctx.beginPath()
@@ -3065,6 +3280,9 @@ function StateSpectraModal({
         ctx.moveTo(x, regionTop)
         ctx.lineTo(x, regionTop + regionPanelH)
         ctx.stroke()
+        ctx.fillStyle = '#64748b'
+        ctx.font = '10px monospace'
+        ctx.fillText(String(tick), x - 6, regionTop + regionPanelH + 16)
       }
       for (const yTick of [0.2, 0.5, 0.8]) {
         const y = regionTop + regionPanelH - yTick * (regionPanelH - 2)
@@ -3073,6 +3291,10 @@ function StateSpectraModal({
         ctx.moveTo(x0, y)
         ctx.lineTo(x0 + panelW, y)
         ctx.stroke()
+        const value = yLo + yTick * ySpan
+        ctx.fillStyle = '#64748b'
+        ctx.font = '10px monospace'
+        ctx.fillText(value.toFixed(1), x0 - 26, y + 3)
       }
 
       const regionColors = ['#15803d', '#ea580c', '#7c3aed']
@@ -3118,6 +3340,16 @@ function StateSpectraModal({
       ctx.fillStyle = '#64748b'
       ctx.font = '10px monospace'
       ctx.fillText('Frecuencia (Hz)', x0 + Math.floor(panelW / 2) - 40, regionTop + regionPanelH + 24)
+      ctx.save()
+      ctx.translate(x0 - 42, regionTop + Math.floor(regionPanelH / 2) + 26)
+      ctx.rotate(-Math.PI / 2)
+      ctx.fillText(showLogPowerAxis ? 'Potencia (log)' : 'Potencia', 0, 0)
+      ctx.restore()
+      ctx.fillText(
+        `${showLogPowerAxis ? 'log ' : ''}${yLo.toFixed(1)}..${(yLo + ySpan).toFixed(1)}`,
+        x0 + panelW - 98,
+        regionTop - 8,
+      )
     }
 
     const rawMarkers = selectedAlphaPeakRaw > 0
@@ -3165,24 +3397,36 @@ function StateSpectraModal({
     {
       ctx.fillStyle = '#475569'
       ctx.font = '11px monospace'
+      const summaryY = top + panelH + 36
+      const rightSummaryX = rightX + 8
       ctx.fillText(
-        `${selected >= 0 ? panels!.stateNames[selected] : 'All'} · ${selectedEpochs} épocas (${selectedPct.toFixed(1)}%) · IAF raw ${selectedAlphaPeakRaw.toFixed(2)} Hz · IAF flat ${selectedAlphaPeakFlat.toFixed(2)} Hz`,
+        `${selectedOrAll >= 0 ? panels!.stateNames[selectedOrAll] : 'All'} · ${selectedEpochs} épocas · ${selectedBlocks} bloques 4 s (${selectedPct.toFixed(1)}%) · IAF raw ${selectedAlphaPeakRaw.toFixed(2)} Hz · IAF flat ${selectedAlphaPeakFlat.toFixed(2)} Hz`,
         24,
-        top + panelH + 36,
+        summaryY,
       )
       ctx.fillText(
-        `total ${totalStateEpochs} épocas útiles · ${activeStateCount} estados con espectro · IAF raw ${selectedAlphaPeakRaw.toFixed(2)} Hz · IAF flat ${selectedAlphaPeakFlat.toFixed(2)} Hz · theta flat ${selectedThetaPeakFlat.toFixed(2)} Hz · sigma flat ${selectedSigmaPeakFlat.toFixed(2)} Hz · 1/f ${Number(selectedAperiodic?.slope ?? 0).toFixed(2)}`,
+        `épocas total ${panels?.summary?.totalEpochs ?? 0} · limpias ${panels?.summary?.cleanEpochs ?? 0} · artefacto ${panels?.summary?.artifactEpochs ?? 0}`,
+        rightSummaryX,
+        summaryY,
+      )
+      ctx.fillText(
+        `bloques 4 s total ${panels?.summary?.totalBlocks ?? 0} · útiles ${panels?.summary?.usableBlocks ?? 0} · artefacto ${panels?.summary?.artifactBlocks ?? 0} · husos sí ${panels?.summary?.spindlePositiveBlocks ?? 0} · husos no ${panels?.summary?.spindleNegativeBlocks ?? 0}`,
         24,
-        top + panelH + 54,
+        summaryY + 18,
+      )
+      ctx.fillText(
+        `husos sí ${panels?.summary?.spindlePositiveEpochs ?? 0} ep · husos no ${panels?.summary?.spindleNegativeEpochs ?? 0} ep · ${activeStateCount} estados con espectro · theta flat ${selectedThetaPeakFlat.toFixed(2)} Hz · sigma flat ${selectedSigmaPeakFlat.toFixed(2)} Hz · 1/f ${Number(selectedAperiodic?.slope ?? 0).toFixed(2)}`,
+        rightSummaryX,
+        summaryY + 18,
       )
     }
 
     if (stateCount > 0) {
       const rowH = 18
-      const colX = [24, 110, 182, 266, 352, 438, 520]
+      const colX = [24, 110, 152, 236, 320, 406, 488, 570]
       ctx.fillStyle = '#0f172a'
       ctx.font = 'bold 11px monospace'
-      ;['Estado', 'ep', 'IAF raw', 'IAF flat', 'theta', 'sigma', '1/f'].forEach((header, idx) => {
+      ;['Estado', 'ep', 'blk', 'IAF raw', 'IAF flat', 'theta', 'sigma', '1/f'].forEach((header, idx) => {
         ctx.fillText(header, colX[idx], tableTop)
       })
       ctx.strokeStyle = '#cbd5e1'
@@ -3192,6 +3436,7 @@ function StateSpectraModal({
       ctx.stroke()
 
       for (let i = 0; i < stateCount; i++) {
+        if (i === allPanelIndex) continue
         const y = tableTop + 18 + i * rowH
         const label = stateSpectralShortLabel(panels!.stateLabels[i] ?? 0)
         const active = i === selected
@@ -3203,11 +3448,12 @@ function StateSpectraModal({
         ctx.font = active ? 'bold 11px monospace' : '11px monospace'
         ctx.fillText(label, colX[0], y)
         ctx.fillText(String(panels!.epochCounts[i] ?? 0), colX[1], y)
-        ctx.fillText(Number(panels!.alphaPeakRaw[i] ?? 0).toFixed(2), colX[2], y)
-        ctx.fillText(Number(panels!.alphaPeakFlat[i] ?? 0).toFixed(2), colX[3], y)
-        ctx.fillText(Number(panels!.thetaPeakFlat[i] ?? 0).toFixed(2), colX[4], y)
-        ctx.fillText(Number(panels!.sigmaPeakFlat[i] ?? 0).toFixed(2), colX[5], y)
-        ctx.fillText(Number(panels!.aperiodicSlope[i] ?? 0).toFixed(2), colX[6], y)
+        ctx.fillText(String(panels!.blockCounts[i] ?? 0), colX[2], y)
+        ctx.fillText(Number(panels!.alphaPeakRaw[i] ?? 0).toFixed(2), colX[3], y)
+        ctx.fillText(Number(panels!.alphaPeakFlat[i] ?? 0).toFixed(2), colX[4], y)
+        ctx.fillText(Number(panels!.thetaPeakFlat[i] ?? 0).toFixed(2), colX[5], y)
+        ctx.fillText(Number(panels!.sigmaPeakFlat[i] ?? 0).toFixed(2), colX[6], y)
+        ctx.fillText(Number(panels!.aperiodicSlope[i] ?? 0).toFixed(2), colX[7], y)
       }
     }
 
@@ -3240,6 +3486,173 @@ function StateSpectraModal({
     ro.observe(wrap)
     return () => ro.disconnect()
   }, [redraw])
+
+  const spindleRegionData = useMemo(
+    () => spindleSnippetData?.regions?.find((region) => region.name === spindleTfRegion) ?? null,
+    [spindleSnippetData, spindleTfRegion],
+  )
+  const availableSpindleRegions = useMemo(
+    () => (spindleSnippetData?.regions ?? []).filter((region) => region.channelCount > 0),
+    [spindleSnippetData],
+  )
+  const preferredSpindleRegion = useMemo(
+    () => availableSpindleRegions.find((region) => region.snippets.length > 0) ?? availableSpindleRegions[0] ?? null,
+    [availableSpindleRegions],
+  )
+  useEffect(() => {
+    if (epochSelectionMode !== 'with-spindles' || !preferredSpindleRegion) return
+    const currentRegionValid = spindleRegionData && spindleRegionData.channelCount > 0
+    if (!currentRegionValid) {
+      setSpindleTfRegion(preferredSpindleRegion.name as 'frontal' | 'parietal')
+    }
+  }, [epochSelectionMode, preferredSpindleRegion, spindleRegionData])
+  const spindleTfMap = useMemo<AverageTfMap | null>(() => {
+    if (epochSelectionMode !== 'with-spindles' || !spindleRegionData || spindleRegionData.snippets.length === 0 || !spindleSnippetData) {
+      return null
+    }
+    return computeAverageTfMap(
+      spindleRegionData.snippets,
+      spindleSnippetData.sampleRate,
+      spindleSnippetData.preSec,
+      { freqMin: 1, freqMax: 40, nFreqs: 52, windowSec: 0.75, hopSec: 0.08, logFrequency: true },
+    )
+  }, [epochSelectionMode, spindleRegionData, spindleSnippetData])
+  const hasSpindleCandidates = !!spindleSnippetData && spindleSnippetData.acceptedEvents > 0
+
+  const redrawSpindleTf = useCallback(() => {
+    const wrap = wrapRef.current
+    const canvas = spindleCanvasRef.current
+    if (!wrap || !canvas || !spindleTfMap || !spindleSnippetData || !spindleRegionData) return
+    const width = Math.max(980, wrap.clientWidth || 980)
+    const height = 260
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    ctx.fillStyle = '#fffdf4'
+    ctx.fillRect(0, 0, width, height)
+    const left = 56
+    const top = 22
+    const plotW = width - left - 26
+    const plotH = 166
+    const times = spindleTfMap.timesSec
+    const freqs = spindleTfMap.freqsHz
+    const power = spindleTfMap.power
+    if (!times.length || !freqs.length || !power.length) return
+
+    let pMin = Number.POSITIVE_INFINITY
+    let pMax = Number.NEGATIVE_INFINITY
+    const logPower = power.map((row) => row.map((value) => {
+      const logv = Math.log10(Math.max(value, 1e-9))
+      pMin = Math.min(pMin, logv)
+      pMax = Math.max(pMax, logv)
+      return logv
+    }))
+    const span = Math.max(1e-6, pMax - pMin)
+    const cellW = plotW / Math.max(1, times.length)
+    const cellH = plotH / Math.max(1, freqs.length)
+
+    const colorFor = (t: number) => {
+      const clamped = Math.max(0, Math.min(1, t))
+      const r = clamped < 0.5 ? Math.round(40 + clamped * 2 * 120) : Math.round(160 + (clamped - 0.5) * 2 * 95)
+      const g = clamped < 0.5 ? Math.round(80 + clamped * 2 * 110) : Math.round(190 - (clamped - 0.5) * 2 * 90)
+      const b = clamped < 0.5 ? Math.round(160 + clamped * 2 * 70) : Math.round(110 - (clamped - 0.5) * 2 * 90)
+      return `rgb(${r},${g},${b})`
+    }
+
+    for (let fy = 0; fy < freqs.length; fy++) {
+      for (let tx = 0; tx < times.length; tx++) {
+        const norm = (logPower[fy]?.[tx] - pMin) / span
+        ctx.fillStyle = colorFor(norm)
+        ctx.fillRect(
+          left + tx * cellW,
+          top + (freqs.length - 1 - fy) * cellH,
+          Math.ceil(cellW + 0.5),
+          Math.ceil(cellH + 0.5),
+        )
+      }
+    }
+
+    ctx.strokeStyle = '#94a3b8'
+    ctx.lineWidth = 1
+    ctx.strokeRect(left, top, plotW, plotH)
+
+    const xForTime = (value: number) => {
+      const t0 = -spindleSnippetData.preSec
+      const t1 = spindleSnippetData.postSec
+      return left + ((value - t0) / Math.max(1e-6, t1 - t0)) * plotW
+    }
+    const yForFreq = (value: number) => {
+      const f0 = 1
+      const f1 = 40
+      const log0 = Math.log10(f0)
+      const log1 = Math.log10(f1)
+      return top + plotH - ((Math.log10(Math.max(f0, value)) - log0) / Math.max(1e-6, log1 - log0)) * plotH
+    }
+
+    ;[-3, -2, -1, 0, 1, 2, 3, 4].forEach((tick) => {
+      const x = xForTime(tick)
+      ctx.strokeStyle = tick === 0 ? '#dc2626' : '#e2e8f0'
+      ctx.beginPath()
+      ctx.moveTo(x, top)
+      ctx.lineTo(x, top + plotH)
+      ctx.stroke()
+      ctx.fillStyle = '#64748b'
+      ctx.font = '10px monospace'
+      ctx.fillText(`${tick}s`, x - 10, top + plotH + 16)
+    })
+    ;[1, 2, 4, 8, 10, 12, 16, 20, 30, 40].forEach((tick) => {
+      const y = yForFreq(tick)
+      ctx.strokeStyle = '#e2e8f0'
+      ctx.beginPath()
+      ctx.moveTo(left, y)
+      ctx.lineTo(left + plotW, y)
+      ctx.stroke()
+      ctx.fillStyle = '#64748b'
+      ctx.font = '10px monospace'
+      ctx.fillText(`${tick}`, 24, y + 3)
+    })
+
+    ctx.fillStyle = '#0f172a'
+    ctx.font = '12px monospace'
+    ctx.fillText(`Mapa TF medio · ${spindleTfRegion === 'frontal' ? 'frontal' : 'parietal'} · onset-aligned`, left, 14)
+    ctx.fillStyle = '#475569'
+    ctx.font = '11px monospace'
+    ctx.fillText(
+      `bloques ${spindleSnippetData.candidateBlocks} · sigma+ ${spindleSnippetData.spindlePositiveCandidates} · aceptados ${spindleSnippetData.acceptedEvents} · rechazados feat ${spindleSnippetData.rejectedByFeatures} · snippets ${spindleRegionData.snippetCount} · umbral sigma/1-30 p80 = ${spindleSnippetData.sigmaFractionThreshold.toFixed(3)}`,
+      left,
+      top + plotH + 34,
+    )
+    ctx.fillText(
+      `onset refinado yendo hacia atrás desde el pico sigma · ventana -${spindleSnippetData.preSec.toFixed(1)}s / +${spindleSnippetData.postSec.toFixed(1)}s · eje freq log 1–40 Hz · score plantilla med ${spindleSnippetData.templateCorrelationMedian.toFixed(3)} ± MAD ${spindleSnippetData.templateCorrelationMad.toFixed(3)}`,
+      left,
+      top + plotH + 52,
+    )
+    ctx.fillStyle = '#64748b'
+    ctx.font = '10px monospace'
+    ctx.fillText(`Tiempo relativo al onset (s) · plantilla sobre ${spindleSnippetData.eegChannelCount} canales EEG`, left + Math.floor(plotW / 2) - 130, top + plotH + 74)
+    ctx.save()
+    ctx.translate(14, top + Math.floor(plotH / 2) + 26)
+    ctx.rotate(-Math.PI / 2)
+    ctx.fillText('Frecuencia (Hz)', 0, 0)
+    ctx.restore()
+  }, [spindleTfMap, spindleSnippetData, spindleRegionData, spindleTfRegion])
+
+  useEffect(() => {
+    redrawSpindleTf()
+  }, [redrawSpindleTf])
+
+  useEffect(() => {
+    const wrap = wrapRef.current
+    if (!wrap) return
+    const ro = new ResizeObserver(() => {
+      redraw()
+      redrawSpindleTf()
+    })
+    ro.observe(wrap)
+    return () => ro.disconnect()
+  }, [redraw, redrawSpindleTf])
 
   return (
     <div
@@ -3308,6 +3721,7 @@ function StateSpectraModal({
               All
             </button>
             {(stateSpectralPanels?.stateNames ?? []).map((name, index) => {
+              if ((stateSpectralPanels?.stateLabels?.[index] ?? 0) < 0) return null
               const label = stateSpectralShortLabel(stateSpectralPanels?.stateLabels?.[index] ?? 0)
               const active = index === selectedStateIndex
               return (
@@ -3350,8 +3764,117 @@ function StateSpectraModal({
               <input type="checkbox" checked={showLogPowerAxis} onChange={(event) => setShowLogPowerAxis(event.target.checked)} />
               Y log
             </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#334155', fontSize: '0.76rem' }}>
+              <span>Contenido</span>
+              <select
+                value={epochSelectionMode}
+                onChange={(event) => onEpochSelectionModeChange(event.target.value as StateSpectralEpochSelectionMode)}
+                style={{ border: '1px solid #cbd5e1', borderRadius: 6, padding: '0.18rem 0.35rem', fontSize: '0.76rem', background: '#fff' }}
+              >
+                <option value="all-clean">todas limpias</option>
+                <option value="with-spindles">con husos</option>
+                <option value="without-spindles">sin husos</option>
+              </select>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#334155', fontSize: '0.76rem' }}>
+              <span>Artefacto</span>
+              <select
+                value={artifactMode}
+                onChange={(event) => onArtifactModeChange(event.target.value as StateSpectralArtifactMode)}
+                style={{ border: '1px solid #cbd5e1', borderRadius: 6, padding: '0.18rem 0.35rem', fontSize: '0.76rem', background: '#fff' }}
+              >
+                <option value="clean-only">solo limpio</option>
+                <option value="clean-plus-artifact">limpio + artefacto</option>
+                <option value="artifact-only">solo artefacto</option>
+              </select>
+            </label>
+            {epochSelectionMode === 'with-spindles' && (
+              <>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#334155', fontSize: '0.76rem' }}>
+                  <span>Sigma</span>
+                  <input
+                    type="number"
+                    min={0.5}
+                    max={40}
+                    step={0.5}
+                    value={sigmaLowDraft}
+                    onChange={(event) => setSigmaLowDraft(event.target.value)}
+                    onBlur={commitSigmaLowDraft}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        commitSigmaLowDraft()
+                      }
+                    }}
+                    style={{ width: 64, border: '1px solid #cbd5e1', borderRadius: 6, padding: '0.18rem 0.35rem', fontSize: '0.76rem', background: '#fff' }}
+                  />
+                  <span>a</span>
+                  <input
+                    type="number"
+                    min={0.5}
+                    max={40}
+                    step={0.5}
+                    value={sigmaHighDraft}
+                    onChange={(event) => setSigmaHighDraft(event.target.value)}
+                    onBlur={commitSigmaHighDraft}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        commitSigmaHighDraft()
+                      }
+                    }}
+                    style={{ width: 64, border: '1px solid #cbd5e1', borderRadius: 6, padding: '0.18rem 0.35rem', fontSize: '0.76rem', background: '#fff' }}
+                  />
+                  <span>Hz</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#334155', fontSize: '0.76rem' }}>
+                  <span>TF</span>
+                  <select
+                    value={spindleTfRegion}
+                    onChange={(event) => setSpindleTfRegion(event.target.value as 'frontal' | 'parietal')}
+                    style={{ border: '1px solid #cbd5e1', borderRadius: 6, padding: '0.18rem 0.35rem', fontSize: '0.76rem', background: '#fff' }}
+                  >
+                    <option value="frontal">frontal</option>
+                    <option value="parietal">parietal</option>
+                  </select>
+                </label>
+              </>
+            )}
           </div>
           <canvas ref={canvasRef} style={{ display: 'block', width: '100%' }} />
+          {epochSelectionMode === 'with-spindles' && (
+            <div style={{ marginTop: '0.9rem', borderTop: '1px solid #e2e8f0', paddingTop: '0.8rem' }}>
+              {spindleSnippetLoading ? (
+                <div style={{ color: '#475569', fontSize: '0.82rem' }}>Calculando mapa TF de husos…</div>
+              ) : hasSpindleCandidates ? (
+                <>
+                  {spindleTfMap && spindleRegionData ? (
+                    <canvas ref={spindleCanvasRef} style={{ display: 'block', width: '100%' }} />
+                  ) : (
+                    <div
+                      style={{
+                        padding: '0.75rem 0.85rem',
+                        background: '#ffffff',
+                        border: '1px dashed #cbd5e1',
+                        borderRadius: 8,
+                        color: '#64748b',
+                        fontSize: '0.78rem',
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      {preferredSpindleRegion
+                        ? `Hay candidatos de huso, pero la región ${spindleTfRegion} no tiene snippets útiles ahora mismo. Prueba ${preferredSpindleRegion.name}.`
+                        : 'Hay candidatos de huso, pero no hay una región frontal/parietal con snippets útiles para dibujar el mapa TF.'}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div style={{ color: '#64748b', fontSize: '0.8rem' }}>
+                  No hay suficientes snippets de huso para dibujar el mapa TF con la selección actual.
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -3885,22 +4408,38 @@ function TriggerAverageModal({
   triggerChannelName,
   triggerSignal,
   showTriggerContralateralOverlay,
+  invertTriggerPolarity,
+  randomizeTriggerMarker,
+  randomizeTriggerMarkerRangeSec,
   onToggleTriggerContralateralOverlay,
   triggerOverlayChannelName,
   triggerOverlaySignal,
   triggerThreshold,
   triggerThresholdStep,
   triggerDetectionMode,
+  triggerUseSpatialSpindleFilter,
+  spatialSpindleCandidateCount,
+  spatialSpindleAcceptedCount,
   triggerHp,
   triggerLp,
   triggerNotch,
   triggerSmoothPoints,
   triggerDerivativeAfterSmooth,
   triggerBurstRearmFraction,
+  spindleSigmaLow,
+  spindleSigmaHigh,
+  spindleBroadLow,
+  spindleBroadHigh,
   averageHp,
   averageLp,
   averageNotch,
   averageGainMult,
+  averageAutoScale,
+  lockedAverageRefRange,
+  averagePostRectifySmoothPoints,
+  overlayAverageChannels,
+  overlayCompareChannelA,
+  overlayCompareChannelB,
   triggerPreSec,
   triggerPostSec,
   triggerRefractorySec,
@@ -3925,17 +4464,31 @@ function TriggerAverageModal({
   onClearViewerAnnotations,
   onStepViewerAnnotation,
   onTriggerChannelChange,
+  onToggleInvertTriggerPolarity,
+  onToggleRandomizeTriggerMarker,
+  onRandomizeTriggerMarkerRangeSecChange,
   onTriggerDetectionModeChange,
+  onTriggerUseSpatialSpindleFilterChange,
   onTriggerHpChange,
   onTriggerLpChange,
   onTriggerNotchChange,
   onTriggerSmoothPointsChange,
   onTriggerDerivativeAfterSmoothChange,
   onTriggerBurstRearmFractionChange,
+  onSpindleSigmaLowChange,
+  onSpindleSigmaHighChange,
+  onSpindleBroadLowChange,
+  onSpindleBroadHighChange,
   onAverageHpChange,
   onAverageLpChange,
   onAverageNotchChange,
   onAverageGainMultChange,
+  onAverageAutoScaleChange,
+  onLockedAverageRefRangeChange,
+  onAveragePostRectifySmoothPointsChange,
+  onOverlayAverageChannelsChange,
+  onOverlayCompareChannelAChange,
+  onOverlayCompareChannelBChange,
   onTriggerPreSecChange,
   onTriggerPostSecChange,
   onTriggerRefractorySecChange,
@@ -3966,22 +4519,38 @@ function TriggerAverageModal({
   triggerChannelName: string
   triggerSignal: Float32Array | null
   showTriggerContralateralOverlay: boolean
+  invertTriggerPolarity: boolean
+  randomizeTriggerMarker: boolean
+  randomizeTriggerMarkerRangeSec: number
   onToggleTriggerContralateralOverlay: () => void
   triggerOverlayChannelName: string | null
   triggerOverlaySignal: Float32Array | null
   triggerThreshold: number
   triggerThresholdStep: number
   triggerDetectionMode: 'event' | 'burst' | 'spindle' | 'slow'
+  triggerUseSpatialSpindleFilter: boolean
+  spatialSpindleCandidateCount: number
+  spatialSpindleAcceptedCount: number
   triggerHp: number
   triggerLp: number
   triggerNotch: number
   triggerSmoothPoints: number
   triggerDerivativeAfterSmooth: boolean
   triggerBurstRearmFraction: number
+  spindleSigmaLow: number
+  spindleSigmaHigh: number
+  spindleBroadLow: number
+  spindleBroadHigh: number
   averageHp: number
   averageLp: number
   averageNotch: number
   averageGainMult: number
+  averageAutoScale: boolean
+  lockedAverageRefRange: number | null
+  averagePostRectifySmoothPoints: number
+  overlayAverageChannels: boolean
+  overlayCompareChannelA: string
+  overlayCompareChannelB: string
   triggerPreSec: number
   triggerPostSec: number
   triggerRefractorySec: number
@@ -4006,17 +4575,31 @@ function TriggerAverageModal({
   onClearViewerAnnotations: () => void
   onStepViewerAnnotation: (direction: -1 | 1) => void
   onTriggerChannelChange: (value: string) => void
+  onToggleInvertTriggerPolarity: () => void
+  onToggleRandomizeTriggerMarker: () => void
+  onRandomizeTriggerMarkerRangeSecChange: (value: number) => void
   onTriggerDetectionModeChange: (value: 'event' | 'burst' | 'spindle' | 'slow') => void
+  onTriggerUseSpatialSpindleFilterChange: () => void
   onTriggerHpChange: (value: number) => void
   onTriggerLpChange: (value: number) => void
   onTriggerNotchChange: (value: number) => void
   onTriggerSmoothPointsChange: (value: number) => void
   onTriggerDerivativeAfterSmoothChange: () => void
   onTriggerBurstRearmFractionChange: (value: number) => void
+  onSpindleSigmaLowChange: (value: number) => void
+  onSpindleSigmaHighChange: (value: number) => void
+  onSpindleBroadLowChange: (value: number) => void
+  onSpindleBroadHighChange: (value: number) => void
   onAverageHpChange: (value: number) => void
   onAverageLpChange: (value: number) => void
   onAverageNotchChange: (value: number) => void
   onAverageGainMultChange: (value: number) => void
+  onAverageAutoScaleChange: (value: boolean) => void
+  onLockedAverageRefRangeChange: (value: number | null) => void
+  onAveragePostRectifySmoothPointsChange: (value: number) => void
+  onOverlayAverageChannelsChange: (value: boolean) => void
+  onOverlayCompareChannelAChange: (value: string) => void
+  onOverlayCompareChannelBChange: (value: string) => void
   onTriggerPreSecChange: (value: number) => void
   onTriggerPostSecChange: (value: number) => void
   onTriggerRefractorySecChange: (value: number) => void
@@ -4040,9 +4623,10 @@ function TriggerAverageModal({
 }) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [overlayAverageChannels, setOverlayAverageChannels] = useState(false)
-  const [overlayCompareChannelA, setOverlayCompareChannelA] = useState('')
-  const [overlayCompareChannelB, setOverlayCompareChannelB] = useState('')
+  const isEventMode = triggerDetectionMode === 'event'
+  const isBurstMode = triggerDetectionMode === 'burst'
+  const isSpindleMode = triggerDetectionMode === 'spindle'
+  const isSlowMode = triggerDetectionMode === 'slow'
 
   const averagedEpoch = result?.averagedEpoch ?? null
   const rawAveragedEpoch = result?.rawAveragedEpoch ?? null
@@ -4102,19 +4686,26 @@ function TriggerAverageModal({
     }
     return { startEpochIndex, endEpochIndex, accepted, rejected, states, scoreSummary: summarizeScores(scores) }
   }, [currentEndSec, currentStartSec, n2ContextEnabled, n2ContextEpochSec, n2ContextStatuses, n2ContextScores])
-  const totalN2Accepted = useMemo(
-    () => (n2ContextStatuses ?? []).filter(Boolean).length,
-    [n2ContextStatuses],
-  )
-  const totalN2Rejected = Math.max(0, (n2ContextStatuses?.length ?? 0) - totalN2Accepted)
-  const totalN2ScoreSummary = useMemo(
-    () => summarizeScores(n2ContextScores ?? []),
-    [n2ContextScores],
-  )
-  const { scales } = useMemo(
-    () => averagedEpoch ? computeScales(averagedEpoch, averageGainMult, false, {}) : { scales: [] as { p2: number; p98: number }[], refRange: 1 },
+  const liveAverageScale = useMemo(
+    () => averagedEpoch ? computeScales(averagedEpoch, averageGainMult, false, {}, { autoScale: true }) : { scales: [] as { p2: number; p98: number }[], refRange: 1 },
     [averageGainMult, averagedEpoch],
   )
+  const { scales, refRange } = useMemo(
+    () => averagedEpoch
+      ? computeScales(averagedEpoch, averageGainMult, false, {}, {
+          autoScale: averageAutoScale,
+          fixedRefRange: averageAutoScale ? undefined : (lockedAverageRefRange ?? liveAverageScale.refRange),
+        })
+      : { scales: [] as { p2: number; p98: number }[], refRange: 1 },
+    [averageAutoScale, averageGainMult, averagedEpoch, liveAverageScale.refRange, lockedAverageRefRange],
+  )
+
+  useEffect(() => {
+    if (!averageAutoScale) return
+    if (Number.isFinite(liveAverageScale.refRange) && liveAverageScale.refRange > 0) {
+      onLockedAverageRefRangeChange(liveAverageScale.refRange)
+    }
+  }, [averageAutoScale, liveAverageScale.refRange, onLockedAverageRefRangeChange])
   const overlayCompareOptions = useMemo(
     () => averagedEpoch
       ? averagedEpoch.channelNames.filter((name) => name !== triggerChannelName)
@@ -4123,16 +4714,15 @@ function TriggerAverageModal({
   )
 
   useEffect(() => {
-    setOverlayCompareChannelA((current) => (
-      current && overlayCompareOptions.includes(current)
-        ? current
-        : overlayCompareOptions[0] ?? ''
-    ))
-    setOverlayCompareChannelB((current) => {
-      if (current && overlayCompareOptions.includes(current) && current !== (overlayCompareOptions[0] ?? '')) return current
-      return overlayCompareOptions.find((name) => name !== (overlayCompareOptions[0] ?? '')) ?? ''
-    })
-  }, [overlayCompareOptions])
+    const nextA = overlayCompareChannelA && overlayCompareOptions.includes(overlayCompareChannelA)
+      ? overlayCompareChannelA
+      : overlayCompareOptions[0] ?? ''
+    const nextB = overlayCompareChannelB && overlayCompareOptions.includes(overlayCompareChannelB) && overlayCompareChannelB !== (overlayCompareOptions[0] ?? '')
+      ? overlayCompareChannelB
+      : overlayCompareOptions.find((name) => name !== (overlayCompareOptions[0] ?? '')) ?? ''
+    if (nextA !== overlayCompareChannelA) onOverlayCompareChannelAChange(nextA)
+    if (nextB !== overlayCompareChannelB) onOverlayCompareChannelBChange(nextB)
+  }, [onOverlayCompareChannelAChange, onOverlayCompareChannelBChange, overlayCompareChannelA, overlayCompareChannelB, overlayCompareOptions])
 
   const redraw = useCallback(() => {
     const wrap = wrapRef.current
@@ -4428,56 +5018,32 @@ function TriggerAverageModal({
         alignItems: 'center',
         justifyContent: 'space-between',
         gap: 12,
-        padding: '0.8rem 1rem',
+        padding: '0.65rem 0.85rem',
         borderBottom: '1px solid #e2e8f0',
         background: '#fffdf6',
       }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <div style={{ color: '#0f172a', fontWeight: 700 }}>Promedio desencadenado</div>
-          <div style={{ color: '#64748b', fontSize: '0.82rem' }}>
-            Trigger: {triggerChannelName || 'sin canal'} · {averageScope === 'record' ? `Página: ${previewEventCount} eventos · Promedio registro: N=${eventCount}` : `Promedio página: N=${eventCount}`} · Rectif trigger: {triggerRectify ? 'sí' : 'no'} · Rectif promedio: {rectifyAverage ? 'sí' : 'no'}
+          <div style={{ color: '#64748b', fontSize: '0.8rem' }}>
+            Trigger: {triggerChannelName || 'sin canal'} · {averageScope === 'record' ? `Página: ${previewEventCount} eventos · Promedio registro: N=${eventCount}` : `Promedio página: N=${eventCount}`} · Inv trigger: {invertTriggerPolarity ? 'sí' : 'no'} · Azar ±{randomizeTriggerMarker ? randomizeTriggerMarkerRangeSec.toFixed(1) : '0.0'} s · Rectif trigger: {triggerRectify ? 'sí' : 'no'} · Rectif promedio: {rectifyAverage ? `sí${averagePostRectifySmoothPoints > 1 ? ` · suav ${averagePostRectifySmoothPoints}` : ''}` : 'no'}
           </div>
-          <div style={{ color: '#64748b', fontSize: '0.76rem' }}>
-            Detectados: {rawEventCount} · Excluidos por contexto: {excludedContextCount} · Excluidos por artefacto: {excludedArtifactCount} · Usados: {eventCount}
+          <div
+            style={{ color: '#64748b', fontSize: '0.74rem' }}
+            title={[
+              `Detectados ${rawEventCount}`,
+              `Excluidos ctx ${excludedContextCount}`,
+              `Excluidos artefacto ${excludedArtifactCount}`,
+              `Usados ${eventCount}`,
+              `Limpios ${cleanArtifactCount}`,
+              `Suspect ${suspectArtifactCount}`,
+              `Rejected ${rejectedArtifactCount}`,
+              pageArtifactSummary ? `Ép ${pageArtifactSummary.startEpochIndex}-${pageArtifactSummary.endEpochIndex}: ${pageArtifactSummary.states.join(' ')}` : '',
+              n2ContextEnabled && pageN2Summary ? `Ctx ${pageN2Summary.states.join(' ')}` : '',
+            ].filter(Boolean).join(' · ')}
+          >
+            Detectados {rawEventCount} · ctx {excludedContextCount} · artefacto {excludedArtifactCount} · usados {eventCount} · limp/susp/rej {cleanArtifactCount}/{suspectArtifactCount}/{rejectedArtifactCount}
+            {n2ContextEnabled && ` · N2 ${pageN2Summary ? `${pageN2Summary.accepted}/${pageN2Summary.rejected}` : (n2ContextLoading ? '…' : '—')}`}
           </div>
-          <div style={{ color: '#64748b', fontSize: '0.74rem' }}>
-            Limpios: {cleanArtifactCount} · Suspect: {suspectArtifactCount} · Rejected: {rejectedArtifactCount}
-          </div>
-          {n2ContextEnabled && (
-            <div style={{ color: '#64748b', fontSize: '0.74rem' }}>
-              Contexto N2 {pageN2Summary
-                ? `· página ctx ${pageN2Summary.startEpochIndex}-${pageN2Summary.endEpochIndex} · N2 ${pageN2Summary.accepted} · fuera ${pageN2Summary.rejected} · registro N2 ${totalN2Accepted} · fuera ${totalN2Rejected}`
-                : n2ContextLoading
-                  ? '· calculando…'
-                  : '· sin máscara disponible'}
-            </div>
-          )}
-          {n2ContextEnabled && (
-            <div style={{ color: '#64748b', fontSize: '0.74rem' }}>
-              Score N2 {pageN2Summary?.scoreSummary
-                ? `· pág mean ${pageN2Summary.scoreSummary.mean.toFixed(2)} · min ${pageN2Summary.scoreSummary.min.toFixed(2)} · max ${pageN2Summary.scoreSummary.max.toFixed(2)}`
-                : n2ContextLoading
-                  ? '· calculando…'
-                  : '· —'}{totalN2ScoreSummary
-                ? ` · reg mean ${totalN2ScoreSummary.mean.toFixed(2)} · min ${totalN2ScoreSummary.min.toFixed(2)} · max ${totalN2ScoreSummary.max.toFixed(2)}`
-                : ''}
-            </div>
-          )}
-          <div style={{ color: '#64748b', fontSize: '0.74rem' }}>
-            Página {fmtTimeGrid(Math.max(0, currentStartSec))}-{fmtTimeGrid(Math.max(0, currentEndSec))} · {pageArtifactSummary
-              ? `ép ${pageArtifactSummary.startEpochIndex}-${pageArtifactSummary.endEpochIndex} · limpias ${pageArtifactSummary.clean} · suspect ${pageArtifactSummary.suspect} · rejected ${pageArtifactSummary.rejected}`
-              : 'sin máscara de artefactos disponible'}
-          </div>
-          {n2ContextEnabled && pageN2Summary && (
-            <div style={{ color: '#94a3b8', fontSize: '0.71rem', fontFamily: 'monospace' }}>
-              ctx {pageN2Summary.states.join(' ')}
-            </div>
-          )}
-          {pageArtifactSummary && (
-            <div style={{ color: '#94a3b8', fontSize: '0.71rem', fontFamily: 'monospace' }}>
-              {pageArtifactSummary.states.join(' ')}
-            </div>
-          )}
         </div>
         <button
           type="button"
@@ -4499,37 +5065,37 @@ function TriggerAverageModal({
         flex: 1,
         overflow: 'hidden',
         background: '#fffdf6',
-        padding: '0.9rem 1rem',
+        padding: '0.7rem 0.85rem',
         display: 'grid',
-        gridTemplateColumns: 'minmax(290px, 340px) minmax(0, 1fr)',
-        gap: '0.9rem',
+        gridTemplateColumns: 'minmax(280px, 330px) minmax(0, 1fr)',
+        gap: '0.7rem',
       }}>
         <div style={{
           display: 'flex',
           flexDirection: 'column',
-          gap: '0.9rem',
+          gap: '0.55rem',
           minWidth: 0,
           overflowY: 'auto',
           paddingRight: '0.1rem',
         }}>
           <div style={{
-            padding: '0.8rem 0.9rem',
+            padding: '0.58rem 0.7rem',
             border: '1px solid #d1fae5',
             borderRadius: 10,
             background: '#f0fdf4',
             display: 'flex',
             flexDirection: 'column',
-            gap: '0.7rem',
+            gap: '0.45rem',
           }}>
             <div style={{
-              paddingBottom: '0.2rem',
+              paddingBottom: '0.12rem',
               borderBottom: '1px dashed #bbf7d0',
               display: 'flex',
               flexDirection: 'column',
-              gap: '0.45rem',
+              gap: '0.3rem',
             }}>
               <div style={{ color: '#166534', fontSize: '0.73rem', fontWeight: 700 }}>
-                Opciones guardadas
+                Preset
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#166534', fontSize: '0.72rem' }}>
@@ -4609,94 +5175,247 @@ function TriggerAverageModal({
                 </button>
               </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.7rem', flexWrap: 'wrap' }}>
-              <ToolbarSelect label="Canal trigger" value={triggerChannelName} onChange={onTriggerChannelChange} width={148}>
-                {triggerChannelOptions.map((channel) => (
-                  <option key={channel.name} value={channel.name}>{channel.name}</option>
-                ))}
-              </ToolbarSelect>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#475569', fontSize: '0.82rem', whiteSpace: 'nowrap', paddingBottom: '0.2rem' }}>
-                <input
-                  type="checkbox"
-                  checked={showTriggerContralateralOverlay}
-                  onChange={onToggleTriggerContralateralOverlay}
-                />
-                Mostrar contra
-              </label>
-            </div>
-            <ToolbarSelect
-              label="Modo detector"
-              value={triggerDetectionMode}
-              onChange={(value) => onTriggerDetectionModeChange(value as 'event' | 'burst' | 'spindle' | 'slow')}
-              width={148}
-            >
-              <option value="event">Evento</option>
-              <option value="burst">Burst</option>
-              <option value="spindle">Husos</option>
-              <option value="slow">Lentas</option>
-            </ToolbarSelect>
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-              {triggerDetectionMode === 'burst' ? (
-                <NumericSuggestInput
-                  label="Rearme"
-                  value={triggerBurstRearmFraction}
-                  onCommit={(value) => onTriggerBurstRearmFractionChange(Math.max(0, Math.min(0.5, value)))}
-                  suggestions={[0, 0.05, 0.1, 0.15, 0.2]}
-                  width={84}
-                  step={0.01}
-                  min={0}
-                  max={0.5}
-                />
-              ) : (
-                <NumericSuggestInput
-                  label="Refract"
-                  value={triggerRefractorySec}
-                  onCommit={(value) => onTriggerRefractorySecChange(Math.max(0, Math.min(30, value)))}
-                  suggestions={[0.05, 0.1, 0.25, 0.5, 1, 2]}
-                  width={84}
-                  step={0.05}
-                  min={0}
-                  max={30}
-                />
+            <div style={{
+              paddingTop: '0.08rem',
+              borderTop: '1px dashed #bbf7d0',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.35rem',
+            }}>
+              <div style={{ color: '#166534', fontSize: '0.73rem', fontWeight: 700 }}>
+                Detección
+              </div>
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.45rem', flexWrap: 'wrap' }}>
+                <ToolbarSelect label="Canal trigger" value={triggerChannelName} onChange={onTriggerChannelChange} width={148}>
+                  {triggerChannelOptions.map((channel) => (
+                    <option key={channel.name} value={channel.name}>{channel.name}</option>
+                  ))}
+                </ToolbarSelect>
+                <ToolbarSelect
+                  label="Modo de detección"
+                  value={triggerDetectionMode}
+                  onChange={(value) => onTriggerDetectionModeChange(value as 'event' | 'burst' | 'spindle' | 'slow')}
+                  width={132}
+                >
+                  <option value="event">Evento</option>
+                  <option value="burst">Ráfaga</option>
+                  <option value="spindle">Husos</option>
+                  <option value="slow">Ondas lentas</option>
+                </ToolbarSelect>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#475569', fontSize: '0.82rem', whiteSpace: 'nowrap', paddingBottom: '0.2rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={showTriggerContralateralOverlay}
+                    onChange={onToggleTriggerContralateralOverlay}
+                  />
+                  Mostrar canal contra
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#475569', fontSize: '0.82rem', whiteSpace: 'nowrap', paddingBottom: '0.2rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={invertTriggerPolarity}
+                    onChange={onToggleInvertTriggerPolarity}
+                  />
+                  Invertir polaridad trigger
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#475569', fontSize: '0.82rem', whiteSpace: 'nowrap', paddingBottom: '0.2rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={randomizeTriggerMarker}
+                    onChange={onToggleRandomizeTriggerMarker}
+                  />
+                  Azar marcador
+                </label>
+                {randomizeTriggerMarker && (
+                  <NumericSuggestInput
+                    label="± aleatorio (s)"
+                    value={randomizeTriggerMarkerRangeSec}
+                    onCommit={(value) => onRandomizeTriggerMarkerRangeSecChange(Math.max(0, Math.min(10, value)))}
+                    suggestions={[0.25, 0.5, 1, 2]}
+                    width={102}
+                    step={0.25}
+                    min={0}
+                    max={10}
+                  />
+                )}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.4rem', flexWrap: 'wrap' }}>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#166534', fontSize: '0.72rem' }}>
+                  Umbral
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <button type="button" onClick={() => onThresholdNudge(-1)} style={{ width: 28, height: 28, background: '#ffffff', border: '1px solid #86efac', borderRadius: 4, color: '#166534', cursor: 'pointer', fontWeight: 700 }}>−</button>
+                    <div style={{ minWidth: 128, background: '#ffffff', border: '1px solid #bbf7d0', borderRadius: 4, padding: '0.34rem 0.45rem', color: '#166534', fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                      {`${triggerThresholdStep + 1}/${TRIGGER_THRESHOLD_POSITIONS} · ${triggerThreshold.toFixed(2)} µV`}
+                    </div>
+                    <button type="button" onClick={() => onThresholdNudge(1)} style={{ width: 28, height: 28, background: '#ffffff', border: '1px solid #86efac', borderRadius: 4, color: '#166534', cursor: 'pointer', fontWeight: 700 }}>+</button>
+                    {triggerDetectionMode === 'spindle' && (
+                      <button
+                        type="button"
+                        onClick={onAutoThreshold}
+                        style={{
+                          marginLeft: 4,
+                          height: 28,
+                          background: '#ffffff',
+                          border: '1px solid #86efac',
+                          borderRadius: 4,
+                          color: '#166534',
+                          cursor: 'pointer',
+                          fontWeight: 700,
+                          padding: '0 0.55rem',
+                        }}
+                      >
+                        Auto
+                      </button>
+                    )}
+                  </div>
+                </label>
+                {(isEventMode || isBurstMode) && (
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem', paddingBottom: '0.25rem' }}>
+                    <input type="checkbox" checked={triggerRectify} onChange={onTriggerRectifyChange} />
+                    Rectificar trigger
+                  </label>
+                )}
+              </div>
+              <div style={{ color: '#475569', fontSize: '0.71rem', lineHeight: 1.35 }}>
+                {isEventMode
+                  ? 'Evento: dispara cuando la señal trigger cruza el umbral; es el modo general para picos o deflexiones breves. Aquí sí puede tener sentido rectificar trigger.'
+                  : isBurstMode
+                    ? 'Ráfaga: similar a Evento, pero rearma el detector para evitar múltiples disparos dentro de la misma salva. Aquí sí puede tener sentido rectificar trigger.'
+                    : isSpindleMode
+                      ? 'Husos: busca episodios sigma transitorios; el umbral actúa sobre la señal de detección y luego puede refinarse con contexto N2 o patrón espacial.'
+                      : 'Lentas: detector tipo Massimini; banda 0.5–2 Hz, cruces por cero, duración compatible y selección en el valle negativo.'}
+              </div>
+              <div style={{ color: '#166534', fontSize: '0.71rem', fontWeight: 700 }}>
+                Criterios del modo
+              </div>
+              {(isEventMode || isSlowMode) && (
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <NumericSuggestInput
+                    label="Refractario (s)"
+                    value={triggerRefractorySec}
+                    onCommit={(value) => onTriggerRefractorySecChange(Math.max(0, Math.min(30, value)))}
+                    suggestions={[0.05, 0.1, 0.25, 0.5, 1, 2]}
+                    width={98}
+                    step={0.05}
+                    min={0}
+                    max={30}
+                  />
+                </div>
               )}
-              <NumericSuggestInput
-                label="HP trig"
-                value={triggerHp}
-                onCommit={onTriggerHpChange}
-                suggestions={HP_OPTIONS.map((option) => option.value)}
-              />
-              <NumericSuggestInput
-                label="LP trig"
-                value={triggerLp}
-                onCommit={onTriggerLpChange}
-                suggestions={[0, ...LP_OPTIONS.map((option) => option.value)]}
-              />
-              <NumericSuggestInput
-                label="Smooth n"
-                value={triggerSmoothPoints}
-                onCommit={(value) => onTriggerSmoothPointsChange(Math.max(1, Math.round(value)))}
-                suggestions={[1, 3, 5, 7, 9, 11, 21]}
-                width={78}
-                step={1}
-                min={1}
-              />
-              <ToolbarSelect label="Notch trig" value={triggerNotch} onChange={(value) => onTriggerNotchChange(parseFloat(value) || 0)} width={94}>
-                {NOTCH_OPTIONS.map((option) => <option key={option.value} value={option.value}>{`N ${option.label}`}</option>)}
-              </ToolbarSelect>
+              {isBurstMode && (
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <NumericSuggestInput
+                    label="Rearme (fracción)"
+                    value={triggerBurstRearmFraction}
+                    onCommit={(value) => onTriggerBurstRearmFractionChange(Math.max(0, Math.min(0.5, value)))}
+                    suggestions={[0, 0.05, 0.1, 0.15, 0.2]}
+                    width={118}
+                    step={0.01}
+                    min={0}
+                    max={0.5}
+                  />
+                </div>
+              )}
+              {isSpindleMode && (
+                <>
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <NumericSuggestInput
+                  label="Sigma baja (Hz)"
+                  value={spindleSigmaLow}
+                  onCommit={(value) => onSpindleSigmaLowChange(Math.max(0.5, Math.min(value, spindleSigmaHigh - 0.5)))}
+                  suggestions={[10, 11, 12]}
+                  width={106}
+                  step={0.5}
+                  min={0.5}
+                />
+                <NumericSuggestInput
+                  label="Sigma alta (Hz)"
+                  value={spindleSigmaHigh}
+                  onCommit={(value) => onSpindleSigmaHighChange(Math.max(spindleSigmaLow + 0.5, Math.min(value, 40)))}
+                  suggestions={[14, 15, 16]}
+                  width={106}
+                  step={0.5}
+                  min={1}
+                />
+                <NumericSuggestInput
+                  label="Broad baja (Hz)"
+                  value={spindleBroadLow}
+                  onCommit={(value) => onSpindleBroadLowChange(Math.max(0.5, Math.min(value, spindleBroadHigh - 0.5)))}
+                  suggestions={[0.5, 1, 2]}
+                  width={106}
+                  step={0.5}
+                  min={0.5}
+                />
+                <NumericSuggestInput
+                  label="Broad alta (Hz)"
+                  value={spindleBroadHigh}
+                  onCommit={(value) => onSpindleBroadHighChange(Math.max(spindleBroadLow + 0.5, Math.min(value, 80)))}
+                  suggestions={[20, 30, 40]}
+                  width={106}
+                      step={0.5}
+                      min={1}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: artifactEventsAvailable ? '#166534' : '#94a3b8', fontSize: '0.75rem' }}>
+                      <input type="checkbox" checked={excludeArtifactEvents} onChange={onExcludeArtifactEventsChange} disabled={!artifactEventsAvailable} />
+                      Excluir eventos en artefacto
+                    </label>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem' }}>
+                      <input type="checkbox" checked={useN2ContextGate} onChange={onUseN2ContextGateChange} />
+                      Requerir contexto N2
+                    </label>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem' }}>
+                      <input type="checkbox" checked={triggerUseSpatialSpindleFilter} onChange={onTriggerUseSpatialSpindleFilterChange} />
+                      Filtrar husos por patrón espacial
+                    </label>
+                    <div style={{ color: '#475569', fontSize: '0.7rem', lineHeight: 1.3 }}>
+                      candidatos sigma+: {spatialSpindleCandidateCount} · aceptados espaciales: {spatialSpindleAcceptedCount} · usados ahora: {eventCount} · filtro espacial {triggerUseSpatialSpindleFilter ? 'activo' : 'apagado'}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem' }}>
-                <input type="checkbox" checked={triggerDerivativeAfterSmooth} onChange={onTriggerDerivativeAfterSmoothChange} />
-                Derivada tras smooth
-              </label>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: artifactEventsAvailable ? '#166534' : '#94a3b8', fontSize: '0.75rem' }}>
-                <input type="checkbox" checked={excludeArtifactEvents} onChange={onExcludeArtifactEventsChange} disabled={!artifactEventsAvailable} />
-                Excluir eventos en artefacto
-              </label>
-              {(triggerDetectionMode === 'spindle' || triggerDetectionMode === 'slow') && (
+            <div style={{
+              paddingTop: '0.08rem',
+              borderTop: '1px dashed #bbf7d0',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.35rem',
+            }}>
+              <div style={{ color: '#166534', fontSize: '0.73rem', fontWeight: 700 }}>
+                Preprocesado del trigger
+              </div>
+              <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                <NumericSuggestInput
+                  label="HP trigger (Hz)"
+                  value={triggerHp}
+                  onCommit={onTriggerHpChange}
+                  suggestions={HP_OPTIONS.map((option) => option.value)}
+                />
+                <NumericSuggestInput
+                  label="LP trigger (Hz)"
+                  value={triggerLp}
+                  onCommit={onTriggerLpChange}
+                  suggestions={[0, ...LP_OPTIONS.map((option) => option.value)]}
+                />
+                <NumericSuggestInput
+                  label="Suavizado (muestras)"
+                  value={triggerSmoothPoints}
+                  onCommit={(value) => onTriggerSmoothPointsChange(Math.max(1, Math.round(value)))}
+                  suggestions={[1, 3, 5, 7, 9, 11, 21]}
+                  width={118}
+                  step={1}
+                  min={1}
+                />
+                <ToolbarSelect label="Notch trigger" value={triggerNotch} onChange={(value) => onTriggerNotchChange(parseFloat(value) || 0)} width={110}>
+                  {NOTCH_OPTIONS.map((option) => <option key={option.value} value={option.value}>{`N ${option.label}`}</option>)}
+                </ToolbarSelect>
+              </div>
+              {(isEventMode || isBurstMode) && (
                 <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem' }}>
-                  <input type="checkbox" checked={useN2ContextGate} onChange={onUseN2ContextGateChange} />
-                  Requerir contexto N2
+                  <input type="checkbox" checked={triggerDerivativeAfterSmooth} onChange={onTriggerDerivativeAfterSmoothChange} />
+                  Usar derivada tras suavizado
                 </label>
               )}
               {artifactMaskLoading && (
@@ -4704,56 +5423,168 @@ function TriggerAverageModal({
                   Preparando máscara de artefactos…
                 </div>
               )}
-              {n2ContextLoading && (triggerDetectionMode === 'spindle' || triggerDetectionMode === 'slow') && useN2ContextGate && (
+              {n2ContextLoading && (isSpindleMode || isSlowMode) && useN2ContextGate && (
                 <div style={{ color: '#1d4ed8', fontSize: '0.73rem' }}>
                   Calculando contexto N2…
                 </div>
               )}
             </div>
             <div style={{
-              paddingTop: '0.15rem',
+              paddingTop: '0.08rem',
               borderTop: '1px dashed #bbf7d0',
               display: 'flex',
               flexDirection: 'column',
-              gap: '0.5rem',
+              gap: '0.3rem',
             }}>
               <div style={{ color: '#166534', fontSize: '0.73rem', fontWeight: 700 }}>
-                Filtros del promedio
+                Selección de eventos
               </div>
-              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem' }}>
+                <input
+                  type="checkbox"
+                  checked={averageScope === 'record'}
+                  onChange={(e) => onAverageScopeChange(e.target.checked ? 'record' : 'page')}
+                />
+                Promediar registro entero
+              </label>
+              <div style={{ color: '#475569', fontSize: '0.7rem', lineHeight: 1.3 }}>
+                detectados: {rawEventCount} · excluidos por contexto: {excludedContextCount} · excluidos por artefacto: {excludedArtifactCount} · usados: {eventCount}
+              </div>
+              <div style={{ color: '#475569', fontSize: '0.7rem', lineHeight: 1.3 }}>
+                limpios: {cleanArtifactCount} · suspect: {suspectArtifactCount} · rejected: {rejectedArtifactCount}
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, color: '#166534', fontSize: '0.71rem' }}>
+              <span style={{ fontWeight: 700 }}>Ventana del promedio (s)</span>
+              <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span>Desde</span>
+                  <input
+                    type="number"
+                    step="0.05"
+                    min="-30"
+                    max="0"
+                    value={-triggerPreSec}
+                    onChange={(e) => {
+                      const parsed = parseFloat(e.target.value)
+                      const clamped = Math.max(-30, Math.min(0, Number.isFinite(parsed) ? parsed : -triggerPreSec))
+                      onTriggerPreSecChange(Math.abs(clamped))
+                    }}
+                    style={{
+                      width: 72,
+                      background: '#ffffff',
+                      border: '1px solid #bbf7d0',
+                      borderRadius: 4,
+                      padding: '0.2rem 0.35rem',
+                      color: '#166534',
+                    }}
+                  />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span>Hasta</span>
+                  <input
+                    type="number"
+                    step="0.05"
+                    min="0"
+                    max="30"
+                    value={triggerPostSec}
+                    onChange={(e) => {
+                      const parsed = parseFloat(e.target.value)
+                      const clamped = Math.max(0, Math.min(30, Number.isFinite(parsed) ? parsed : triggerPostSec))
+                      onTriggerPostSecChange(clamped)
+                    }}
+                    style={{
+                      width: 72,
+                      background: '#ffffff',
+                      border: '1px solid #bbf7d0',
+                      borderRadius: 4,
+                      padding: '0.2rem 0.35rem',
+                      color: '#166534',
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
+            <div style={{
+              paddingTop: '0.08rem',
+              borderTop: '1px dashed #bbf7d0',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.35rem',
+            }}>
+              <div style={{ color: '#166534', fontSize: '0.73rem', fontWeight: 700 }}>
+                Visualización del promedio
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', flexWrap: 'wrap' }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={averageAutoScale}
+                    onChange={(e) => {
+                      const checked = e.target.checked
+                      if (!checked && Number.isFinite(liveAverageScale.refRange) && liveAverageScale.refRange > 0) {
+                        onLockedAverageRefRangeChange(liveAverageScale.refRange)
+                      }
+                      onAverageAutoScaleChange(checked)
+                    }}
+                  />
+                  Autoescala
+                </label>
+                <span style={{ color: '#64748b', fontSize: '0.7rem', whiteSpace: 'nowrap' }}>
+                  {averageAutoScale
+                    ? `auto · ref ${liveAverageScale.refRange.toFixed(1)} µV`
+                    : `fija · ref ${(lockedAverageRefRange ?? refRange).toFixed(1)} µV`}
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
                 <NumericSuggestInput
-                  label="HP prom"
+                  label="HP promedio (Hz)"
                   value={averageHp}
                   onCommit={onAverageHpChange}
                   suggestions={HP_OPTIONS.map((option) => option.value)}
                 />
                 <NumericSuggestInput
-                  label="LP prom"
+                  label="LP promedio (Hz)"
                   value={averageLp}
                   onCommit={onAverageLpChange}
                   suggestions={[0, ...LP_OPTIONS.map((option) => option.value)]}
                 />
-                <ToolbarSelect label="Notch prom" value={averageNotch} onChange={(value) => onAverageNotchChange(parseFloat(value) || 0)} width={94}>
+                <ToolbarSelect label="Notch promedio" value={averageNotch} onChange={(value) => onAverageNotchChange(parseFloat(value) || 0)} width={118}>
                   {NOTCH_OPTIONS.map((option) => <option key={option.value} value={option.value}>{`N ${option.label}`}</option>)}
                 </ToolbarSelect>
-                <ToolbarSelect label="Gan prom" value={averageGainMult} onChange={(value) => onAverageGainMultChange(parseFloat(value) || 1)} width={92}>
+                <ToolbarSelect label="Ganancia" value={averageGainMult} onChange={(value) => onAverageGainMultChange(parseFloat(value) || 1)} width={92}>
                   {GAIN_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </ToolbarSelect>
+                {rectifyAverage && (
+                  <NumericSuggestInput
+                    label="Suavizado post-rectif"
+                    value={averagePostRectifySmoothPoints}
+                    onCommit={(value) => onAveragePostRectifySmoothPointsChange(Math.max(1, Math.round(value)))}
+                    suggestions={[1, 3, 5, 7, 11, 21]}
+                    width={132}
+                    step={1}
+                    min={1}
+                  />
+                )}
               </div>
               <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem' }}>
                 <input
                   type="checkbox"
                   checked={overlayAverageChannels}
-                  onChange={() => setOverlayAverageChannels((value) => !value)}
+                  onChange={(e) => onOverlayAverageChannelsChange(e.target.checked)}
                 />
                 Superponer canales
+              </label>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem' }}>
+                <input type="checkbox" checked={rectifyAverage} onChange={onRectifyAverageChange} />
+                Rectificar promedio
               </label>
               {overlayAverageChannels && (
                 <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                   <ToolbarSelect
                     label="Compara A"
                     value={overlayCompareChannelA}
-                    onChange={setOverlayCompareChannelA}
+                    onChange={onOverlayCompareChannelAChange}
                     width={132}
                   >
                     <option value="">Ninguno</option>
@@ -4764,7 +5595,7 @@ function TriggerAverageModal({
                   <ToolbarSelect
                     label="Compara B"
                     value={overlayCompareChannelB}
-                    onChange={setOverlayCompareChannelB}
+                    onChange={onOverlayCompareChannelBChange}
                     width={132}
                   >
                     <option value="">Ninguno</option>
@@ -4775,41 +5606,12 @@ function TriggerAverageModal({
                 </div>
               )}
             </div>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#166534', fontSize: '0.72rem' }}>
-              Umbral
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                <button type="button" onClick={() => onThresholdNudge(-1)} style={{ width: 28, height: 28, background: '#ffffff', border: '1px solid #86efac', borderRadius: 4, color: '#166534', cursor: 'pointer', fontWeight: 700 }}>−</button>
-                <div style={{ minWidth: 128, background: '#ffffff', border: '1px solid #bbf7d0', borderRadius: 4, padding: '0.34rem 0.45rem', color: '#166534', fontFamily: 'monospace', fontSize: '0.8rem' }}>
-                  {`${triggerThresholdStep + 1}/${TRIGGER_THRESHOLD_POSITIONS} · ${triggerThreshold.toFixed(2)} µV`}
-                </div>
-                <button type="button" onClick={() => onThresholdNudge(1)} style={{ width: 28, height: 28, background: '#ffffff', border: '1px solid #86efac', borderRadius: 4, color: '#166534', cursor: 'pointer', fontWeight: 700 }}>+</button>
-                {triggerDetectionMode === 'spindle' && (
-                  <button
-                    type="button"
-                    onClick={onAutoThreshold}
-                    style={{
-                      marginLeft: 4,
-                      height: 28,
-                      background: '#ffffff',
-                      border: '1px solid #86efac',
-                      borderRadius: 4,
-                      color: '#166534',
-                      cursor: 'pointer',
-                      fontWeight: 700,
-                      padding: '0 0.55rem',
-                    }}
-                  >
-                    Auto
-                  </button>
-                )}
-              </div>
-            </label>
             <div style={{
-              paddingTop: '0.15rem',
+              paddingTop: '0.08rem',
               borderTop: '1px dashed #bbf7d0',
               display: 'flex',
               flexDirection: 'column',
-              gap: '0.45rem',
+              gap: '0.3rem',
             }}>
               <div style={{ color: '#166534', fontSize: '0.73rem', fontWeight: 700 }}>
                 Marcas del visor
@@ -4889,75 +5691,6 @@ function TriggerAverageModal({
                 )}
               </div>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#166534', fontSize: '0.72rem' }}>
-              <span style={{ fontWeight: 700 }}>Ventana (s)</span>
-              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <span>Desde</span>
-                  <input
-                    type="number"
-                    step="0.05"
-                    min="-30"
-                    max="0"
-                    value={-triggerPreSec}
-                    onChange={(e) => {
-                      const parsed = parseFloat(e.target.value)
-                      const clamped = Math.max(-30, Math.min(0, Number.isFinite(parsed) ? parsed : -triggerPreSec))
-                      onTriggerPreSecChange(Math.abs(clamped))
-                    }}
-                    style={{
-                      width: 72,
-                      background: '#ffffff',
-                      border: '1px solid #bbf7d0',
-                      borderRadius: 4,
-                      padding: '0.2rem 0.35rem',
-                      color: '#166534',
-                    }}
-                  />
-                </label>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <span>Hasta</span>
-                  <input
-                    type="number"
-                    step="0.05"
-                    min="0"
-                    max="30"
-                    value={triggerPostSec}
-                    onChange={(e) => {
-                      const parsed = parseFloat(e.target.value)
-                      const clamped = Math.max(0, Math.min(30, Number.isFinite(parsed) ? parsed : triggerPostSec))
-                      onTriggerPostSecChange(clamped)
-                    }}
-                    style={{
-                      width: 72,
-                      background: '#ffffff',
-                      border: '1px solid #bbf7d0',
-                      borderRadius: 4,
-                      padding: '0.2rem 0.35rem',
-                      color: '#166534',
-                    }}
-                  />
-                </label>
-              </div>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem' }}>
-                <input type="checkbox" checked={triggerRectify} onChange={onTriggerRectifyChange} />
-                Rectificar trigger
-              </label>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem' }}>
-                <input type="checkbox" checked={rectifyAverage} onChange={onRectifyAverageChange} />
-                Rectificar promedio
-              </label>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem' }}>
-                <input
-                  type="checkbox"
-                  checked={averageScope === 'record'}
-                  onChange={(e) => onAverageScopeChange(e.target.checked ? 'record' : 'page')}
-                />
-                Promediar registro entero
-              </label>
-            </div>
           </div>
           {averageScope === 'record' && (
             <div style={{
@@ -4986,15 +5719,15 @@ function TriggerAverageModal({
             </div>
           )}
           <div style={{
-            padding: '0.85rem 0.9rem',
+            padding: '0.45rem 0.6rem',
             border: '1px solid #dbeafe',
-            borderRadius: 10,
+            borderRadius: 8,
             background: '#f8fbff',
-            color: '#475569',
-            fontSize: '0.8rem',
-            lineHeight: 1.5,
+            color: '#64748b',
+            fontSize: '0.72rem',
+            lineHeight: 1.35,
           }}>
-            El panel derecho muestra todos los canales promediados. Mantén esta vista abierta mientras ajustas el trigger aquí a la izquierda.
+            Derecha: preview del trigger arriba y promedio multicanal abajo.
           </div>
         </div>
         <div style={{
@@ -5118,6 +5851,12 @@ export default function EEGViewer() {
   const [montageToolsOpen, setMontageToolsOpen] = useState(false)
   const [montageToolsMenuPos, setMontageToolsMenuPos] = useState<{ top: number; left: number } | null>(null)
   const [montageToolsSection, setMontageToolsSection] = useState<'avg' | 'extras' | null>(null)
+  const [fileMenuOpen, setFileMenuOpen] = useState(false)
+  const [fileMenuPos, setFileMenuPos] = useState<{ top: number; left: number } | null>(null)
+  const [analysisMenuOpen, setAnalysisMenuOpen] = useState(false)
+  const [analysisMenuPos, setAnalysisMenuPos] = useState<{ top: number; left: number } | null>(null)
+  const [aboutMenuOpen, setAboutMenuOpen] = useState(false)
+  const [aboutMenuPos, setAboutMenuPos] = useState<{ top: number; left: number } | null>(null)
   const [avgRefOpen, setAvgRefOpen] = useState(false)
   const [avgRefMenuPos, setAvgRefMenuPos] = useState<{ top: number; left: number } | null>(null)
   const [extrasOpen, setExtrasOpen] = useState(false)
@@ -5136,6 +5875,12 @@ export default function EEGViewer() {
   const [stateSpectralLoading, setStateSpectralLoading] = useState(false)
   const [stateSpectralPanels, setStateSpectralPanels] = useState<StateSpectralPanelData | null>(null)
   const [stateSpectralPanelsLoading, setStateSpectralPanelsLoading] = useState(false)
+  const [stateSpectralSpindleSnippets, setStateSpectralSpindleSnippets] = useState<StateSpectralSpindleSnippetData | null>(null)
+  const [stateSpectralSpindleSnippetsLoading, setStateSpectralSpindleSnippetsLoading] = useState(false)
+  const [stateSpectralEpochSelectionMode, setStateSpectralEpochSelectionMode] = useState<StateSpectralEpochSelectionMode>('all-clean')
+  const [stateSpectralArtifactMode, setStateSpectralArtifactMode] = useState<StateSpectralArtifactMode>('clean-only')
+  const [stateSpectralSigmaLowHz, setStateSpectralSigmaLowHz] = useState(11)
+  const [stateSpectralSigmaHighHz, setStateSpectralSigmaHighHz] = useState(16)
   const [dsaData,         setDsaData]         = useState<DSAData | null>(null)
   const [dsaLoading,      setDsaLoading]      = useState(false)
   const [dsaError,        setDsaError]        = useState('')
@@ -5153,7 +5898,11 @@ export default function EEGViewer() {
   const [triggerAvgModalOpen, setTriggerAvgModalOpen] = useState(false)
   const [triggerChannelName, setTriggerChannelName] = useState('')
   const [showTriggerContralateralOverlay, setShowTriggerContralateralOverlay] = useState(true)
+  const [invertTriggerPolarity, setInvertTriggerPolarity] = useState(false)
+  const [randomizeTriggerMarker, setRandomizeTriggerMarker] = useState(false)
+  const [randomizeTriggerMarkerRangeSec, setRandomizeTriggerMarkerRangeSec] = useState(1)
   const [triggerDetectionMode, setTriggerDetectionMode] = useState<'event' | 'burst' | 'spindle' | 'slow'>('event')
+  const [triggerUseSpatialSpindleFilter, setTriggerUseSpatialSpindleFilter] = useState(false)
   const [triggerHp, setTriggerHp] = useState(0)
   const [triggerLp, setTriggerLp] = useState(45)
   const [triggerNotch, setTriggerNotch] = useState(0)
@@ -5172,6 +5921,12 @@ export default function EEGViewer() {
   const [averageLp, setAverageLp] = useState(0)
   const [averageNotch, setAverageNotch] = useState(0)
   const [averageGainMult, setAverageGainMult] = useState(1)
+  const [averageAutoScale, setAverageAutoScale] = useState(true)
+  const [lockedAverageRefRange, setLockedAverageRefRange] = useState<number | null>(null)
+  const [averagePostRectifySmoothPoints, setAveragePostRectifySmoothPoints] = useState(1)
+  const [overlayAverageChannels, setOverlayAverageChannels] = useState(false)
+  const [overlayCompareChannelA, setOverlayCompareChannelA] = useState('')
+  const [overlayCompareChannelB, setOverlayCompareChannelB] = useState('')
   const [triggerRectifyAverage, setTriggerRectifyAverage] = useState(false)
   const [excludeArtifactEvents, setExcludeArtifactEvents] = useState(true)
   const [useN2ContextGate, setUseN2ContextGate] = useState(false)
@@ -5205,13 +5960,28 @@ export default function EEGViewer() {
   const qeegGlobalTimeseriesNeeded = phase === 'viewing' && sleepAnalyzerOpen
   const stateSpectralTimelineNeeded = phase === 'viewing' && sleepAnalyzerOpen
   const stateSpectralPanelsNeeded = phase === 'viewing' && (sleepAnalyzerOpen || stateSpectraOpen)
+  const triggerUsesSpatialSpindles = triggerDetectionMode === 'spindle' && triggerUseSpatialSpindleFilter
+  const stateSpectralSpindleSnippetArtifactMode = triggerUsesSpatialSpindles && triggerAvgOpen
+    ? (excludeArtifactEvents ? 'clean-only' : 'clean-plus-artifact')
+    : stateSpectralArtifactMode
+  const stateSpectralSpindleSnippetSigmaLowHz = triggerUsesSpatialSpindles && triggerAvgOpen
+    ? spindleSigmaLow
+    : stateSpectralSigmaLowHz
+  const stateSpectralSpindleSnippetSigmaHighHz = triggerUsesSpatialSpindles && triggerAvgOpen
+    ? spindleSigmaHigh
+    : stateSpectralSigmaHighHz
+  const stateSpectralSpindleSnippetsNeeded = phase === 'viewing' && (
+    (stateSpectraOpen && stateSpectralEpochSelectionMode === 'with-spindles')
+    || (triggerAvgOpen && triggerUsesSpatialSpindles)
+  )
   const sleepAnalyzerBusy =
     artifactMaskLoading ||
     sleepSketchLoading ||
     qeegGlobalTimeseriesLoading ||
     stateSpectralLoading ||
-    stateSpectralPanelsLoading
-  const stateSpectraBusy = stateSpectralPanelsLoading
+    stateSpectralPanelsLoading ||
+    stateSpectralSpindleSnippetsLoading
+  const stateSpectraBusy = stateSpectralPanelsLoading || stateSpectralSpindleSnippetsLoading
   const [fullRecordTriggerAverageError, setFullRecordTriggerAverageError] = useState('')
   const [n2ContextData, setN2ContextData] = useState<N2ContextData | null>(null)
   const [n2ContextLoading, setN2ContextLoading] = useState(false)
@@ -5220,6 +5990,16 @@ export default function EEGViewer() {
   const [triggerAvgPresets, setTriggerAvgPresets] = useState<TriggerAveragePresetMap>({})
   const [triggerAvgPresetDraftName, setTriggerAvgPresetDraftName] = useState('')
   const [selectedTriggerAvgPresetName, setSelectedTriggerAvgPresetName] = useState('')
+  const viewerComputeBusy =
+    dsaLoading ||
+    artifactMaskLoading ||
+    sleepSketchLoading ||
+    qeegGlobalTimeseriesLoading ||
+    stateSpectralLoading ||
+    stateSpectralPanelsLoading ||
+    stateSpectralSpindleSnippetsLoading ||
+    n2ContextLoading ||
+    fullRecordTriggerAverageLoading
 
   const canvasRef  = useRef<HTMLCanvasElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)
@@ -5239,6 +6019,7 @@ export default function EEGViewer() {
   const qeegGlobalTimeseriesCacheRef = useRef<QeegGlobalTimeseriesData | null>(null)
   const stateSpectralCacheRef = useRef<Map<string, StateSpectralTimelineData>>(new Map())
   const stateSpectralPanelsCacheRef = useRef<Map<string, StateSpectralPanelData>>(new Map())
+  const stateSpectralSpindleSnippetsCacheRef = useRef<Map<string, StateSpectralSpindleSnippetData>>(new Map())
   const n2ContextCacheRef = useRef<Map<string, N2ContextData>>(new Map())
   const avgRefButtonRef = useRef<HTMLButtonElement>(null)
   const avgRefMenuRef = useRef<HTMLDivElement>(null)
@@ -5246,6 +6027,12 @@ export default function EEGViewer() {
   const extrasMenuRef = useRef<HTMLDivElement>(null)
   const montageToolsButtonRef = useRef<HTMLButtonElement>(null)
   const montageToolsMenuRef = useRef<HTMLDivElement>(null)
+  const fileMenuButtonRef = useRef<HTMLButtonElement>(null)
+  const fileMenuRef = useRef<HTMLDivElement>(null)
+  const analysisMenuButtonRef = useRef<HTMLButtonElement>(null)
+  const analysisMenuRef = useRef<HTMLDivElement>(null)
+  const aboutMenuButtonRef = useRef<HTMLButtonElement>(null)
+  const aboutMenuRef = useRef<HTMLDivElement>(null)
   const loadVersionRef = useRef(0)
   const triggerAverageLoadVersionRef = useRef(0)
   const restoreInFlightRef = useRef(false)
@@ -5287,7 +6074,11 @@ export default function EEGViewer() {
   const currentTriggerAverageSettings = useMemo<PersistedTriggerAverageSettings>(() => ({
     triggerChannelName,
     showTriggerContralateralOverlay,
+    invertTriggerPolarity,
+    randomizeTriggerMarker,
+    randomizeTriggerMarkerRangeSec,
     triggerDetectionMode,
+    triggerUseSpatialSpindleFilter,
     triggerHp,
     triggerLp,
     triggerNotch,
@@ -5306,6 +6097,12 @@ export default function EEGViewer() {
     averageLp,
     averageNotch,
     averageGainMult,
+    averageAutoScale,
+    lockedAverageRefRange,
+    averagePostRectifySmoothPoints,
+    overlayAverageChannels,
+    overlayCompareChannelA,
+    overlayCompareChannelB,
     triggerRectifyAverage,
     excludeArtifactEvents,
     useN2ContextGate,
@@ -5317,7 +6114,11 @@ export default function EEGViewer() {
   }), [
     triggerChannelName,
     showTriggerContralateralOverlay,
+    invertTriggerPolarity,
+    randomizeTriggerMarker,
+    randomizeTriggerMarkerRangeSec,
     triggerDetectionMode,
+    triggerUseSpatialSpindleFilter,
     triggerHp,
     triggerLp,
     triggerNotch,
@@ -5336,6 +6137,12 @@ export default function EEGViewer() {
     averageLp,
     averageNotch,
     averageGainMult,
+    averageAutoScale,
+    lockedAverageRefRange,
+    averagePostRectifySmoothPoints,
+    overlayAverageChannels,
+    overlayCompareChannelA,
+    overlayCompareChannelB,
     triggerRectifyAverage,
     excludeArtifactEvents,
     useN2ContextGate,
@@ -5505,6 +6312,117 @@ export default function EEGViewer() {
   }, [montageToolsOpen])
 
   useEffect(() => {
+    if (!fileMenuOpen) {
+      setFileMenuPos(null)
+      return
+    }
+
+    const updateMenuPosition = () => {
+      const rect = fileMenuButtonRef.current?.getBoundingClientRect()
+      if (!rect) return
+      setFileMenuPos({
+        top: rect.bottom + 6,
+        left: Math.max(8, rect.left),
+      })
+    }
+
+    const handleOutside = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (
+        fileMenuButtonRef.current?.contains(target) ||
+        fileMenuRef.current?.contains(target)
+      ) {
+        return
+      }
+      setFileMenuOpen(false)
+    }
+
+    updateMenuPosition()
+    window.addEventListener('resize', updateMenuPosition)
+    window.addEventListener('scroll', updateMenuPosition, true)
+    document.addEventListener('mousedown', handleOutside)
+    return () => {
+      window.removeEventListener('resize', updateMenuPosition)
+      window.removeEventListener('scroll', updateMenuPosition, true)
+      document.removeEventListener('mousedown', handleOutside)
+    }
+  }, [fileMenuOpen])
+
+  useEffect(() => {
+    if (!analysisMenuOpen) {
+      setAnalysisMenuPos(null)
+      return
+    }
+
+    const updateMenuPosition = () => {
+      const rect = analysisMenuButtonRef.current?.getBoundingClientRect()
+      if (!rect) return
+      setAnalysisMenuPos({
+        top: rect.bottom + 6,
+        left: Math.max(8, rect.left),
+      })
+    }
+
+    const handleOutside = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (
+        analysisMenuButtonRef.current?.contains(target) ||
+        analysisMenuRef.current?.contains(target)
+      ) {
+        return
+      }
+      setAnalysisMenuOpen(false)
+    }
+
+    updateMenuPosition()
+    window.addEventListener('resize', updateMenuPosition)
+    window.addEventListener('scroll', updateMenuPosition, true)
+    document.addEventListener('mousedown', handleOutside)
+    return () => {
+      window.removeEventListener('resize', updateMenuPosition)
+      window.removeEventListener('scroll', updateMenuPosition, true)
+      document.removeEventListener('mousedown', handleOutside)
+    }
+  }, [analysisMenuOpen])
+
+  useEffect(() => {
+    if (!aboutMenuOpen) {
+      setAboutMenuPos(null)
+      return
+    }
+
+    const updateMenuPosition = () => {
+      const rect = aboutMenuButtonRef.current?.getBoundingClientRect()
+      if (!rect) return
+      setAboutMenuPos({
+        top: rect.bottom + 6,
+        left: Math.max(8, rect.right - 280),
+      })
+    }
+
+    const handleOutside = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (
+        aboutMenuButtonRef.current?.contains(target) ||
+        aboutMenuRef.current?.contains(target)
+      ) {
+        return
+      }
+      setAboutMenuOpen(false)
+    }
+
+    updateMenuPosition()
+    window.addEventListener('resize', updateMenuPosition)
+    window.addEventListener('scroll', updateMenuPosition, true)
+    document.addEventListener('mousedown', handleOutside)
+    return () => {
+      window.removeEventListener('resize', updateMenuPosition)
+      window.removeEventListener('scroll', updateMenuPosition, true)
+      document.removeEventListener('mousedown', handleOutside)
+    }
+  }, [aboutMenuOpen])
+
+  useEffect(() => {
     if (!extrasOpen) {
       setExtrasMenuPos(null)
       return
@@ -5580,7 +6498,11 @@ export default function EEGViewer() {
   const applyTriggerAverageSettings = useCallback((settings: PersistedTriggerAverageSettings) => {
     setTriggerChannelName(settings.triggerChannelName)
     setShowTriggerContralateralOverlay(settings.showTriggerContralateralOverlay)
+    setInvertTriggerPolarity(!!settings.invertTriggerPolarity)
+    setRandomizeTriggerMarker(!!settings.randomizeTriggerMarker)
+    setRandomizeTriggerMarkerRangeSec(Math.max(0, Number.isFinite(settings.randomizeTriggerMarkerRangeSec) ? settings.randomizeTriggerMarkerRangeSec : 1))
     setTriggerDetectionMode(settings.triggerDetectionMode)
+    setTriggerUseSpatialSpindleFilter(!!settings.triggerUseSpatialSpindleFilter)
     setTriggerHp(settings.triggerHp)
     setTriggerLp(settings.triggerLp)
     setTriggerNotch(settings.triggerNotch)
@@ -5599,6 +6521,16 @@ export default function EEGViewer() {
     setAverageLp(settings.averageLp)
     setAverageNotch(settings.averageNotch)
     setAverageGainMult(Number.isFinite(settings.averageGainMult) && settings.averageGainMult > 0 ? settings.averageGainMult : 1)
+    setAverageAutoScale(settings.averageAutoScale !== false)
+    setLockedAverageRefRange(
+      Number.isFinite(settings.lockedAverageRefRange ?? NaN) && (settings.lockedAverageRefRange ?? 0) > 0
+        ? settings.lockedAverageRefRange ?? null
+        : null,
+    )
+    setAveragePostRectifySmoothPoints(Math.max(1, Math.round(settings.averagePostRectifySmoothPoints || 1)))
+    setOverlayAverageChannels(!!settings.overlayAverageChannels)
+    setOverlayCompareChannelA(settings.overlayCompareChannelA || '')
+    setOverlayCompareChannelB(settings.overlayCompareChannelB || '')
     setTriggerRectifyAverage(settings.triggerRectifyAverage)
     setExcludeArtifactEvents(settings.excludeArtifactEvents)
     setUseN2ContextGate(!!settings.useN2ContextGate)
@@ -5658,6 +6590,7 @@ export default function EEGViewer() {
     if (triggerIndex < 0) return null
     return computeTriggerPreviewSignal(processedEpoch.data[triggerIndex], processedEpoch.sfreq, {
       detectionMode: triggerDetectionMode,
+      invertTriggerPolarity,
       hp: triggerHp,
       lp: triggerLp,
       notch: triggerNotch,
@@ -5669,7 +6602,7 @@ export default function EEGViewer() {
       spindleBroadLow,
       spindleBroadHigh,
     })
-  }, [processedEpoch, triggerAvgOpen, triggerChannelName, triggerDetectionMode, triggerHp, triggerLp, triggerNotch, triggerRectify, triggerSmoothPoints, triggerDerivativeAfterSmooth, spindleSigmaLow, spindleSigmaHigh, spindleBroadLow, spindleBroadHigh])
+  }, [processedEpoch, triggerAvgOpen, triggerChannelName, triggerDetectionMode, invertTriggerPolarity, triggerHp, triggerLp, triggerNotch, triggerRectify, triggerSmoothPoints, triggerDerivativeAfterSmooth, spindleSigmaLow, spindleSigmaHigh, spindleBroadLow, spindleBroadHigh])
 
   const triggerOverlayChannelName = useMemo(() => {
     if (!showTriggerContralateralOverlay || !triggerAvgOpen || !processedEpoch || !triggerChannelName) return null
@@ -5682,6 +6615,7 @@ export default function EEGViewer() {
     if (overlayIndex < 0) return null
     return computeTriggerPreviewSignal(processedEpoch.data[overlayIndex], processedEpoch.sfreq, {
       detectionMode: triggerDetectionMode,
+      invertTriggerPolarity: false,
       hp: triggerHp,
       lp: triggerLp,
       notch: triggerNotch,
@@ -5795,51 +6729,57 @@ export default function EEGViewer() {
     && (triggerDetectionMode === 'spindle' || triggerDetectionMode === 'slow')
   const triggerAverageWaitingForArtifacts = triggerAvgOpen && excludeArtifactEvents && artifactMaskLoading
   const triggerAverageWaitingForN2Context = triggerAvgOpen && triggerN2ContextEligible && n2ContextLoading
-  const triggerAverageWaitingForPrerequisites = triggerAverageWaitingForArtifacts || triggerAverageWaitingForN2Context
+  const triggerAverageWaitingForSpatialSpindles = triggerAvgOpen && triggerUsesSpatialSpindles && stateSpectralSpindleSnippetsNeeded && stateSpectralSpindleSnippetsLoading
+  const triggerAverageWaitingForPrerequisites =
+    triggerAverageWaitingForArtifacts
+    || triggerAverageWaitingForN2Context
+    || triggerAverageWaitingForSpatialSpindles
   const effectiveN2ContextGate = triggerN2ContextEligible
     && !!n2ContextData?.statuses.length
     && !!n2ContextData?.contextEpochSec
 
-  const triggerAverageResult = useMemo(() => {
-    if (!triggerAvgOpen || !processedEpoch || !triggerChannelName || triggerAverageWaitingForPrerequisites) return null
-    return computeTriggeredAverage(processedEpoch, {
-      triggerChannelName,
-      threshold: effectiveTriggerThresholdValue,
-      preSec: triggerPreSec,
-      postSec: triggerPostSec,
-      detectionMode: triggerDetectionMode,
-      hp: triggerHp,
-      lp: triggerLp,
-      notch: triggerNotch,
-      triggerSmoothPoints,
-      triggerDerivativeAfterSmooth,
-      averageHp,
-      averageLp,
-      averageNotch,
-      rectifyTrigger: triggerRectify,
-      rectifyAverage: triggerRectifyAverage,
-      refractorySec: triggerRefractorySec,
-      burstRearmFraction: triggerBurstRearmFraction,
-      spindleSigmaLow,
-      spindleSigmaHigh,
-      spindleBroadLow,
-      spindleBroadHigh,
-      spindleAmplitudeStdMultiplier,
-      spindleMinSec,
-      spindleMaxSec,
-      spindleAdaptiveThresholdOverride: effectiveSpindleAdaptiveThreshold ?? undefined,
-      excludeArtifactEvents,
-      artifactStatuses: artifactMaskData?.artifactStatuses,
-      artifactEpochSec: artifactMaskData?.artifactEpochSec,
-      useN2ContextGate: effectiveN2ContextGate,
-      n2ContextStatuses: n2ContextData?.statuses,
-      n2ContextEpochSec: n2ContextData?.contextEpochSec,
-      recordStartSec: recordOffset,
-    })
-  }, [
-    processedEpoch,
-    triggerAvgOpen,
+  const buildTriggerAverageOptions = useCallback((recordStartSecValue: number) => ({
     triggerChannelName,
+    invertTriggerPolarity,
+    randomizeTriggerMarker,
+    randomizeTriggerMarkerRangeSec,
+    threshold: effectiveTriggerThresholdValue,
+    preSec: triggerPreSec,
+    postSec: triggerPostSec,
+    detectionMode: triggerDetectionMode,
+    hp: triggerHp,
+    lp: triggerLp,
+    notch: triggerNotch,
+    triggerSmoothPoints,
+    triggerDerivativeAfterSmooth,
+    averageHp,
+    averageLp,
+    averageNotch,
+    averagePostRectifySmoothPoints,
+    rectifyTrigger: triggerRectify,
+    rectifyAverage: triggerRectifyAverage,
+    refractorySec: triggerRefractorySec,
+    burstRearmFraction: triggerBurstRearmFraction,
+    spindleSigmaLow,
+    spindleSigmaHigh,
+    spindleBroadLow,
+    spindleBroadHigh,
+    spindleAmplitudeStdMultiplier,
+    spindleMinSec,
+    spindleMaxSec,
+    spindleAdaptiveThresholdOverride: effectiveSpindleAdaptiveThreshold ?? undefined,
+    excludeArtifactEvents,
+    artifactStatuses: artifactMaskData?.artifactStatuses,
+    artifactEpochSec: artifactMaskData?.artifactEpochSec,
+    useN2ContextGate: effectiveN2ContextGate,
+    n2ContextStatuses: n2ContextData?.statuses,
+    n2ContextEpochSec: n2ContextData?.contextEpochSec,
+    recordStartSec: recordStartSecValue,
+  }), [
+    triggerChannelName,
+    invertTriggerPolarity,
+    randomizeTriggerMarker,
+    randomizeTriggerMarkerRangeSec,
     effectiveTriggerThresholdValue,
     triggerPreSec,
     triggerPostSec,
@@ -5852,6 +6792,7 @@ export default function EEGViewer() {
     averageHp,
     averageLp,
     averageNotch,
+    averagePostRectifySmoothPoints,
     triggerRectify,
     triggerRectifyAverage,
     triggerRefractorySec,
@@ -5868,80 +6809,58 @@ export default function EEGViewer() {
     artifactMaskData,
     effectiveN2ContextGate,
     n2ContextData,
+  ])
+
+  const buildSpatialSpindleTriggeredAverage = useCallback((sourceEpoch: EpochData, recordStartSecValue: number) => {
+    if (!stateSpectralSpindleSnippets || !triggerChannelName) return null
+    const acceptedOnsets = Array.from(stateSpectralSpindleSnippets.acceptedOnsetSec ?? [])
+    if (acceptedOnsets.length === 0) {
+      return buildTriggeredAverageFromEvents(sourceEpoch, buildTriggerAverageOptions(recordStartSecValue), [])
+    }
+    const explicitEvents = acceptedOnsets
+      .map((absoluteOnsetSec) => {
+        const relativeOnsetSec = Number(absoluteOnsetSec) - recordStartSecValue
+        const sampleIndex = Math.round(relativeOnsetSec * sourceEpoch.sfreq)
+        return {
+          sampleIndex,
+          onsetSec: relativeOnsetSec,
+        }
+      })
+      .filter((event) => event.sampleIndex >= 0 && event.sampleIndex < sourceEpoch.nSamples)
+      .sort((a, b) => a.sampleIndex - b.sampleIndex)
+    return buildTriggeredAverageFromEvents(sourceEpoch, buildTriggerAverageOptions(recordStartSecValue), explicitEvents)
+  }, [buildTriggerAverageOptions, stateSpectralSpindleSnippets, triggerChannelName])
+
+  const triggerAverageResult = useMemo(() => {
+    if (!triggerAvgOpen || !processedEpoch || !triggerChannelName || triggerAverageWaitingForPrerequisites) return null
+    return triggerUsesSpatialSpindles
+      ? buildSpatialSpindleTriggeredAverage(processedEpoch, recordOffset)
+      : computeTriggeredAverage(processedEpoch, buildTriggerAverageOptions(recordOffset))
+  }, [
+    processedEpoch,
+    triggerAvgOpen,
+    triggerChannelName,
     recordOffset,
     triggerAverageWaitingForPrerequisites,
+    triggerUsesSpatialSpindles,
+    buildSpatialSpindleTriggeredAverage,
+    buildTriggerAverageOptions,
   ])
 
   const scopeAlignedPageTriggerAverageResult = useMemo(() => {
     if (!triggerAvgOpen || !processedEpoch || !triggerChannelName || triggerAverageWaitingForPrerequisites) return null
-    return computeTriggeredAverage(processedEpoch, {
-      triggerChannelName,
-      threshold: effectiveTriggerThresholdValue,
-      preSec: triggerPreSec,
-      postSec: triggerPostSec,
-      detectionMode: triggerDetectionMode,
-      hp: triggerHp,
-      lp: triggerLp,
-      notch: triggerNotch,
-      triggerSmoothPoints,
-      triggerDerivativeAfterSmooth,
-      averageHp,
-      averageLp,
-      averageNotch,
-      rectifyTrigger: triggerRectify,
-      rectifyAverage: triggerRectifyAverage,
-      refractorySec: triggerRefractorySec,
-      burstRearmFraction: triggerBurstRearmFraction,
-      spindleSigmaLow,
-      spindleSigmaHigh,
-      spindleBroadLow,
-      spindleBroadHigh,
-      spindleAmplitudeStdMultiplier,
-      spindleMinSec,
-      spindleMaxSec,
-      spindleAdaptiveThresholdOverride: effectiveSpindleAdaptiveThreshold ?? undefined,
-      excludeArtifactEvents,
-      artifactStatuses: artifactMaskData?.artifactStatuses,
-      artifactEpochSec: artifactMaskData?.artifactEpochSec,
-      useN2ContextGate: effectiveN2ContextGate,
-      n2ContextStatuses: n2ContextData?.statuses,
-      n2ContextEpochSec: n2ContextData?.contextEpochSec,
-      recordStartSec: recordOffset,
-    })
+    return triggerUsesSpatialSpindles
+      ? buildSpatialSpindleTriggeredAverage(processedEpoch, recordOffset)
+      : computeTriggeredAverage(processedEpoch, buildTriggerAverageOptions(recordOffset))
   }, [
     processedEpoch,
     triggerAvgOpen,
     triggerChannelName,
-    effectiveTriggerThresholdValue,
-    triggerPreSec,
-    triggerPostSec,
-    triggerDetectionMode,
-    triggerHp,
-    triggerLp,
-    triggerNotch,
-    triggerSmoothPoints,
-    triggerDerivativeAfterSmooth,
-    averageHp,
-    averageLp,
-    averageNotch,
-    triggerRectify,
-    triggerRectifyAverage,
-    triggerRefractorySec,
-    triggerBurstRearmFraction,
-    spindleSigmaLow,
-    spindleSigmaHigh,
-    spindleBroadLow,
-    spindleBroadHigh,
-    spindleAmplitudeStdMultiplier,
-    spindleMinSec,
-    spindleMaxSec,
-    effectiveSpindleAdaptiveThreshold,
-    excludeArtifactEvents,
-    artifactMaskData,
-    effectiveN2ContextGate,
-    n2ContextData,
     recordOffset,
     triggerAverageWaitingForPrerequisites,
+    triggerUsesSpatialSpindles,
+    buildSpatialSpindleTriggeredAverage,
+    buildTriggerAverageOptions,
   ])
 
   useEffect(() => {
@@ -5961,6 +6880,12 @@ export default function EEGViewer() {
     if (triggerAverageWaitingForN2Context) {
       setFullRecordTriggerAverageLoading(true)
       setFullRecordTriggerAverageError('Calculando contexto N2…')
+      setFullRecordTriggerAverageResult(null)
+      return
+    }
+    if (triggerAverageWaitingForSpatialSpindles) {
+      setFullRecordTriggerAverageLoading(true)
+      setFullRecordTriggerAverageError('Calculando husos espaciales…')
       setFullRecordTriggerAverageResult(null)
       return
     }
@@ -5991,40 +6916,9 @@ export default function EEGViewer() {
         if (!rawFullEpoch) throw new Error('No se pudo leer el registro completo.')
 
         const processedFullEpoch = processEpochForViewer(rawFullEpoch)
-        const nextResult = computeTriggeredAverage(processedFullEpoch, {
-          triggerChannelName,
-          threshold: effectiveTriggerThresholdValue,
-          preSec: triggerPreSec,
-          postSec: triggerPostSec,
-          detectionMode: triggerDetectionMode,
-          hp: triggerHp,
-          lp: triggerLp,
-          notch: triggerNotch,
-          triggerSmoothPoints,
-          triggerDerivativeAfterSmooth,
-          averageHp,
-          averageLp,
-          averageNotch,
-          rectifyTrigger: triggerRectify,
-          rectifyAverage: triggerRectifyAverage,
-          refractorySec: triggerRefractorySec,
-          burstRearmFraction: triggerBurstRearmFraction,
-          spindleSigmaLow,
-          spindleSigmaHigh,
-          spindleBroadLow,
-          spindleBroadHigh,
-          spindleAmplitudeStdMultiplier,
-          spindleMinSec,
-          spindleMaxSec,
-          spindleAdaptiveThresholdOverride: effectiveSpindleAdaptiveThreshold ?? undefined,
-          excludeArtifactEvents,
-          artifactStatuses: artifactMaskData?.artifactStatuses,
-          artifactEpochSec: artifactMaskData?.artifactEpochSec,
-          useN2ContextGate: effectiveN2ContextGate,
-          n2ContextStatuses: n2ContextData?.statuses,
-          n2ContextEpochSec: n2ContextData?.contextEpochSec,
-          recordStartSec: 0,
-        })
+        const nextResult = triggerUsesSpatialSpindles
+          ? buildSpatialSpindleTriggeredAverage(processedFullEpoch, 0)
+          : computeTriggeredAverage(processedFullEpoch, buildTriggerAverageOptions(0))
 
         if (triggerAverageLoadVersionRef.current !== requestVersion) return
         setFullRecordTriggerAverageResult(nextResult)
@@ -6079,6 +6973,10 @@ export default function EEGViewer() {
     n2ContextData,
     triggerAverageWaitingForArtifacts,
     triggerAverageWaitingForN2Context,
+    triggerAverageWaitingForSpatialSpindles,
+    triggerUsesSpatialSpindles,
+    buildSpatialSpindleTriggeredAverage,
+    buildTriggerAverageOptions,
   ])
 
   const activeTriggerAverageResult = triggerAverageScope === 'record'
@@ -6092,6 +6990,7 @@ export default function EEGViewer() {
   const createViewerAnnotationsFromTrigger = useCallback(() => {
     if (!activeTriggerAverageResult || !triggerChannelName) return
     const baseEvents = activeTriggerAverageResult.events
+    const annotationPrefix = triggerUsesSpatialSpindles ? 'Huso esp.' : triggerChannelName
     const nextAnnotations = baseEvents.map((event, index) => {
       const absoluteOnsetSec = triggerAverageScope === 'record'
         ? event.onsetSec
@@ -6100,14 +6999,14 @@ export default function EEGViewer() {
         id: `trigger-${sourceKind}-${sourceId}-${Math.round(absoluteOnsetSec * 1000)}-${index}`,
         onsetSec: absoluteOnsetSec,
         durationSec: 0,
-        text: `${triggerChannelName} #${index + 1}`,
+        text: `${annotationPrefix} #${index + 1}`,
         color: 'rgba(249,115,22,0.95)',
         source: 'trigger' as const,
       }
     })
     setViewerAnnotations(nextAnnotations)
     setSelectedViewerAnnotationId(nextAnnotations[0]?.id ?? null)
-  }, [activeTriggerAverageResult, recordOffset, sourceId, sourceKind, triggerAverageScope, triggerChannelName])
+  }, [activeTriggerAverageResult, recordOffset, sourceId, sourceKind, triggerAverageScope, triggerChannelName, triggerUsesSpatialSpindles])
 
   const triggerOverlay = useMemo<TriggerOverlayData | null>(() => {
     if (!triggerAvgOpen || !processedEpoch || !triggerChannelName) return null
@@ -6258,7 +7157,7 @@ export default function EEGViewer() {
           }))
       : sourceKind === 'local'
         ? Promise.resolve().then(() => {
-            const session = getLocalEegSession(sourceId)
+            return getOrRestoreLocalEegSession(sourceId).then((session) => {
             if (!session) throw new Error('El archivo local ya no está disponible. Vuelve a /open y selecciónalo de nuevo.')
             return {
               blobHash: undefined,
@@ -6269,6 +7168,7 @@ export default function EEGViewer() {
               encryptionMode: 'NONE',
               label: session.filename,
             }
+            })
           })
       : sourceKind === 'cached'
         ? Promise.resolve().then(async () => {
@@ -6665,7 +7565,7 @@ export default function EEGViewer() {
               label: cached.label || cached.caseId || `Cache ${sourceId}`,
             }
           } else {
-            const session = getLocalEegSession(sourceId)
+            const session = await getOrRestoreLocalEegSession(sourceId)
             if (!session) throw new Error('El archivo local ya no está disponible. Vuelve a /open y selecciónalo de nuevo.')
             packageMeta = {
               cacheKey: undefined,
@@ -6691,7 +7591,7 @@ export default function EEGViewer() {
 
       if (!encryptedBuffer) {
         if (sourceKind === 'local') {
-          const session = getLocalEegSession(sourceId)
+          const session = await getOrRestoreLocalEegSession(sourceId)
           if (!session) throw new Error('El archivo local ya no está disponible. Vuelve a /open y selecciónalo de nuevo.')
           encryptedBuffer = session.buffer.slice(0)
         } else if (sourceKind === 'cached') {
@@ -6769,6 +7669,7 @@ export default function EEGViewer() {
       sleepSketchCacheRef.current = null
       stateSpectralCacheRef.current.clear()
       stateSpectralPanelsCacheRef.current.clear()
+      stateSpectralSpindleSnippetsCacheRef.current.clear()
       n2ContextCacheRef.current.clear()
       setDsaChannel('off')
       setArtifactReject(false)
@@ -7021,6 +7922,61 @@ export default function EEGViewer() {
     if (dx > 0 && currentPage > 0) goToPage(currentPage - 1)
   }, [compactToolbar, currentPage, maxPage, goToPage])
 
+  const reopenLocalEegSession = useCallback((session: LocalEegSession) => {
+    setLocalPickerError('')
+    replaceLocalEegSession(session.id, {
+      filename: session.filename,
+      sizeBytes: session.sizeBytes,
+      buffer: session.buffer.slice(0),
+    })
+
+    if (sourceKind === 'local' && sourceId === session.id) {
+      try {
+        if (currentEdfPathRef.current) moduleRef.current?.FS.unlink(currentEdfPathRef.current)
+      } catch {
+        // ignore cleanup failures before re-opening the same local EDF
+      }
+      currentEdfPathRef.current = null
+      kappaRef.current = null
+      moduleRef.current = null
+      loadVersionRef.current += 1
+      setPhase('loading-module')
+      setErrorMsg('')
+      setEpoch(null)
+      setRecordOffset(0)
+      setRecordDurationSec(1)
+      setTotalSeconds(0)
+      setMeta(null)
+      setEdfAnnotations([])
+      setAnnotationsOpen(false)
+      setCaseHoverMeta({
+        cacheKey: undefined,
+        ageRange: undefined,
+        sizeBytes: session.sizeBytes,
+        encryptionMode: 'NONE',
+        label: session.filename,
+      })
+      startViewer('')
+      return
+    }
+
+    navigate(`/open/${session.id}`)
+  }, [navigate, sourceId, sourceKind, startViewer])
+
+  const handleReopenLastLocalEdf = useCallback(async () => {
+    setLocalPickerError('')
+    try {
+      const session = await getLastLocalEegSession()
+      if (!session) {
+        setLocalPickerError('No hay un EDF local reciente guardado en este navegador.')
+        return
+      }
+      reopenLocalEegSession(session)
+    } catch (err) {
+      setLocalPickerError(err instanceof Error ? err.message : 'No se pudo reabrir el último EDF local.')
+    }
+  }, [reopenLocalEegSession])
+
   const handleSelectAnotherLocalEdf = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null
     if (!file) return
@@ -7193,6 +8149,7 @@ export default function EEGViewer() {
     qeegGlobalTimeseriesCacheRef.current = null
     stateSpectralCacheRef.current.clear()
     stateSpectralPanelsCacheRef.current.clear()
+    stateSpectralSpindleSnippetsCacheRef.current.clear()
   }, [recordDurationSec, totalSeconds])
 
   useEffect(() => {
@@ -7356,7 +8313,24 @@ export default function EEGViewer() {
       return
     }
 
-    const cacheKey = stateSpectralAssumeSleepPresent ? 'sleep-on' : 'sleep-off'
+    const epochSelectionCode =
+      stateSpectralEpochSelectionMode === 'with-spindles'
+        ? 1
+        : stateSpectralEpochSelectionMode === 'without-spindles'
+          ? 2
+          : 0
+    const artifactModeCode =
+      stateSpectralArtifactMode === 'clean-plus-artifact'
+        ? 1
+        : stateSpectralArtifactMode === 'artifact-only'
+          ? 2
+          : 0
+    const cacheKey = [
+      stateSpectralAssumeSleepPresent ? 'sleep-on' : 'sleep-off',
+      stateSpectralEpochSelectionMode,
+      stateSpectralArtifactMode,
+      `${stateSpectralSigmaLowHz}-${stateSpectralSigmaHighHz}`,
+    ].join(':')
     const cached = stateSpectralPanelsCacheRef.current.get(cacheKey)
     if (cached) {
       setStateSpectralPanels(cached)
@@ -7370,7 +8344,13 @@ export default function EEGViewer() {
 
     const timer = window.setTimeout(() => {
       try {
-        const result = kappaRef.current?.computeStateSpectralPanels(stateSpectralAssumeSleepPresent)
+        const result = kappaRef.current?.computeStateSpectralPanels(
+          stateSpectralAssumeSleepPresent,
+          epochSelectionCode,
+          artifactModeCode,
+          stateSpectralSigmaLowHz,
+          stateSpectralSigmaHighHz,
+        )
         if (cancelled) return
         if (!result) throw new Error('No se pudo calcular los espectros por estado')
         stateSpectralPanelsCacheRef.current.set(cacheKey, result)
@@ -7387,7 +8367,63 @@ export default function EEGViewer() {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [stateSpectralPanelsNeeded, stateSpectralAssumeSleepPresent])
+  }, [stateSpectralPanelsNeeded, stateSpectralAssumeSleepPresent, stateSpectralEpochSelectionMode, stateSpectralArtifactMode, stateSpectralSigmaLowHz, stateSpectralSigmaHighHz])
+
+  useEffect(() => {
+    if (!stateSpectralSpindleSnippetsNeeded) {
+      setStateSpectralSpindleSnippets(null)
+      setStateSpectralSpindleSnippetsLoading(false)
+      return
+    }
+
+    const artifactModeCode =
+      stateSpectralSpindleSnippetArtifactMode === 'clean-plus-artifact'
+        ? 1
+        : stateSpectralSpindleSnippetArtifactMode === 'artifact-only'
+          ? 2
+          : 0
+    const cacheKey = [
+      stateSpectralAssumeSleepPresent ? 'sleep-on' : 'sleep-off',
+      stateSpectralSpindleSnippetArtifactMode,
+      `${stateSpectralSpindleSnippetSigmaLowHz}-${stateSpectralSpindleSnippetSigmaHighHz}`,
+      'spindle-snippets',
+    ].join(':')
+    const cached = stateSpectralSpindleSnippetsCacheRef.current.get(cacheKey)
+    if (cached) {
+      setStateSpectralSpindleSnippets(cached)
+      setStateSpectralSpindleSnippetsLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setStateSpectralSpindleSnippets(null)
+    setStateSpectralSpindleSnippetsLoading(true)
+
+    const timer = window.setTimeout(() => {
+      try {
+        const result = kappaRef.current?.computeStateSpectralSpindleSnippets(
+          stateSpectralAssumeSleepPresent,
+          artifactModeCode,
+          stateSpectralSpindleSnippetSigmaLowHz,
+          stateSpectralSpindleSnippetSigmaHighHz,
+        )
+        if (cancelled) return
+        if (!result) throw new Error('No se pudo calcular los snippets de huso')
+        stateSpectralSpindleSnippetsCacheRef.current.set(cacheKey, result)
+        setStateSpectralSpindleSnippets(result)
+        setStateSpectralSpindleSnippetsLoading(false)
+      } catch {
+        if (cancelled) return
+        setStateSpectralSpindleSnippets(null)
+        setStateSpectralSpindleSnippetsLoading(false)
+      }
+    }, 0)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [stateSpectralSpindleSnippetsNeeded, stateSpectralAssumeSleepPresent, stateSpectralSpindleSnippetArtifactMode, stateSpectralSpindleSnippetSigmaLowHz, stateSpectralSpindleSnippetSigmaHighHz])
 
   const triggerSourceChannelIndex = useMemo(
     () => resolveTriggerSourceChannelIndex(triggerChannelName, meta?.channelLabels ?? []),
@@ -7611,11 +8647,7 @@ export default function EEGViewer() {
       if (e.key === 'ArrowUp') {
         e.preventDefault()
         if (!autoScale) {
-          const idx = FIXED_SENSITIVITY_OPTIONS.findIndex((o) => o.value === fixedSensitivityUvPerMm)
-          const fallbackIndex = FIXED_SENSITIVITY_OPTIONS.findIndex((o) => o.value === 10)
-          const currentIndex = idx >= 0 ? idx : fallbackIndex
-          const nextSensitivity = FIXED_SENSITIVITY_OPTIONS[Math.max(currentIndex - 1, 0)].value
-          setFixedSensitivityUvPerMm(nextSensitivity)
+          setFixedSensitivityUvPerMm(getNextKeyboardSensitivity(fixedSensitivityUvPerMm, 'up'))
           return
         }
         const currentGain = selectedChannelName
@@ -7635,11 +8667,7 @@ export default function EEGViewer() {
       if (e.key === 'ArrowDown') {
         e.preventDefault()
         if (!autoScale) {
-          const idx = FIXED_SENSITIVITY_OPTIONS.findIndex((o) => o.value === fixedSensitivityUvPerMm)
-          const fallbackIndex = FIXED_SENSITIVITY_OPTIONS.findIndex((o) => o.value === 10)
-          const currentIndex = idx >= 0 ? idx : fallbackIndex
-          const nextSensitivity = FIXED_SENSITIVITY_OPTIONS[Math.min(currentIndex + 1, FIXED_SENSITIVITY_OPTIONS.length - 1)].value
-          setFixedSensitivityUvPerMm(nextSensitivity)
+          setFixedSensitivityUvPerMm(getNextKeyboardSensitivity(fixedSensitivityUvPerMm, 'down'))
           return
         }
         const currentGain = selectedChannelName
@@ -7695,22 +8723,73 @@ export default function EEGViewer() {
           <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: '0.75rem', color: '#dc2626', fontSize: '0.875rem' }}>
             {errorMsg}
           </div>
-          <a
-            href="/open"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              background: '#2563eb',
-              color: '#fff',
-              borderRadius: 6,
-              padding: '0.7rem 0.9rem',
-              fontWeight: 600,
-              textDecoration: 'none',
-            }}
-          >
-            Volver a abrir un EDF local
-          </a>
+          <input
+            ref={localFileInputRef}
+            type="file"
+            accept=".edf"
+            onChange={handleSelectAnotherLocalEdf}
+            style={{ display: 'none' }}
+          />
+          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => void handleReopenLastLocalEdf()}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: '#2563eb',
+                color: '#fff',
+                border: '1px solid #1d4ed8',
+                borderRadius: 6,
+                padding: '0.7rem 0.9rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Abrir último EDF
+            </button>
+            <button
+              type="button"
+              onClick={() => localFileInputRef.current?.click()}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: '#dbeafe',
+                color: '#1d4ed8',
+                border: '1px solid #93c5fd',
+                borderRadius: 6,
+                padding: '0.7rem 0.9rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Abrir otro EDF
+            </button>
+            <a
+              href="/open"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: '#f8fafc',
+                color: '#334155',
+                border: '1px solid #cbd5e1',
+                borderRadius: 6,
+                padding: '0.7rem 0.9rem',
+                fontWeight: 600,
+                textDecoration: 'none',
+              }}
+            >
+              Ir a abrir EDF local
+            </a>
+          </div>
+          {localPickerError && (
+            <div style={{ color: '#dc2626', fontSize: '0.82rem' }}>
+              {localPickerError}
+            </div>
+          )}
         </div>
       </div>
     )
@@ -7979,12 +9058,26 @@ export default function EEGViewer() {
 
         {!compactToolbar && (
           <>
-            <ToolbarSelect label="LFF" value={hp} onChange={handleHpChange} width={76}>
-              {HP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </ToolbarSelect>
-            <ToolbarSelect label="HFF" value={lp} onChange={handleLpChange} width={76}>
-              {LP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </ToolbarSelect>
+            <NumericSuggestInput
+              label="LFF"
+              value={hp}
+              onCommit={(value) => handleHpChange(String(value))}
+              suggestions={HP_OPTIONS.map((option) => option.value)}
+              width={72}
+              step={0.1}
+              min={0}
+              max={70}
+            />
+            <NumericSuggestInput
+              label="HFF"
+              value={lp}
+              onCommit={(value) => handleLpChange(String(value))}
+              suggestions={[0, ...LP_OPTIONS.map((option) => option.value)]}
+              width={72}
+              step={0.5}
+              min={0}
+              max={120}
+            />
             <ToolbarSelect label="Notch" value={notch} onChange={handleNotchChange} width={78}>
               {NOTCH_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </ToolbarSelect>
@@ -8003,6 +9096,34 @@ export default function EEGViewer() {
           {MONTAGE_OPTIONS.map((name) => <option key={name} value={name}>{name}</option>)}
         </ToolbarSelect>
         {!compactToolbar && <div style={{ width: 1, height: 36, background: '#e2e8f0', flexShrink: 0 }} />}
+        <button
+          ref={fileMenuButtonRef}
+          type="button"
+          onClick={() => {
+            setFileMenuOpen((open) => !open)
+            setAnalysisMenuOpen(false)
+            setAboutMenuOpen(false)
+          }}
+          style={{
+            background: fileMenuOpen ? '#eff6ff' : '#f8fafc',
+            border: `1px solid ${fileMenuOpen ? '#93c5fd' : '#cbd5e1'}`,
+            borderRadius: 8,
+            padding: compactToolbar ? '0.18rem 0.42rem' : '0.16rem 0.5rem',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            cursor: 'pointer',
+            userSelect: 'none',
+            color: fileMenuOpen ? '#1d4ed8' : '#1e293b',
+            fontSize: compactToolbar ? '0.72rem' : '0.74rem',
+            whiteSpace: 'nowrap',
+            fontWeight: fileMenuOpen ? 600 : 500,
+            flexShrink: 0,
+          }}
+        >
+          <span>Archivo</span>
+          <span style={{ color: fileMenuOpen ? '#1d4ed8' : '#64748b' }}>{fileMenuOpen ? '▴' : '▾'}</span>
+        </button>
         {!compactToolbar && (showAvgRefControl || showExtrasControl) && (
           <div style={{ flexShrink: 0 }}>
             <button
@@ -8036,28 +9157,60 @@ export default function EEGViewer() {
             </button>
           </div>
         )}
-        <ToolbarSelect label="DSA" value={dsaChannel} onChange={handleDsaChannelChange} width={compactToolbar ? 84 : 112} compact={compactToolbar}>
-          <option value="off">DSA OFF</option>
-          {dsaChannels.map((channel) => <option key={channel.index} value={channel.index}>{`DSA ${channel.name}`}</option>)}
-        </ToolbarSelect>
         <button
+          ref={analysisMenuButtonRef}
           type="button"
-          onClick={() => setTriggerAvgOpen((open) => !open)}
-          title="Activar promedio EEG desencadenado por umbral"
+          onClick={() => {
+            setAnalysisMenuOpen((open) => !open)
+            setFileMenuOpen(false)
+            setAboutMenuOpen(false)
+          }}
           style={{
-            background: triggerAvgOpen ? '#166534' : '#ecfdf5',
-            border: `1px solid ${triggerAvgOpen ? '#166534' : '#86efac'}`,
-            borderRadius: 4,
-            color: triggerAvgOpen ? '#ffffff' : '#166534',
-            fontSize: compactToolbar ? '0.72rem' : '0.75rem',
-            padding: compactToolbar ? '0.18rem 0.38rem' : '0.16rem 0.48rem',
+            background: analysisMenuOpen ? '#eff6ff' : '#f8fafc',
+            border: `1px solid ${analysisMenuOpen ? '#93c5fd' : '#cbd5e1'}`,
+            borderRadius: 8,
+            padding: compactToolbar ? '0.18rem 0.42rem' : '0.16rem 0.5rem',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
             cursor: 'pointer',
+            userSelect: 'none',
+            color: analysisMenuOpen ? '#1d4ed8' : '#1e293b',
+            fontSize: compactToolbar ? '0.72rem' : '0.74rem',
             whiteSpace: 'nowrap',
-            fontWeight: 700,
+            fontWeight: analysisMenuOpen ? 600 : 500,
+            flexShrink: 0,
           }}
         >
-          {compactToolbar ? 'Trig Avg' : (triggerAvgOpen ? 'Trigger Avg ON' : 'Trigger Avg')}
+          <span>Análisis</span>
+          <span style={{ color: analysisMenuOpen ? '#1d4ed8' : '#64748b' }}>{analysisMenuOpen ? '▴' : '▾'}</span>
         </button>
+        {compactToolbar && (
+          <>
+            <ToolbarSelect label="DSA" value={dsaChannel} onChange={handleDsaChannelChange} width={84} compact>
+              <option value="off">DSA OFF</option>
+              {dsaChannels.map((channel) => <option key={channel.index} value={channel.index}>{`DSA ${channel.name}`}</option>)}
+            </ToolbarSelect>
+            <button
+              type="button"
+              onClick={() => setTriggerAvgOpen((open) => !open)}
+              title="Activar promedio EEG desencadenado por umbral"
+              style={{
+                background: triggerAvgOpen ? '#166534' : '#ecfdf5',
+                border: `1px solid ${triggerAvgOpen ? '#166534' : '#86efac'}`,
+                borderRadius: 4,
+                color: triggerAvgOpen ? '#ffffff' : '#166534',
+                fontSize: '0.72rem',
+                padding: '0.18rem 0.38rem',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                fontWeight: 700,
+              }}
+            >
+              Trig Avg
+            </button>
+          </>
+        )}
 
         {!compactToolbar && (
           <>
@@ -8171,7 +9324,7 @@ export default function EEGViewer() {
           </button>
         )}
 
-        {edfAnnotations.length > 0 && (
+        {compactToolbar && edfAnnotations.length > 0 && (
           <button
             type="button"
             onClick={() => setAnnotationsOpen((open) => !open)}
@@ -8181,21 +9334,81 @@ export default function EEGViewer() {
               border: `1px solid ${annotationsOpen ? '#c4b5fd' : '#cbd5e1'}`,
               borderRadius: 4,
               color: annotationsOpen ? '#5b21b6' : '#334155',
-              fontSize: compactToolbar ? '0.72rem' : '0.75rem',
-              padding: compactToolbar ? '0.18rem 0.38rem' : '0.16rem 0.48rem',
+              fontSize: '0.72rem',
+              padding: '0.18rem 0.38rem',
               cursor: 'pointer',
               whiteSpace: 'nowrap',
               fontWeight: annotationsOpen ? 700 : 500,
             }}
           >
-            {compactToolbar ? '📝' : `📝 EDF+ (${edfAnnotations.length})`}
+            📝
           </button>
         )}
 
         <div style={{ flex: 1, minWidth: 8 }} />
 
+        {viewerComputeBusy && (
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: compactToolbar ? '0.16rem 0.38rem' : '0.16rem 0.46rem',
+              background: '#fff7ed',
+              border: '1px solid #fdba74',
+              borderRadius: 999,
+              color: '#9a3412',
+              fontSize: compactToolbar ? '0.7rem' : '0.74rem',
+              fontWeight: 700,
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+            }}
+            title="Hay cálculos EEG en curso"
+          >
+            <span className="viewer-inline-spinner" aria-hidden="true" />
+            <span>Calculando…</span>
+          </div>
+        )}
+
+        <button
+          ref={aboutMenuButtonRef}
+          type="button"
+          onClick={() => {
+            setAboutMenuOpen((open) => !open)
+            setFileMenuOpen(false)
+            setAnalysisMenuOpen(false)
+          }}
+          style={{
+            background: aboutMenuOpen ? '#eff6ff' : '#f8fafc',
+            border: `1px solid ${aboutMenuOpen ? '#93c5fd' : '#cbd5e1'}`,
+            borderRadius: 8,
+            padding: compactToolbar ? '0.18rem 0.42rem' : '0.16rem 0.5rem',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            cursor: 'pointer',
+            userSelect: 'none',
+            color: aboutMenuOpen ? '#1d4ed8' : '#1e293b',
+            fontSize: compactToolbar ? '0.72rem' : '0.74rem',
+            whiteSpace: 'nowrap',
+            fontWeight: aboutMenuOpen ? 600 : 500,
+            flexShrink: 0,
+          }}
+        >
+          <span>About</span>
+        </button>
+
         {!compactToolbar && (
           <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center', flexShrink: 0 }}>
+            {viewerAnnotations.length > 0 && (
+              <>
+                <button onClick={() => stepViewerAnnotation(-1)} title="Marca anterior" style={navBtnStyle(false)}>‹</button>
+                <span style={{ color: '#7c3aed', fontSize: '0.7rem', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                  {viewerAnnotations.length} marcas
+                </span>
+                <button onClick={() => stepViewerAnnotation(1)} title="Marca siguiente" style={navBtnStyle(false)}>›</button>
+              </>
+            )}
             <span style={{ color: '#94a3b8', fontSize: '0.7rem', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>t={timeOffsetSec}s</span>
             <button onClick={() => shiftBySeconds(-1)} disabled={tStart <= 0} title="Retroceder 1 segundo (Shift+←)" style={navBtnStyle(tStart <= 0)}>-1s</button>
             <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 0} title="Anterior (←)" style={navBtnStyle(currentPage === 0)}>←</button>
@@ -8209,6 +9422,12 @@ export default function EEGViewer() {
 
         {compactToolbar && (
           <div style={{ display: 'flex', gap: '0.2rem', alignItems: 'center', flexShrink: 0 }}>
+            {viewerAnnotations.length > 0 && (
+              <>
+                <button onClick={() => stepViewerAnnotation(-1)} title="Marca anterior" style={navBtnStyle(false)}>‹</button>
+                <button onClick={() => stepViewerAnnotation(1)} title="Marca siguiente" style={navBtnStyle(false)}>›</button>
+              </>
+            )}
             <span style={{ color: '#94a3b8', fontSize: '0.6rem', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>t={timeOffsetSec}s</span>
             <button onClick={() => shiftBySeconds(-1)} disabled={tStart <= 0} title="Retroceder 1 segundo (Shift+←)" style={navBtnStyle(tStart <= 0)}>-1s</button>
             <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 0} title="Anterior (←)" style={navBtnStyle(currentPage === 0)}>←</button>
@@ -8744,6 +9963,213 @@ export default function EEGViewer() {
         </div>
       )}
 
+      {fileMenuOpen && fileMenuPos && (
+        <div
+          ref={fileMenuRef}
+          style={{
+            position: 'fixed',
+            top: fileMenuPos.top,
+            left: fileMenuPos.left,
+            zIndex: 20,
+            background: 'rgba(255,255,255,0.98)',
+            border: '1px solid #cbd5e1',
+            borderRadius: 10,
+            boxShadow: '0 14px 30px rgba(15,23,42,0.16)',
+            padding: '0.55rem',
+            minWidth: 220,
+            maxWidth: 280,
+          }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {sourceKind === 'local' && (
+              <button
+                type="button"
+                onClick={() => {
+                  localFileInputRef.current?.click()
+                  setFileMenuOpen(false)
+                }}
+                style={{
+                  background: '#eff6ff',
+                  border: '1px solid #bfdbfe',
+                  borderRadius: 8,
+                  color: '#1d4ed8',
+                  fontSize: '0.74rem',
+                  padding: '0.42rem 0.55rem',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  fontWeight: 600,
+                }}
+              >
+                Abrir otro EDF
+              </button>
+            )}
+            <div style={{ fontSize: '0.68rem', color: '#64748b', lineHeight: 1.45 }}>
+              <div><strong>Origen:</strong> {sourceKind}</div>
+              <div><strong>Registro:</strong> {sourceId || 'local'}</div>
+            </div>
+            {localPickerError && (
+              <div style={{ fontSize: '0.68rem', color: '#dc2626', lineHeight: 1.45 }}>
+                {localPickerError}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {analysisMenuOpen && analysisMenuPos && (
+        <div
+          ref={analysisMenuRef}
+          style={{
+            position: 'fixed',
+            top: analysisMenuPos.top,
+            left: analysisMenuPos.left,
+            zIndex: 20,
+            background: 'rgba(255,255,255,0.98)',
+            border: '1px solid #cbd5e1',
+            borderRadius: 10,
+            boxShadow: '0 14px 30px rgba(15,23,42,0.16)',
+            padding: '0.55rem',
+            minWidth: 260,
+            maxWidth: 320,
+          }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <ToolbarSelect label="DSA" value={dsaChannel} onChange={handleDsaChannelChange} width={160}>
+              <option value="off">DSA OFF</option>
+              {dsaChannels.map((channel) => <option key={channel.index} value={channel.index}>{`DSA ${channel.name}`}</option>)}
+            </ToolbarSelect>
+            <button
+              type="button"
+              onClick={() => setTriggerAvgOpen((open) => !open)}
+              style={{
+                background: triggerAvgOpen ? '#166534' : '#ecfdf5',
+                border: `1px solid ${triggerAvgOpen ? '#166534' : '#86efac'}`,
+                borderRadius: 8,
+                color: triggerAvgOpen ? '#ffffff' : '#166534',
+                fontSize: '0.74rem',
+                padding: '0.42rem 0.55rem',
+                cursor: 'pointer',
+                textAlign: 'left',
+                fontWeight: 700,
+              }}
+            >
+              {triggerAvgOpen ? 'Trigger Avg activado' : 'Trigger Avg'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSleepAnalyzerOpen(true)
+                setAnalysisMenuOpen(false)
+              }}
+              style={{
+                background: sleepAnalyzerOpen ? '#dbeafe' : '#f8fafc',
+                border: `1px solid ${sleepAnalyzerOpen ? '#93c5fd' : '#cbd5e1'}`,
+                borderRadius: 8,
+                color: sleepAnalyzerOpen ? '#1d4ed8' : '#334155',
+                fontSize: '0.74rem',
+                padding: '0.42rem 0.55rem',
+                cursor: 'pointer',
+                textAlign: 'left',
+                fontWeight: sleepAnalyzerOpen ? 700 : 500,
+              }}
+            >
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <span>Analizador de sueño</span>
+                {sleepAnalyzerBusy ? <span className="viewer-inline-spinner" aria-hidden="true" /> : null}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setStateSpectraOpen(true)
+                setAnalysisMenuOpen(false)
+              }}
+              style={{
+                background: stateSpectraOpen ? '#dbeafe' : '#f8fafc',
+                border: `1px solid ${stateSpectraOpen ? '#93c5fd' : '#cbd5e1'}`,
+                borderRadius: 8,
+                color: stateSpectraOpen ? '#1d4ed8' : '#334155',
+                fontSize: '0.74rem',
+                padding: '0.42rem 0.55rem',
+                cursor: 'pointer',
+                textAlign: 'left',
+                fontWeight: stateSpectraOpen ? 700 : 500,
+              }}
+            >
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <span>Espectros</span>
+                {stateSpectraBusy ? <span className="viewer-inline-spinner" aria-hidden="true" /> : null}
+              </span>
+            </button>
+            {showArtifactControl && (
+              <button
+                type="button"
+                onClick={() => setArtifactReject((v) => !v)}
+                style={{
+                  background: artifactReject ? '#dcfce7' : '#f8fafc',
+                  border: `1px solid ${artifactReject ? '#86efac' : '#cbd5e1'}`,
+                  borderRadius: 8,
+                  color: artifactReject ? '#166534' : '#475569',
+                  fontSize: '0.74rem',
+                  padding: '0.42rem 0.55rem',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  fontWeight: artifactReject ? 600 : 500,
+                }}
+              >
+                {artifactReject ? 'Excluir artefactos del DSA' : 'Artefactos desactivados'}
+              </button>
+            )}
+            {edfAnnotations.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setAnnotationsOpen((open) => !open)}
+                style={{
+                  background: annotationsOpen ? '#ede9fe' : '#f8fafc',
+                  border: `1px solid ${annotationsOpen ? '#c4b5fd' : '#cbd5e1'}`,
+                  borderRadius: 8,
+                  color: annotationsOpen ? '#5b21b6' : '#334155',
+                  fontSize: '0.74rem',
+                  padding: '0.42rem 0.55rem',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  fontWeight: annotationsOpen ? 700 : 500,
+                }}
+              >
+                {annotationsOpen ? `Ocultar EDF+ (${edfAnnotations.length})` : `Mostrar EDF+ (${edfAnnotations.length})`}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {aboutMenuOpen && aboutMenuPos && (
+        <div
+          ref={aboutMenuRef}
+          style={{
+            position: 'fixed',
+            top: aboutMenuPos.top,
+            left: aboutMenuPos.left,
+            zIndex: 20,
+            background: 'rgba(255,255,255,0.98)',
+            border: '1px solid #cbd5e1',
+            borderRadius: 10,
+            boxShadow: '0 14px 30px rgba(15,23,42,0.16)',
+            padding: '0.65rem 0.75rem',
+            width: 280,
+          }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#0f172a' }}>
+              OCEAN EEG Viewer
+            </div>
+            <div style={{ fontSize: '0.7rem', color: '#475569', lineHeight: 1.5 }}>
+              Visor EEG web sobre KAPPA WASM para revisar EDF, DSA, sueño y espectros sin salir del navegador.
+            </div>
+          </div>
+        </div>
+      )}
+
       {extrasOpen && extrasMenuPos && (
         <div
           ref={extrasMenuRef}
@@ -8949,7 +10375,7 @@ export default function EEGViewer() {
           onClose={() => setHypnogramOpen(false)}
         />
       )}
-      {sleepAnalyzerOpen && dsaChannel !== 'off' && (
+      {sleepAnalyzerOpen && (
         <SleepAnalyzerModal
           dsaData={dsaData}
           sleepSketchData={sleepSketchData}
@@ -8977,9 +10403,19 @@ export default function EEGViewer() {
           onViewerAnnotationSelect={(annotationId) => jumpToViewerAnnotation(annotationId)}
         />
       )}
-      {stateSpectraOpen && dsaChannel !== 'off' && (
+      {stateSpectraOpen && (
         <StateSpectraModal
           stateSpectralPanels={stateSpectralPanels}
+          spindleSnippetData={stateSpectralSpindleSnippets}
+          spindleSnippetLoading={stateSpectralSpindleSnippetsLoading}
+          epochSelectionMode={stateSpectralEpochSelectionMode}
+          artifactMode={stateSpectralArtifactMode}
+          sigmaLowHz={stateSpectralSigmaLowHz}
+          sigmaHighHz={stateSpectralSigmaHighHz}
+          onEpochSelectionModeChange={setStateSpectralEpochSelectionMode}
+          onArtifactModeChange={setStateSpectralArtifactMode}
+          onSigmaLowHzChange={(value) => setStateSpectralSigmaLowHz(Math.max(0.5, Math.min(value, stateSpectralSigmaHighHz - 0.5)))}
+          onSigmaHighHzChange={(value) => setStateSpectralSigmaHighHz(Math.max(stateSpectralSigmaLowHz + 0.5, Math.min(value, 40)))}
           onClose={() => setStateSpectraOpen(false)}
         />
       )}
@@ -8994,22 +10430,38 @@ export default function EEGViewer() {
           triggerChannelName={triggerChannelName}
           triggerSignal={triggerSignalPreview}
           showTriggerContralateralOverlay={showTriggerContralateralOverlay}
+          invertTriggerPolarity={invertTriggerPolarity}
+          randomizeTriggerMarker={randomizeTriggerMarker}
+          randomizeTriggerMarkerRangeSec={randomizeTriggerMarkerRangeSec}
           onToggleTriggerContralateralOverlay={() => setShowTriggerContralateralOverlay((value) => !value)}
           triggerOverlayChannelName={triggerOverlayChannelName}
           triggerOverlaySignal={triggerOverlaySignalPreview}
           triggerThreshold={effectiveTriggerThresholdValue}
           triggerThresholdStep={triggerThresholdStep}
           triggerDetectionMode={triggerDetectionMode}
+          triggerUseSpatialSpindleFilter={triggerUseSpatialSpindleFilter}
+          spatialSpindleCandidateCount={stateSpectralSpindleSnippets?.spindlePositiveCandidates ?? 0}
+          spatialSpindleAcceptedCount={stateSpectralSpindleSnippets?.acceptedEvents ?? 0}
           triggerHp={triggerHp}
           triggerLp={triggerLp}
           triggerNotch={triggerNotch}
           triggerSmoothPoints={triggerSmoothPoints}
           triggerDerivativeAfterSmooth={triggerDerivativeAfterSmooth}
           triggerBurstRearmFraction={triggerBurstRearmFraction}
+          spindleSigmaLow={spindleSigmaLow}
+          spindleSigmaHigh={spindleSigmaHigh}
+          spindleBroadLow={spindleBroadLow}
+          spindleBroadHigh={spindleBroadHigh}
           averageHp={averageHp}
           averageLp={averageLp}
           averageNotch={averageNotch}
           averageGainMult={averageGainMult}
+          averageAutoScale={averageAutoScale}
+          lockedAverageRefRange={lockedAverageRefRange}
+          averagePostRectifySmoothPoints={averagePostRectifySmoothPoints}
+          overlayAverageChannels={overlayAverageChannels}
+          overlayCompareChannelA={overlayCompareChannelA}
+          overlayCompareChannelB={overlayCompareChannelB}
           triggerPreSec={triggerPreSec}
           triggerPostSec={triggerPostSec}
           triggerRefractorySec={triggerRefractorySec}
@@ -9039,6 +10491,9 @@ export default function EEGViewer() {
           onExcludeArtifactEventsChange={() => setExcludeArtifactEvents((value) => !value)}
           onUseN2ContextGateChange={() => setUseN2ContextGate((value) => !value)}
           onTriggerChannelChange={setTriggerChannelName}
+          onToggleInvertTriggerPolarity={() => setInvertTriggerPolarity((value) => !value)}
+          onToggleRandomizeTriggerMarker={() => setRandomizeTriggerMarker((value) => !value)}
+          onRandomizeTriggerMarkerRangeSecChange={setRandomizeTriggerMarkerRangeSec}
           onTriggerDetectionModeChange={setTriggerDetectionMode}
           onTriggerHpChange={setTriggerHp}
           onTriggerLpChange={setTriggerLp}
@@ -9046,10 +10501,21 @@ export default function EEGViewer() {
           onTriggerSmoothPointsChange={setTriggerSmoothPoints}
           onTriggerDerivativeAfterSmoothChange={() => setTriggerDerivativeAfterSmooth((value) => !value)}
           onTriggerBurstRearmFractionChange={setTriggerBurstRearmFraction}
+          onTriggerUseSpatialSpindleFilterChange={() => setTriggerUseSpatialSpindleFilter((value) => !value)}
+          onSpindleSigmaLowChange={setSpindleSigmaLow}
+          onSpindleSigmaHighChange={setSpindleSigmaHigh}
+          onSpindleBroadLowChange={setSpindleBroadLow}
+          onSpindleBroadHighChange={setSpindleBroadHigh}
           onAverageHpChange={setAverageHp}
           onAverageLpChange={setAverageLp}
           onAverageNotchChange={setAverageNotch}
           onAverageGainMultChange={setAverageGainMult}
+          onAverageAutoScaleChange={setAverageAutoScale}
+          onLockedAverageRefRangeChange={setLockedAverageRefRange}
+          onAveragePostRectifySmoothPointsChange={setAveragePostRectifySmoothPoints}
+          onOverlayAverageChannelsChange={setOverlayAverageChannels}
+          onOverlayCompareChannelAChange={setOverlayCompareChannelA}
+          onOverlayCompareChannelBChange={setOverlayCompareChannelB}
           onTriggerPreSecChange={setTriggerPreSec}
           onTriggerPostSecChange={setTriggerPostSec}
           onTriggerRefractorySecChange={setTriggerRefractorySec}

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import PageHeader from '../components/PageHeader'
-import { createLocalEegSession } from './localEegSession'
+import { createLocalEegSession, getLastLocalEegSession } from './localEegSession'
 import { deleteEncryptedPackageFromCache, listEncryptedPackagesFromCache, type CachedEncryptedPackageSummary } from './encryptedPackageCache'
 import './CaseNew.css'
 
@@ -57,6 +57,23 @@ export default function OpenLocalEeg() {
       navigate(`/open/${session.id}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'El navegador no pudo leer el archivo EDF local.')
+    } finally {
+      setOpening(false)
+    }
+  }
+
+  const handleOpenLastLocal = async () => {
+    setError('')
+    setOpening(true)
+    try {
+      const session = await getLastLocalEegSession()
+      if (!session) {
+        setError('No hay un EDF local reciente guardado en este navegador.')
+        return
+      }
+      navigate(`/open/${session.id}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo reabrir el último EDF local.')
     } finally {
       setOpening(false)
     }
@@ -128,6 +145,9 @@ export default function OpenLocalEeg() {
         <div className="form-actions">
           <button type="button" className="btn-primary" onClick={handleOpenLocal} disabled={opening}>
             {opening ? 'Leyendo EDF…' : 'Abrir localmente'}
+          </button>
+          <button type="button" className="btn-secondary" onClick={() => void handleOpenLastLocal()} disabled={opening}>
+            Abrir último EDF
           </button>
         </div>
       </div>

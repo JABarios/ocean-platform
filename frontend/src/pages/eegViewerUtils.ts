@@ -75,10 +75,13 @@ export interface EpochReadRequest {
 
 export interface TriggerAverageOptions {
   triggerChannelName: string
+  invertTriggerPolarity: boolean
+  randomizeTriggerMarker: boolean
+  randomizeTriggerMarkerRangeSec: number
   threshold: number
   preSec: number
   postSec: number
-  detectionMode: 'event' | 'burst' | 'spindle' | 'slow'
+  detectionMode: 'event' | 'burst' | 'spindle' | 'spindle-spatial' | 'slow'
   hp: number
   lp: number
   notch: number
@@ -87,6 +90,7 @@ export interface TriggerAverageOptions {
   averageHp: number
   averageLp: number
   averageNotch: number
+  averagePostRectifySmoothPoints: number
   rectifyTrigger: boolean
   rectifyAverage: boolean
   refractorySec: number
@@ -129,11 +133,46 @@ export interface TriggeredAverageResult {
   postSamples: number
 }
 
+export interface AverageTfMap {
+  timesSec: number[]
+  freqsHz: number[]
+  power: number[][]
+}
+
 function getPercentile(sorted: Float32Array, ratio: number): number {
   if (sorted.length === 0) return 0
   const clampedRatio = Math.max(0, Math.min(1, ratio))
   const index = Math.max(0, Math.min(sorted.length - 1, Math.floor(clampedRatio * (sorted.length - 1))))
   return sorted[index] ?? 0
+}
+
+function jitterUnitValue(seed: number): number {
+  const x = Math.sin(seed * 12.9898 + 78.233) * 43758.5453
+  const frac = x - Math.floor(x)
+  return frac * 2 - 1
+}
+
+function applyRandomizedTriggerOffsets(
+  events: TriggerEvent[],
+  sampleRate: number,
+  nSamples: number,
+  options: Pick<TriggerAverageOptions, 'randomizeTriggerMarker' | 'randomizeTriggerMarkerRangeSec' | 'recordStartSec'>,
+): TriggerEvent[] {
+  if (!options.randomizeTriggerMarker || !Number.isFinite(options.randomizeTriggerMarkerRangeSec) || options.randomizeTriggerMarkerRangeSec <= 0) {
+    return events
+  }
+  const maxOffsetSamples = Math.max(0, Math.round(options.randomizeTriggerMarkerRangeSec * sampleRate))
+  if (maxOffsetSamples <= 0) return events
+  const recordSeed = Math.round((options.recordStartSec ?? 0) * 1000)
+  return events.map((event, eventIndex) => {
+    const seed = event.sampleIndex * 131 + eventIndex * 911 + recordSeed * 17
+    const offsetSamples = Math.round(jitterUnitValue(seed) * maxOffsetSamples)
+    const jitteredSampleIndex = Math.max(0, Math.min(nSamples - 1, event.sampleIndex + offsetSamples))
+    return {
+      sampleIndex: jitteredSampleIndex,
+      onsetSec: jitteredSampleIndex / Math.max(sampleRate, 1),
+    }
+  })
 }
 
 export function computeTriggerThresholdRange(
@@ -424,6 +463,13 @@ function deriveSignal(signal: Float32Array): Float32Array {
   return derived
 }
 
+function maybeInvertSignal(signal: Float32Array, invert: boolean): Float32Array {
+  if (!invert) return signal
+  const inverted = new Float32Array(signal.length)
+  for (let i = 0; i < signal.length; i++) inverted[i] = -(signal[i] ?? 0)
+  return inverted
+}
+
 function computeSignalStd(signal: Float32Array): number {
   if (signal.length === 0) return 0
   let mean = 0
@@ -607,7 +653,7 @@ export function filterSignalForTrigger(
 export function filterSignalForAverage(
   signal: Float32Array,
   sampleRate: number,
-  options: Pick<TriggerAverageOptions, 'averageHp' | 'averageLp' | 'averageNotch' | 'rectifyAverage'>,
+  options: Pick<TriggerAverageOptions, 'averageHp' | 'averageLp' | 'averageNotch' | 'rectifyAverage' | 'averagePostRectifySmoothPoints'>,
 ): Float32Array {
   let filtered = Float32Array.from(signal) as Float32Array
 
@@ -624,6 +670,7 @@ export function filterSignalForAverage(
     const rectified = new Float32Array(filtered.length)
     for (let i = 0; i < filtered.length; i++) rectified[i] = Math.abs(filtered[i] ?? 0)
     filtered = rectified
+    filtered = smoothSignal(filtered, Math.max(1, Math.round(options.averagePostRectifySmoothPoints || 1)))
   }
 
   return filtered
@@ -750,6 +797,7 @@ export function computeTriggerPreviewSignal(
   options: Pick<
     TriggerAverageOptions,
     | 'detectionMode'
+    | 'invertTriggerPolarity'
     | 'hp'
     | 'lp'
     | 'notch'
@@ -762,61 +810,29 @@ export function computeTriggerPreviewSignal(
     | 'spindleBroadHigh'
   >,
 ): Float32Array {
-  if (options.detectionMode === 'spindle') {
-    return computeSpindleSignals(signal, sampleRate, options).rmsSignal
+  if (options.detectionMode === 'spindle' || options.detectionMode === 'spindle-spatial') {
+    return computeSpindleSignals(maybeInvertSignal(signal, options.invertTriggerPolarity), sampleRate, options).rmsSignal
   }
   if (options.detectionMode === 'slow') {
-    return computeSlowWaveSignals(signal, sampleRate, options).previewSignal
+    return computeSlowWaveSignals(maybeInvertSignal(signal, options.invertTriggerPolarity), sampleRate, options).previewSignal
   }
-  return filterSignalForTrigger(signal, sampleRate, options)
+  return filterSignalForTrigger(maybeInvertSignal(signal, options.invertTriggerPolarity), sampleRate, options)
 }
 
-export function computeTriggeredAverage(
+export function buildTriggeredAverageFromEvents(
   epoch: EpochData,
   options: TriggerAverageOptions,
+  detectedEvents: TriggerEvent[],
 ): TriggeredAverageResult | null {
   const triggerIndex = epoch.channelNames.findIndex((name) => name === options.triggerChannelName)
   if (triggerIndex < 0 || epoch.nSamples <= 1 || epoch.sfreq <= 0) return null
-
-  const filteredTrigger = computeTriggerPreviewSignal(epoch.data[triggerIndex], epoch.sfreq, options)
-  const threshold = options.rectifyTrigger ? Math.abs(options.threshold) : options.threshold
-  const detectedEvents = options.detectionMode === 'spindle'
-    ? (() => {
-        const spindleSignals = computeSpindleSignals(epoch.data[triggerIndex], epoch.sfreq, options)
-        return detectSpindleEvents(
-          spindleSignals.rmsSignal,
-          spindleSignals.relPowerSignal,
-          epoch.sfreq,
-          threshold,
-          options.spindleAmplitudeStdMultiplier,
-          options.spindleMinSec,
-          options.spindleMaxSec,
-          options.spindleAdaptiveThresholdOverride,
-        )
-      })()
-    : options.detectionMode === 'slow'
-      ? (() => {
-          const slowSignals = computeSlowWaveSignals(epoch.data[triggerIndex], epoch.sfreq, options)
-          return detectSlowWaveEvents(
-            slowSignals.filteredSignal,
-            epoch.sfreq,
-            Math.abs(threshold),
-          )
-        })()
-    : detectThresholdCrossings(
-        filteredTrigger,
-        epoch.sfreq,
-        threshold,
-        options.refractorySec,
-        options.detectionMode,
-        options.burstRearmFraction,
-      )
 
   const preSamples = Math.max(0, Math.round(Math.max(0, options.preSec) * epoch.sfreq))
   const postSamples = Math.max(1, Math.round(Math.max(0, options.postSec) * epoch.sfreq))
   const windowSamples = preSamples + postSamples + 1
   let excludedContextCount = 0
-  const rawEvents = detectedEvents.filter((event) => {
+  const jitteredEvents = applyRandomizedTriggerOffsets(detectedEvents, epoch.sfreq, epoch.nSamples, options)
+  const rawEvents = jitteredEvents.filter((event) => {
     if (!options.useN2ContextGate || !options.n2ContextStatuses || !options.n2ContextEpochSec || options.n2ContextEpochSec <= 0) {
       return true
     }
@@ -919,6 +935,147 @@ export function computeTriggeredAverage(
     preSamples,
     postSamples,
   }
+}
+
+export function computeTriggeredAverage(
+  epoch: EpochData,
+  options: TriggerAverageOptions,
+): TriggeredAverageResult | null {
+  const triggerIndex = epoch.channelNames.findIndex((name) => name === options.triggerChannelName)
+  if (triggerIndex < 0 || epoch.nSamples <= 1 || epoch.sfreq <= 0) return null
+
+  const filteredTrigger = computeTriggerPreviewSignal(epoch.data[triggerIndex], epoch.sfreq, options)
+  const threshold = options.rectifyTrigger ? Math.abs(options.threshold) : options.threshold
+  const detectedEvents = options.detectionMode === 'spindle'
+    ? (() => {
+        const spindleSignals = computeSpindleSignals(
+          maybeInvertSignal(epoch.data[triggerIndex], options.invertTriggerPolarity),
+          epoch.sfreq,
+          options,
+        )
+        return detectSpindleEvents(
+          spindleSignals.rmsSignal,
+          spindleSignals.relPowerSignal,
+          epoch.sfreq,
+          threshold,
+          options.spindleAmplitudeStdMultiplier,
+          options.spindleMinSec,
+          options.spindleMaxSec,
+          options.spindleAdaptiveThresholdOverride,
+        )
+      })()
+    : options.detectionMode === 'slow'
+      ? (() => {
+          const slowSignals = computeSlowWaveSignals(
+            maybeInvertSignal(epoch.data[triggerIndex], options.invertTriggerPolarity),
+            epoch.sfreq,
+            options,
+          )
+          return detectSlowWaveEvents(
+            slowSignals.filteredSignal,
+            epoch.sfreq,
+            Math.abs(threshold),
+          )
+        })()
+    : detectThresholdCrossings(
+        filteredTrigger,
+        epoch.sfreq,
+        threshold,
+        options.refractorySec,
+        options.detectionMode,
+        options.burstRearmFraction,
+      )
+
+  return buildTriggeredAverageFromEvents(epoch, options, detectedEvents)
+}
+
+export function computeAverageTfMap(
+  snippets: Float32Array[],
+  sampleRate: number,
+  preSec: number,
+  options?: {
+    freqMin?: number
+    freqMax?: number
+    freqStep?: number
+    nFreqs?: number
+    windowSec?: number
+    hopSec?: number
+    logFrequency?: boolean
+  },
+): AverageTfMap | null {
+  if (!snippets.length || !(sampleRate > 0)) return null
+  const nSamples = snippets[0]?.length ?? 0
+  if (nSamples <= 8) return null
+
+  const validSnippets = snippets.filter((snippet) => snippet.length === nSamples)
+  if (!validSnippets.length) return null
+
+  const freqMin = Math.max(0.5, options?.freqMin ?? 6)
+  const freqMax = Math.max(freqMin + 1, options?.freqMax ?? 20)
+  const freqStep = Math.max(0.25, options?.freqStep ?? 0.5)
+  const nFreqs = Math.max(8, Math.round(options?.nFreqs ?? 40))
+  const windowSamples = Math.max(16, Math.min(nSamples, Math.round((options?.windowSec ?? 0.75) * sampleRate)))
+  const hopSamples = Math.max(4, Math.round((options?.hopSec ?? 0.08) * sampleRate))
+  if (windowSamples >= nSamples) return null
+
+  const freqsHz: number[] = []
+  if (options?.logFrequency) {
+    const logMin = Math.log(freqMin)
+    const logMax = Math.log(freqMax)
+    for (let i = 0; i < nFreqs; i++) {
+      const t = i / Math.max(1, nFreqs - 1)
+      freqsHz.push(Number(Math.exp(logMin + t * (logMax - logMin)).toFixed(2)))
+    }
+  } else {
+    for (let freq = freqMin; freq <= freqMax + 1e-6; freq += freqStep) {
+      freqsHz.push(Number(freq.toFixed(2)))
+    }
+  }
+
+  const frameStarts: number[] = []
+  for (let start = 0; start + windowSamples <= nSamples; start += hopSamples) {
+    frameStarts.push(start)
+  }
+  if (!frameStarts.length) return null
+
+  const hann = new Float32Array(windowSamples)
+  let hannEnergy = 0
+  for (let i = 0; i < windowSamples; i++) {
+    const w = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / Math.max(1, windowSamples - 1))
+    hann[i] = w
+    hannEnergy += w * w
+  }
+  hannEnergy = Math.max(hannEnergy, 1e-6)
+
+  const power = Array.from({ length: freqsHz.length }, () => new Array<number>(frameStarts.length).fill(0))
+  const timesSec = frameStarts.map((start) => (start + windowSamples / 2) / sampleRate - preSec)
+
+  for (const snippet of validSnippets) {
+    let mean = 0
+    for (let i = 0; i < snippet.length; i++) mean += snippet[i] ?? 0
+    mean /= Math.max(1, snippet.length)
+
+    frameStarts.forEach((start, timeIndex) => {
+      for (let freqIndex = 0; freqIndex < freqsHz.length; freqIndex++) {
+        const freq = freqsHz[freqIndex] ?? 0
+        let re = 0
+        let im = 0
+        for (let i = 0; i < windowSamples; i++) {
+          const sample = ((snippet[start + i] ?? 0) - mean) * hann[i]
+          const phase = (2 * Math.PI * freq * i) / sampleRate
+          re += sample * Math.cos(phase)
+          im -= sample * Math.sin(phase)
+        }
+        power[freqIndex][timeIndex] += (re * re + im * im) / hannEnergy
+      }
+    })
+  }
+
+  const scale = 1 / validSnippets.length
+  for (const row of power) {
+    for (let i = 0; i < row.length; i++) row[i] *= scale
+  }
+  return { timesSec, freqsHz, power }
 }
 
 export function getDsaChannels(epoch: EpochData | null): Array<{ index: number; name: string }> {

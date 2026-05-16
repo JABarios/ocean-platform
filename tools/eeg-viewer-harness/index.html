@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EEG Viewer Harness</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #f1f5f9;
+      overflow: hidden;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    #toolbar {
+      display: flex; align-items: flex-end; gap: 1rem; flex-wrap: wrap;
+      padding: 0.5rem 1rem; background: #fff;
+      border-bottom: 1px solid #e2e8f0; flex-shrink: 0;
+    }
+    #toolbar label {
+      display: flex; flex-direction: column; gap: 2px;
+    }
+    #toolbar label span {
+      font-size: 0.65rem; color: #94a3b8; font-weight: 600;
+      letter-spacing: 0.05em; text-transform: uppercase;
+    }
+    #toolbar select, #toolbar button {
+      background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 4px;
+      color: #1e293b; font-size: 0.8rem; padding: 0.2rem 0.4rem;
+      cursor: pointer; outline: none;
+    }
+    #toolbar button.active {
+      background: #dbeafe; border-color: #93c5fd; color: #1d4ed8; font-weight: 600;
+    }
+    #toolbar .spacer { width: 1px; height: 36px; background: #e2e8f0; flex-shrink: 0; }
+    #toolbar .title { color: #2563eb; font-weight: 700; font-family: monospace; font-size: 0.85rem; }
+    #toolbar .meta { color: #94a3b8; font-size: 0.7rem; }
+    #toolbar .pagination {
+      display: flex; gap: 0.4rem; align-items: center;
+    }
+    #toolbar .pagination span {
+      color: #475569; font-size: 0.8rem; font-family: monospace; min-width: 64px; text-align: center;
+    }
+    #toolbar .pagination button {
+      font-weight: 700; font-size: 0.9rem; padding: 0.3rem 0.65rem;
+    }
+    #toolbar .pagination button:disabled {
+      background: #f1f5f9; color: #cbd5e1; border-color: #e2e8f0; cursor: not-allowed;
+    }
+    #canvas-wrap {
+      flex: 1; overflow: auto; background: #f1f5f9; position: relative;
+    }
+    #canvas-wrap canvas { display: block; width: 100%; }
+    #overlay {
+      position: absolute; top: 0; left: 0; width: 100%; pointer-events: none;
+    }
+    #loading {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      height: 100vh; background: #f1f5f9; color: #64748b; font-family: monospace; font-size: 1rem; gap: 1rem;
+    }
+    #loading .spinner {
+      width: 28px; height: 28px;
+      border: 3px solid #e2e8f0; border-top: 3px solid #2563eb;
+      border-radius: 50%; animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #error {
+      display: none; flex-direction: column; align-items: center; justify-content: center;
+      height: 100vh; background: #f1f5f9; font-family: system-ui, sans-serif; padding: 1rem;
+    }
+    #error .box {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 8;
+      padding: 2rem; width: 100%; max-width: 440px; display: flex; flex-direction: column; gap: 1.25rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    #error .box .errmsg {
+      background: #fef2f2; border: 1px solid #fecaca; border-radius: 6;
+      padding: 0.75rem; color: #dc2626; font-size: 0.875rem;
+    }
+  </style>
+</head>
+<body>
+  <div id="loading">
+    <div class="spinner"></div>
+    <span id="load-msg">Loading EEG module…</span>
+  </div>
+
+  <div id="error">
+    <div class="box">
+      <div>
+        <div style="color:#2563eb;font-weight:700;font-size:1.1rem;margin-bottom:4px">EEG Viewer Harness</div>
+        <div style="color:#94a3b8;font-size:0.8rem">Standalone test</div>
+      </div>
+      <div id="error-msg" class="errmsg"></div>
+    </div>
+  </div>
+
+  <div id="app" style="display:none; flex-direction:column; height:100vh;">
+    <div id="toolbar">
+      <div style="display:flex; flex-direction:column; gap:2px; margin-right:4px">
+        <span class="title">EEG · Harness</span>
+        <span id="meta-text" class="meta"></span>
+      </div>
+      <div class="spacer"></div>
+
+      <label>
+        <span>F. Baja (HP)</span>
+        <select id="hp-select">
+          <option value="0">Ninguno</option>
+          <option value="0.3">0.3 Hz</option>
+          <option value="0.5" selected>0.5 Hz</option>
+          <option value="1">1 Hz</option>
+          <option value="5">5 Hz</option>
+        </select>
+      </label>
+      <label>
+        <span>F. Alta (LP)</span>
+        <select id="lp-select">
+          <option value="15">15 Hz</option>
+          <option value="30">30 Hz</option>
+          <option value="45" selected>45 Hz</option>
+          <option value="70">70 Hz</option>
+        </select>
+      </label>
+      <label>
+        <span>Notch</span>
+        <select id="notch-select">
+          <option value="1" selected>50 Hz</option>
+          <option value="0">Off</option>
+        </select>
+      </label>
+
+      <div class="spacer"></div>
+
+      <label>
+        <span>Ventana</span>
+        <select id="window-select">
+          <option value="10">10s</option>
+          <option value="20">20s</option>
+          <option value="30">30s</option>
+          <option value="150">150s</option>
+        </select>
+      </label>
+      <label>
+        <span>Ganancia</span>
+        <select id="gain-select">
+          <option value="0.1">0.1×</option>
+          <option value="0.3">0.3×</option>
+          <option value="0.5">0.5×</option>
+          <option value="0.7">0.7×</option>
+          <option value="1" selected>1×</option>
+          <option value="2">2×</option>
+          <option value="4">4×</option>
+        </select>
+      </label>
+
+      <div class="spacer"></div>
+
+      <label>
+        <span>Norm. no-EEG</span>
+        <button id="norm-btn" title="Normalizar canales no-EEG a z-score">z-score</button>
+      </label>
+
+      <div style="flex:1"></div>
+
+      <div class="pagination">
+        <span id="time-offset" style="color:#94a3b8;font-size:0.75rem;font-family:monospace">t = 0s</span>
+        <button id="prev-btn" title="Anterior (←)">←</button>
+        <span id="page-info">1 / 1</span>
+        <button id="next-btn" title="Siguiente (→)">→</button>
+      </div>
+    </div>
+
+    <div id="canvas-wrap">
+      <canvas id="main-canvas"></canvas>
+      <canvas id="overlay"></canvas>
+    </div>
+  </div>
+
+  <script src="/wasm/kappa_wasm.js"></script>
+  <script src="viewer.js"></script>
+</body>
+</html>

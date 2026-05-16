@@ -10,6 +10,7 @@ export default function Login() {
   const [error, setError] = useState('')
   const [debugInfo, setDebugInfo] = useState('')
   const [resendMessage, setResendMessage] = useState('')
+  const [resendStatus, setResendStatus] = useState<null | { emailSent?: boolean; verifyUrl?: string }>(null)
   const [resending, setResending] = useState(false)
   const login = useAuthStore((s) => s.login)
   const token = useAuthStore((s) => s.token)
@@ -27,6 +28,7 @@ export default function Login() {
     setError('')
     setDebugInfo(`Intentando conectar a: ${API_BASE}/auth/login`)
     setResendMessage('')
+    setResendStatus(null)
     try {
       await login(email, password)
     } catch (err: any) {
@@ -40,9 +42,11 @@ export default function Login() {
     if (!email) return
     setResending(true)
     setResendMessage('')
+    setResendStatus(null)
     try {
-      const res = await api.post<{ message: string; verifyUrl?: string }>('/auth/resend-verification', { email })
-      setResendMessage(res.verifyUrl ? `${res.message} ${res.verifyUrl}` : res.message)
+      const res = await api.post<{ message: string; verifyUrl?: string; emailSent?: boolean }>('/auth/resend-verification', { email })
+      setResendMessage(res.message)
+      setResendStatus({ emailSent: res.emailSent, verifyUrl: res.verifyUrl })
     } catch (err) {
       setResendMessage(err instanceof Error ? err.message : 'No se pudo reenviar el correo')
     } finally {
@@ -86,7 +90,22 @@ export default function Login() {
               )}
             </div>
           )}
-          {resendMessage && <div className="auth-success">{resendMessage}</div>}
+          {resendMessage && (
+            <div className="auth-success">
+              <div>{resendMessage}</div>
+              {resendStatus && (
+                <div className="auth-debug-panel">
+                  <div><strong>Estado del correo:</strong> {resendStatus.emailSent ? 'enviado' : 'sin envío real / fallback'}</div>
+                  {resendStatus.verifyUrl && (
+                    <div>
+                      <strong>Enlace de verificación:</strong>{' '}
+                      <a href={resendStatus.verifyUrl}>{resendStatus.verifyUrl}</a>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           <button type="submit" className="btn-primary" disabled={isLoading}>
             {isLoading ? 'Entrando…' : 'Entrar'}
           </button>

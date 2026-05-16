@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Login from '../pages/Login'
-import { mockFetch } from './mocks'
+import { mockFetch, mockFetchSequence } from './mocks'
 import * as navigation from '../utils/navigation'
 
 const mockNavigate = vi.fn()
@@ -80,7 +80,10 @@ describe('Login', () => {
   })
 
   it('ofrece reenviar la confirmación si la cuenta está pendiente', async () => {
-    const fetchMock = mockFetch({ error: 'Debes confirmar tu correo antes de iniciar sesión' }, 401)
+    const fetchMock = mockFetchSequence([
+      { data: { error: 'Debes confirmar tu correo antes de iniciar sesión' }, status: 401 },
+      { data: { message: 'No hay proveedor de correo configurado. Usa el enlace de verificación devuelto por la API.', emailSent: false, verifyUrl: 'http://localhost:5173/verify-email/test-token' } },
+    ])
 
     render(
       <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
@@ -97,7 +100,10 @@ describe('Login', () => {
     fireEvent.click(screen.getByRole('button', { name: /Entrar/i }))
 
     expect(await screen.findByText(/Debes confirmar tu correo/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Reenviar confirmación/i })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Reenviar confirmación/i }))
+    expect(await screen.findByText(/Estado del correo:/i)).toBeInTheDocument()
+    expect(screen.getByText(/sin envío real \/ fallback/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /http:\/\/localhost:5173\/verify-email\/test-token/i })).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalled()
   })
 })

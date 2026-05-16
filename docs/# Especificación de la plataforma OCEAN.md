@@ -2,8 +2,8 @@
 
 ## Integración con KAPPA para revisión clínica, discusión y curación docente de EEG
 
-**Versión:** borrador 0.3
-**Fecha de actualización:** 2026-04-29
+**Versión:** borrador 0.4
+**Fecha de actualización:** 2026-05-10
 **Propósito:** definir la plataforma colaborativa que trabajará junto a KAPPA para permitir revisión de casos EEG, discusión estructurada y evolución hacia una biblioteca docente.
 
 ---
@@ -12,7 +12,15 @@
 
 Este texto nació como borrador temprano. Hoy conviene leerlo junto a este resumen del estado real de la plataforma:
 
-- OCEAN ya dispone de **visor EEG web**.
+- OCEAN ya es una **plataforma clínica completa para compartir y revisar casos EEG**.
+- Ya dispone de **visor EEG web** con:
+  - filtros,
+  - montajes,
+  - DSA,
+  - anotaciones,
+  - navegación temporal real,
+  - revisión visual de artefactos,
+  - y utilidades de sueño/trigger average.
 - La subida web realiza **desidentificación local verificable** antes del cifrado:
   - reescribe campos directos de cabecera EDF,
   - nunca sube el archivo original,
@@ -23,10 +31,58 @@ Este texto nació como borrador temprano. Hoy conviene leerlo junto a este resum
 - Existe **custodia de la clave EEG en OCEAN**, recuperable con contraseña del usuario; el propietario puede volver a revelarla.
 - Los EEGs ya no viven solo pegados a un caso: existe una entidad **`EegRecord` reutilizable** con deduplicación por hash.
 - Existen **Galerías** como entidad separada de `Case`, pensadas para EEGs públicos o completamente anonimizados.
+- Existen **solicitudes de revisión dirigidas**:
+  - a un usuario concreto,
+  - o a un grupo,
+  - con aceptación o rechazo explícitos.
+- Existen **comentarios clínicos estructurados** y cierre de discusión sobre casos.
+- Existe una **biblioteca docente** con flujo de curación:
+  - propuesta,
+  - recomendaciones,
+  - validación curatorial,
+  - e incorporación a galería o biblioteca.
+- Existe **compartición pública efímera por enlace**:
+  - sin login en el receptor,
+  - con blob cifrado,
+  - y clave fuera del servidor.
+- Existe **auditoría** de acciones relevantes.
+- Existe **gestión de usuarios y grupos**:
+  - usuarios autenticados,
+  - grupos con invitación y aceptación,
+  - y casos compartidos con visibilidad de grupo.
+- Existe una primera capa de **correo transaccional**:
+  - verificación de email,
+  - invitaciones a grupo,
+  - y avisos cuando se envía una solicitud de revisión.
 - El área `Admin` ya no sustituye al flujo normal: se añade encima de él.
 
 ### 0.1 Aclaración
 OCEAN sigue sin pretender ser un repositorio indiscriminado de todos los EEGs posibles, pero ya sí gestiona **registros reutilizables y colecciones curadas**.
+
+### 0.2 Qué es OCEAN hoy, en una frase
+
+OCEAN hoy es una **plataforma clínica completa de interconsulta, revisión, discusión y curación docente de casos EEG**, bastante más grande de lo que parece desde fuera.
+
+### 0.3 Qué falta todavía
+
+Aunque la base funcional ya es sólida, todavía faltan algunas piezas para cerrar del todo el modelo de colaboración que se busca:
+
+- consolidar el flujo de **consulta abierta a la comunidad** como una experiencia de uso más central;
+- terminar de pulir la capa de **notificaciones en producto** ya implementada:
+  - bandeja,
+  - canales,
+  - preferencias por evento,
+  - y criterio de ruido;
+- seguir afinando los avisos operativos por:
+  - email,
+  - push web,
+  - y Telegram;
+- para un uso tipo **N-diag** o interconsulta asistencial con SLA:
+  - flujo de urgencia,
+  - tiempos de respuesta definidos,
+  - y un informe estructurado final más explícito.
+
+En otras palabras: la infraestructura clínica, el visor, la compartición cifrada, la revisión dirigida, los grupos, la docencia, la notificación interna y buena parte de los canales de aviso ya existen. Lo que falta es sobre todo rematar el pulido de la **comunidad abierta** y algunos flujos de operación asistencial más reglados.
 
 ## 1. Objeto del documento
 

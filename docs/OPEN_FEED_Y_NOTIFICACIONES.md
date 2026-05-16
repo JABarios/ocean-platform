@@ -2,18 +2,53 @@
 
 ## 1. Propósito
 
+> **Estado a 2026-05-10**
+>
+> Este documento nació como especificación futura. A día de hoy conviene leerlo como mezcla de:
+>
+> - **implementado ya**
+> - **implementado parcialmente**
+> - **pendiente**
+>
+> En particular:
+>
+> - el **feed de casos abiertos** ya existe;
+> - la visibilidad `Public` ya permite que cualquier usuario autenticado vea y comente;
+> - la visibilidad de grupo (`Institutional` en backend, `Grupo` en la UI) ya existe con grupos cerrados, invitación y aceptación;
+> - ya hay una capa de **emails transaccionales** para:
+>   - verificación de cuenta,
+>   - invitaciones a grupo,
+>   - solicitudes de revisión;
+> - hoy ya existe una capa de **notificaciones internas persistidas en producto**:
+>   - campana,
+>   - bandeja,
+>   - contador de no leídas,
+>   - lectura/marcado,
+>   - modelo `Notification` en BD;
+> - además existen:
+>   - preferencias por canal y evento,
+>   - push web PWA,
+>   - y Telegram como canal opcional.
+
 OCEAN ya cubre bien el flujo **privado y dirigido**:
 
 - un clínico crea un caso
 - solicita revisión a un usuario o grupo concreto
 - el caso se discute dentro de ese perímetro
 
-Lo que falta es la segunda mitad del producto:
+Lo que faltaba originalmente era la segunda mitad del producto:
 
 - el flujo de **consulta abierta a la comunidad**
 - un sistema básico de **notificaciones**
 
-Este documento define esa capa sin cambiar la naturaleza de OCEAN:
+Hoy la situación es más precisa:
+
+- la **consulta abierta a la comunidad** ya está operativa en su primera versión;
+- el sistema de **notificaciones internas** ya está operativo;
+- el **email transaccional** sigue siendo respaldo universal;
+- `push` y `Telegram` son canales rápidos complementarios, no el centro del modelo.
+
+Este documento describe esa capa sin cambiar la naturaleza de OCEAN:
 
 - sigue siendo una plataforma clínica colaborativa
 - no se convierte en una red social médica abierta
@@ -29,6 +64,8 @@ Eso implica dos piezas:
 
 1. **Feed de casos abiertos**
 2. **Notificaciones**
+
+Las dos piezas ya existen en una primera versión útil. Lo que queda es sobre todo pulido de producto y criterio de canal.
 
 ## 3. Principio de diseño
 
@@ -51,9 +88,11 @@ Un caso entra en el feed abierto cuando:
 
 - `Case.visibility = Public`
 
-Ese caso debe poder ser visto por:
+Ese caso puede ser visto por:
 
 - cualquier usuario autenticado con cuenta activa
+
+> **Estado actual:** implementado.
 
 ### 4.2. Qué no significa `Public`
 
@@ -81,6 +120,8 @@ El feed abierto debe permitir:
 Nueva pantalla:
 
 - `/cases/open`
+
+> **Estado actual:** implementado como `OpenCasesFeed`.
 
 Contenido mínimo:
 
@@ -190,6 +231,8 @@ Los comentarios comunitarios deben seguir cumpliendo:
 - auditabilidad
 - mismas validaciones de contenido que el sistema actual
 
+> **Estado actual:** implementado.
+
 ## 7. Notificaciones
 
 ## 7.1. Objetivo
@@ -201,7 +244,23 @@ Una vez existen casos abiertos y más interacción comunitaria, OCEAN necesita a
 - nuevos comentarios relevantes
 - actividad docente relevante
 
-Sin notificaciones, la colaboración se vuelve opaca y fácil de perder.
+Sin notificaciones internas, la colaboración se vuelve opaca y fácil de perder.
+
+### 7.1.1 Estado actual real
+
+Hoy OCEAN sí dispone de algunos avisos, pero por **email transaccional**:
+
+- verificación de correo al registrarse;
+- invitación a grupo;
+- solicitud de revisión directa o dirigida a grupo.
+
+Eso ya cubre una parte del problema operativo, pero no resuelve todavía:
+
+- bandeja interna;
+- histórico de avisos;
+- leídas/no leídas;
+- alertas de comentarios;
+- contador persistido dentro de la app.
 
 ## 7.2. Modelo mínimo
 

@@ -1,68 +1,139 @@
-# Husos2: especificación del modo realmente implementado
+# Husos2: diseño metodológico e implementación actual
 
-## 1. Alcance
+## 1. Propósito de este documento
 
-`Husos2` es el modo de detección automática de husos rápidos que existe hoy en el visor EEG de OCEAN, dentro de `Trigger Avg`.
+Este documento tiene dos capas distintas y complementarias:
 
-No es un detector general de husos lentos + rápidos ni un sistema dual frontal/parietal. La implementación actual está centrada en:
+1. `Diseño metodológico previsto`
+   Describe la idea general de `Husos2` como detector neurofisiológicamente razonable de husos de sueño, incluyendo la visión más amplia que motivó el trabajo.
 
-- husos rápidos parietales
-- promedio regional parietal
-- uso dentro del flujo de promedio desencadenado del visor
+2. `Implementación actual real`
+   Describe lo que hoy está realmente desplegado en OCEAN/KAPPA dentro del visor EEG, aunque todavía no cubra toda la visión original.
 
-Su objetivo práctico es:
-
-- encontrar husos rápidos visibles y espectralmente plausibles
-- generar una lista de eventos para el promedio multicanal
-- permitir un rescate controlado de eventos limítrofes sin degradar demasiado la precisión
+La intención es no perder ni la metodología que queríamos construir ni el estado real del código.
 
 ---
 
-## 2. Comportamiento de producto en la UI
+## 2. Diseño metodológico previsto
 
-En `Trigger Avg`, cuando el modo de detección es `Husos2`:
+### 2.1 Idea general
 
-- el promedio se fuerza automáticamente sobre el registro entero
-- el usuario ya no tiene que marcar `Promediar registro entero`
-- el canal trigger se conserva solo como referencia visual del promedio
+`Husos2` nace como un algoritmo determinista para detección automática de husos de sueño que combine dos exigencias:
+
+- pureza físico-espectral del evento
+- visibilidad morfológica en el EEG
+
+La visión original no era hacer un detector puramente umbralado sobre una sola métrica, sino un sistema que integrara:
+
+- contexto NREM
+- energía sigma local
+- pureza espectral tipo Barios
+- forma del evento tipo A7 / Lacourse
+- distinción topográfica entre husos lentos y rápidos
+
+### 2.2 Base metodológica
+
+La idea de `Husos2` mezcla dos familias de criterios:
+
+- **Barios**
+  Aporta el análisis espectral con DFT de alta resolución y el `Índice Sigma (Iσ)` como criterio de pureza frecuencial.
+
+- **A7 / Lacourse et al.**
+  Aporta el barrido continuo, el contexto NREM, la normalización por línea base local y los filtros morfológicos por covarianza y correlación sigma.
+
+### 2.3 Visión fisiológica prevista
+
+La visión original contemplaba dos subtipos:
+
+| Subtipo | Banda principal | Topografía esperada |
+|---|---|---|
+| Huso lento | ~11–13.5 Hz | frontal |
+| Huso rápido | ~12.5–16 Hz | parietal |
+
+Eso justificaba, al menos conceptualmente:
+
+- un detector frontal para husos lentos
+- un detector parietal para husos rápidos
+- y eventualmente una integración unificada de ambos
+
+### 2.4 Arquitectura metodológica prevista
+
+La arquitectura que teníamos en mente se puede resumir así:
+
+1. construir señales regionales estables por promedio espacial
+2. clasificar el contexto NREM
+3. detectar candidatos por incremento local de potencia sigma
+4. verificar pureza espectral con `Iσ`
+5. verificar morfología con medidas tipo `zSigmaCov` y `sigmaCorr`
+6. unir la información en un detector más parecido al criterio humano que a un simple threshold aislado
+
+### 2.5 Diferencia entre visión y código actual
+
+Esa visión sigue siendo útil como marco conceptual, pero hoy la implementación real todavía no es el detector dual completo lento+rápido. La versión productiva actual está especializada en el subtipo rápido parietal.
+
+---
+
+## 3. Implementación actual real en OCEAN/KAPPA
+
+## 3.1 Alcance real
+
+El `Husos2` que existe hoy en el visor EEG de OCEAN es:
+
+- un detector de **husos rápidos parietales**
+- integrado en `Trigger Avg`
+- pensado para seleccionar eventos útiles para promedio desencadenado
+
+No es todavía:
+
+- un detector general lento+rápido
+- un sistema dual frontal/parietal completo
+- un clasificador universal de todos los husos del registro
+
+### 3.2 Comportamiento de producto en la UI
+
+Cuando el modo de detección es `Husos2`:
+
 - la detección real se hace sobre el promedio regional parietal
-
-Además, el panel visible se ha dejado en modo producto:
-
-- se muestran contadores generales de candidatos, aceptados y usados
-- no se muestran por defecto los bloques extensos de debug interno
+- el canal trigger se mantiene solo como referencia visual
+- el promedio del registro entero se fuerza automáticamente
+- el usuario ya no tiene que marcar `Promediar registro entero`
+- el bloque largo de debug ya no se muestra en la UX normal
 
 ---
 
-## 3. Entrada real del detector
+## 4. Entrada real del detector
 
 El detector usa:
 
 - EEG multicanal crudo
-- frecuencia de muestreo del registro
-- nombres de canal del EDF
+- frecuencia de muestreo del EDF
+- nombres de canal
 
-El motor construye un promedio regional parietal usando los canales disponibles del grupo:
+La señal efectiva del detector se construye como promedio regional parietal con los canales disponibles de:
 
 - `P3`
 - `P4`
 - `Pz`
 
-La detección exige al menos 2 canales parietales válidos para que el promedio regional sea procesable.
+Se exige al menos:
+
+- `2 canales parietales válidos`
+
+para que el promedio regional sea procesable.
 
 ---
 
-## 4. Parámetros por defecto actualmente implementados
+## 5. Parámetros actualmente implementados
 
-### 4.1 Banda y contexto
+### 5.1 Bandas y contexto
 
 - sigma rápida: `12.5–16.0 Hz`
 - banda ancha de referencia: `4.5–30.0 Hz`
-- NREM lenta: `0.5–8.0 Hz`
-- NREM rápida: `16.0–30.0 Hz`
+- banda lenta NREM: `0.5–8.0 Hz`
+- banda rápida NREM: `16.0–30.0 Hz`
 - umbral de contexto NREM: `ratio > 0.9`
 
-### 4.2 Barrido y duración
+### 5.2 Barrido temporal
 
 - ventana de búsqueda: `0.3 s`
 - avance: `0.1 s`
@@ -70,44 +141,47 @@ La detección exige al menos 2 canales parietales válidos para que el promedio 
 - duración mínima: `0.3 s`
 - duración máxima: `2.5 s`
 
-### 4.3 Umbrales principales
+### 5.3 Umbrales base
 
 - `zAbsSigPow > 0.5`
 - `Iσ > 4.0` en la pasada conservadora
 - `zSigmaCov > 1.3`
 - `sigmaCorr > 0.69`
 
-### 4.4 Refino temporal
+### 5.4 Refino temporal
 
 - fragmento espectral Barios: `1.0 s`
-- umbral de borde del envelope sigma z: `1.5`
-- suavizado del envelope para borde: `100 ms`
+- suavizado de envelope para bordes: `100 ms`
+- umbral de borde: `z-envelope = 1.5`
 
 ---
 
-## 5. Flujo real del algoritmo
+## 6. Flujo real del algoritmo
 
 ### Fase 1. Promedio regional parietal
 
-Se construye una señal regional parietal promediando los canales parietales disponibles.
+Se construye una señal regional parietal promediando los canales válidos disponibles.
 
-Si el número de canales válidos es insuficiente, el detector se detiene.
+Si el grupo no tiene suficientes canales útiles, el detector se detiene.
 
 ### Fase 2. Contexto NREM
 
-Sobre la señal regional se calcula, por ventanas de `30 s`, el cociente:
+Por ventanas de `30 s`, sobre la señal regional:
 
-- potencia lenta `0.5–8 Hz`
-- frente a potencia rápida `16–30 Hz`
+- se calcula potencia lenta `0.5–8 Hz`
+- se calcula potencia rápida `16–30 Hz`
+- se evalúa su razón
 
-Solo se procesan las ventanas cuya razón supera `0.9`.
+Solo se procesan las ventanas con:
+
+- `ratio_NREM > 0.9`
 
 ### Fase 3. Candidatos por potencia sigma
 
 Dentro del contexto NREM:
 
 - se filtra la señal sigma rápida `12.5–16 Hz`
-- se hace barrido con ventana `0.3 s` y avance `0.1 s`
+- se barre con ventanas de `0.3 s` y salto `0.1 s`
 - se calcula `AbsSigPow`
 - se normaliza con línea base local de `30 s`
 
@@ -115,46 +189,51 @@ Una ventana entra como candidata si:
 
 - `zAbsSigPow > 0.5`
 
-Las ventanas contiguas o solapadas se fusionan en un evento candidato.
+Las ventanas contiguas se fusionan en un candidato.
 
-### Fase 4. Núcleo sigma por `best-window`
+### Fase 4. Núcleo espectral por `best-window`
 
-Cada candidato ya no se evalúa solo en `onset` ni solo en `peak`.
+Este es uno de los cambios importantes respecto a la idea más simple inicial.
 
-El motor busca la mejor ventana interna de `1 s`:
+Cada candidato:
 
-- desliza un fragmento de `1 s` dentro del candidato
-- calcula `Iσ` en cada posición
-- se queda con la posición que maximiza ese índice
+- no se evalúa ya solo en el `onset`
+- ni solo en el `peak` bruto
 
-Ese valor se guarda como:
+Ahora el motor:
+
+- desliza una ventana interna de `1 s`
+- calcula `Iσ` en múltiples posiciones
+- se queda con la mejor (`best-window`)
+
+Ese valor es:
 
 - `Iσ_best`
 
-La pasada espectral conservadora usa precisamente ese valor:
+La pasada conservadora usa:
 
 - `Iσ_best > 4.0`
 
 ### Fase 5. Redefinición de `onset` y `offset`
 
-El evento final no usa ya el borde bruto del candidato ni la antigua regla basada en fracción del pico.
+El evento final ya no usa el borde bruto del candidato ni el antiguo criterio basado en una fracción del pico.
 
-El procedimiento actual es:
+Ahora:
 
-- tomar el centro del `best-window`
-- calcular el envelope sigma suavizado
-- retroceder hasta el cruce de `z-envelope = 1.5`
-- avanzar hasta el cruce de `z-envelope = 1.5`
+1. se toma el centro del `best-window`
+2. se calcula el envelope sigma suavizado
+3. se retrocede hasta el cruce de `z-envelope = 1.5`
+4. se avanza hasta el cruce de `z-envelope = 1.5`
 
-Eso redefine:
+Esto redefine:
 
 - `onset`
 - `offset`
-- duración final del evento
+- duración real final
 
-### Fase 6. Filtro morfológico
+### Fase 6. Filtro morfológico conservador
 
-Tras pasar el gate espectral base, el evento debe cumplir también:
+Tras pasar el gate espectral base, el evento debe cumplir:
 
 - `zSigmaCov > 1.3`
 - `sigmaCorr > 0.69`
@@ -163,132 +242,129 @@ Los eventos que pasan ambos filtros forman el conjunto:
 
 - `seed`
 
-Este conjunto es la referencia de alta confianza del registro.
+Ese conjunto actúa como referencia de alta confianza para el propio registro.
 
 ---
 
-## 6. Segunda pasada adaptativa (`pass 2`)
+## 7. Segunda pasada adaptativa (`pass 2`)
 
-### 6.1 Objetivo
+### 7.1 Objetivo
 
-La segunda pasada no detecta desde cero. Parte de los candidatos ya evaluados y trata de rescatar eventos parecidos a los `seed`, pero algo más débiles o incompletos.
+La segunda pasada no detecta desde cero. Reevalúa candidatos ya existentes para rescatar eventos parecidos a los `seed`, pero algo más débiles o incompletos.
 
-### 6.2 Activación
+### 7.2 Activación
 
-Solo se activa si hay suficientes eventos semilla:
+Solo se activa si hay suficientes semilla:
 
 - mínimo actual: `5 seed`
 
-### 6.3 Umbrales adaptativos derivados de los `seed`
+### 7.3 Umbrales adaptativos derivados del registro
 
-El `pass 2` aprende del propio registro usando percentiles de los `seed`.
+El `pass 2` aprende de los propios husos semilla del registro.
 
-Hoy se derivan:
+Se derivan, con suelos y techos de seguridad:
 
 - `Iσ_min`
 - `zAbs_min`
 - `zCov_min`
 - `corr_min`
-- rango de duración
+- banda de duración esperada
 
-Con barandillas duras para evitar dos problemas:
-
-- que el rescate se vuelva demasiado laxo
-- que se vuelva más estricto que la pasada base
-
-Implementación actual:
+Estado actual:
 
 - `Iσ_min = max(3.0, min(3.5, p10(seed Iσ)))`
 - `corr_min = max(0.55, min(0.63, p10(seed corr) - 0.02))`
-- `zCov_min` y `zAbs_min` también se derivan de percentiles con suelo y techo
+- `zCov_min` y `zAbs_min` también se obtienen desde percentiles con límites
 
-### 6.4 Score adaptativo combinado
+### 7.4 Score adaptativo combinado
 
-Además de los umbrales suaves, el `pass 2` usa un score combinado de similitud al prototipo de los `seed`.
+Además de umbrales suaves, la implementación actual usa un score combinado de similitud al prototipo de los `seed`.
 
-El score actual mezcla:
+El score mezcla:
 
 - `Iσ_best`
 - `sigmaCorr`
 - `zSigmaCov`
 
-Con pesos:
+Pesos actuales:
 
 - `Iσ`: `0.50`
 - `corr`: `0.30`
 - `zCov`: `0.20`
 
-El rescate final exige:
+### 7.5 Red de seguridad
 
-1. pasar una malla mínima de seguridad
-2. y además:
-   - pasar los umbrales adaptativos suaves, o
-   - superar `score_min`
-
-Valores de seguridad actuales:
+El rescate adaptativo exige una malla mínima de seguridad:
 
 - `Iσ_floor = 2.8`
 - `corr_floor = 0.55`
 - `zCov_floor = 0.25`
 - `score_min = 1.05`
 
-Los eventos aceptados por esta vía quedan etiquetados internamente como:
+La aceptación final del `pass 2` exige:
+
+1. pasar la red mínima de seguridad
+2. y además:
+   - pasar los umbrales adaptativos suaves, o
+   - superar el `adaptiveScore`
+
+Los aceptados por esta vía quedan marcados internamente como:
 
 - `adaptive_ok`
 
 ---
 
-## 7. Qué significan hoy los contadores internos
+## 8. Semántica actual de contadores
 
-Aunque el bloque largo de debug ya no se muestra en la UI normal, el motor sigue trabajando con esta semántica:
+Aunque la UI productiva ya no muestra todo el debug interno, el motor sigue usando esta semántica:
 
 - `seed`: eventos aceptados por la pasada conservadora
-- `rescued`: eventos añadidos por la segunda pasada adaptativa
+- `rescued`: eventos añadidos por la pasada adaptativa
 - `aceptados`: `seed + rescued`
-- `usados en promedio`: aceptados finales tras excluir los que caen en artefacto si esa opción está activada
+- `usados en promedio`: eventos finalmente usados tras exclusión opcional por artefacto
 
 Importante:
 
-- `detectados` y `aceptados` se calculan a nivel de registro entero
-- `usados` depende además de filtros de artefacto y del ámbito del promedio
-- en `Husos2`, el ámbito ya queda fijado al registro entero
+- `aceptados` se calcula a nivel de registro entero
+- `usados` depende además del filtro de artefactos
+- en `Husos2` el promedio se fuerza ya al registro entero
 
 ---
 
-## 8. Qué no hace esta versión
+## 9. Qué partes de la visión original aún no están implementadas
 
-La implementación actual no hace todavía:
+Todavía no existe en esta versión:
 
 - detector separado de husos lentos frontales
-- fusión explícita de dos detectores lento/rápido
-- apertura de candidatos extra con una segunda puerta `zAbs` más baja sobre todo el registro
-- clasificación clínica de sueño completa
-- interfaz de tuning clínico estable para los parámetros adaptativos
+- fusión explícita de detector frontal + detector parietal
+- segunda apertura de candidatos con puerta `zAbs` más baja sobre todo el registro
+- una interfaz estable de tuning clínico de todos los parámetros internos
 
-Tampoco se debe leer este modo como un “detector universal de husos”, sino como:
+Por tanto, hoy conviene entender `Husos2` como:
 
 - un detector rápido parietal pragmático
-- afinado para el flujo del visor y del promedio desencadenado
+- alineado con la visión metodológica original
+- pero todavía parcial respecto al diseño completo
 
 ---
 
-## 9. Estado recomendado
+## 10. Estado recomendado actual
 
-A fecha actual, la estrategia que mejor está funcionando en el visor es:
+La estrategia que mejor está funcionando a día de hoy es:
 
 - pasada conservadora por `best-window`
-- refinado temporal por `z-envelope`
-- rescate adaptativo por `seed`
-- score combinado en `pass 2`
+- refino temporal por `z-envelope`
+- `pass 2` adaptativo basado en `seed`
+- rescate final por score combinado
 
-Si se retoma la optimización más adelante, el siguiente paso lógico no es volver a endurecer umbrales fijos, sino:
+Si se continúa el trabajo más adelante, el siguiente paso lógico sería:
 
 - validar visualmente los `adaptive_ok`
-- y, si hace falta, ajustar `score_min` o abrir una segunda entrada de candidatos solo para `pass 2`
+- y solo después decidir si conviene abrir más la entrada o extender el modelo a detector dual frontal/parietal
 
 ---
 
-## 10. Archivos relevantes
+## 11. Archivos relevantes
 
 Motor:
 
@@ -300,4 +376,3 @@ Frontend:
 
 - [EEGViewer.tsx](/Users/juan/Documents/kappa/ocean/ocean-platform/frontend/src/pages/EEGViewer.tsx)
 - [eegViewerUtils.ts](/Users/juan/Documents/kappa/ocean/ocean-platform/frontend/src/pages/eegViewerUtils.ts)
-

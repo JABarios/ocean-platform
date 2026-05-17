@@ -214,6 +214,108 @@ interface KappaInstance {
       snippets: Float32Array[]
     }>
   } | null
+  computeSpindleRaster: (sigmaLowHz: number, sigmaHighHz: number) => {
+    sigmaLowHz: number
+    sigmaHighHz: number
+    nChannels: number
+    nTimepoints: number
+    timeZeroIndex: number
+    candidateEvents: number
+    mergedEvents: number
+    rejectedEvents: number
+    acceptedEvents: number
+    acceptedOnsetSec: Float32Array
+    peakSec: Float32Array
+    offsetSec: Float32Array
+    channelOrder: string[]
+    events: Array<{
+      eventId: number
+      onsetSec: number
+      peakSec: number
+      offsetSec: number
+      durationSec: number
+      seedChannel: string
+      nActiveChannels: number
+      occupancyTotal: number
+      maxSimultaneousActive: number
+      firstActiveLatencySec: number
+      lastActiveLatencySec: number
+      temporalDispersionSec: number
+    }>
+  } | null
+  computeHusos2Fast: () => {
+    sigmaLowHz: number
+    sigmaHighHz: number
+    nChannels: number
+    nTimepoints: number
+    timeZeroIndex: number
+    totalWindows: number
+    processableWindows: number
+    nremWindows: number
+    slidingWindows: number
+    nremEligibleWindows: number
+    candidateWindows: number
+    candidateEvents: number
+    invalidPeakEvents: number
+    mergedEvents: number
+    durationRejectedEvents: number
+    spectralRejectedEvents: number
+    spectralPassEvents: number
+    spectralPassOnsetEvents: number
+    spectralPassPeakEvents: number
+    spectralPassBestWindowEvents: number
+    morphRejectedEvents: number
+    morphPassEvents: number
+    seedAcceptedEvents: number
+    adaptiveRescuedEvents: number
+    rejectedEvents: number
+    acceptedEvents: number
+    acceptedOnsetSec: Float32Array
+    peakSec: Float32Array
+    offsetSec: Float32Array
+    channelOrder: string[]
+    debugLines: string[]
+    battery: Array<{
+      label: string
+      sigmaIndexThreshold: number
+      sigmaCovThresholdZ: number
+      sigmaCorrThreshold: number
+      candidateWindows: number
+      candidateEvents: number
+      invalidPeakEvents: number
+      durationRejectedEvents: number
+      evaluatedEvents: number
+      spectralRejectedEvents: number
+      spectralPassEvents: number
+      spectralPassOnsetEvents: number
+      spectralPassPeakEvents: number
+      spectralPassBestWindowEvents: number
+      morphRejectedEvents: number
+      morphPassEvents: number
+      seedAcceptedEvents: number
+      adaptiveRescuedEvents: number
+      acceptedEvents: number
+    }>
+    events: Array<{
+      eventId: number
+      onsetSec: number
+      peakSec: number
+      offsetSec: number
+      durationSec: number
+      seedChannel: string
+      nActiveChannels: number
+      occupancyTotal: number
+      maxSimultaneousActive: number
+      firstActiveLatencySec: number
+      lastActiveLatencySec: number
+      temporalDispersionSec: number
+      ratioNrem: number
+      zAbsSigPow: number
+      iSigma: number
+      zSigmaCov: number
+      sigmaCorr: number
+    }>
+  } | null
   computeQeegGlobalTimeseries: () => {
     time_sec: number[]
     fmd4to12: number[]
@@ -525,6 +627,82 @@ interface StateSpectralSpindleSnippetData {
   regions: StateSpectralSpindleSnippetRegionData[]
 }
 
+interface SpindleRasterEventData {
+  eventId: number
+  onsetSec: number
+  peakSec: number
+  offsetSec: number
+  durationSec: number
+  seedChannel: string
+  nActiveChannels: number
+  occupancyTotal: number
+  maxSimultaneousActive: number
+  firstActiveLatencySec: number
+  lastActiveLatencySec: number
+  temporalDispersionSec: number
+  ratioNrem?: number
+  zAbsSigPow?: number
+  iSigma?: number
+  zSigmaCov?: number
+  sigmaCorr?: number
+}
+
+interface SpindleRasterData {
+  sigmaLowHz: number
+  sigmaHighHz: number
+  nChannels: number
+  nTimepoints: number
+  timeZeroIndex: number
+  totalWindows?: number
+  processableWindows?: number
+  nremWindows?: number
+  slidingWindows?: number
+  nremEligibleWindows?: number
+  candidateWindows?: number
+  candidateEvents: number
+  invalidPeakEvents?: number
+  mergedEvents: number
+  durationRejectedEvents?: number
+  spectralRejectedEvents?: number
+  spectralPassEvents?: number
+  spectralPassOnsetEvents?: number
+  spectralPassPeakEvents?: number
+  spectralPassBestWindowEvents?: number
+  morphRejectedEvents?: number
+  morphPassEvents?: number
+  seedAcceptedEvents?: number
+  adaptiveRescuedEvents?: number
+  rejectedEvents: number
+  acceptedEvents: number
+  acceptedOnsetSec: Float32Array
+  peakSec: Float32Array
+  offsetSec: Float32Array
+  channelOrder: string[]
+  debugLines?: string[]
+  battery?: Array<{
+    label: string
+    sigmaIndexThreshold: number
+    sigmaCovThresholdZ: number
+    sigmaCorrThreshold: number
+    candidateWindows: number
+    candidateEvents: number
+    invalidPeakEvents: number
+    durationRejectedEvents: number
+    evaluatedEvents: number
+    spectralRejectedEvents: number
+    spectralPassEvents: number
+    spectralPassOnsetEvents: number
+    spectralPassPeakEvents: number
+    spectralPassBestWindowEvents: number
+    morphRejectedEvents: number
+    morphPassEvents: number
+    seedAcceptedEvents: number
+    adaptiveRescuedEvents: number
+    acceptedEvents: number
+  }>
+  events: SpindleRasterEventData[]
+}
+
 type StateSpectralEpochSelectionMode = 'all-clean' | 'with-spindles' | 'without-spindles'
 type StateSpectralArtifactMode = 'clean-only' | 'clean-plus-artifact' | 'artifact-only'
 
@@ -542,7 +720,7 @@ interface PersistedTriggerAverageSettings {
   invertTriggerPolarity: boolean
   randomizeTriggerMarker: boolean
   randomizeTriggerMarkerRangeSec: number
-  triggerDetectionMode: 'event' | 'burst' | 'spindle' | 'slow'
+  triggerDetectionMode: 'event' | 'burst' | 'spindle' | 'spindle2' | 'slow'
   triggerUseSpatialSpindleFilter: boolean
   triggerHp: number
   triggerLp: number
@@ -651,6 +829,51 @@ function resolveTriggerSourceChannelIndex(triggerChannelName: string, channelLab
   const leadName = triggerChannelName.split(' - ')[0]?.trim() ?? triggerChannelName.trim()
   const canonicalLead = canonicalizeRawChannelLabel(leadName)
   return channelLabels.findIndex((label) => canonicalizeRawChannelLabel(label) === canonicalLead)
+}
+
+function isCentralParietalSpindleLead(label: string): boolean {
+  const canonical = canonicalizeRawChannelLabel(label)
+  if (!canonical) return false
+  return /^(C|CP|P)/.test(canonical)
+}
+
+function isParietalSpindleLead(label: string): boolean {
+  const canonical = canonicalizeRawChannelLabel(label)
+  if (!canonical) return false
+  return /^(CP|P)/.test(canonical)
+}
+
+function getCentralParietalSpindleChannelIndices(channelNames: string[]): number[] {
+  const preferred = channelNames
+    .map((name, index) => ({ name, index }))
+    .filter(({ name }) => isCentralParietalSpindleLead(name))
+    .map(({ index }) => index)
+  if (preferred.length > 0) return preferred
+  return channelNames.map((_, index) => index)
+}
+
+function getParietalSpindleChannelIndices(channelNames: string[]): number[] {
+  const preferred = channelNames
+    .map((name, index) => ({ name, index }))
+    .filter(({ name }) => isParietalSpindleLead(name))
+    .map(({ index }) => index)
+  if (preferred.length > 0) return preferred
+  return getCentralParietalSpindleChannelIndices(channelNames)
+}
+
+function buildRegionalAverageSignal(epoch: EpochData, channelIndices: number[]): Float32Array | null {
+  if (!channelIndices.length || epoch.nSamples <= 0) return null
+  const out = new Float32Array(epoch.nSamples)
+  let used = 0
+  for (const channelIndex of channelIndices) {
+    const signal = epoch.data[channelIndex]
+    if (!signal || signal.length !== epoch.nSamples) continue
+    used += 1
+    for (let i = 0; i < epoch.nSamples; i++) out[i] += signal[i] ?? 0
+  }
+  if (used <= 0) return null
+  for (let i = 0; i < epoch.nSamples; i++) out[i] /= used
+  return out
 }
 
 function summarizeScores(scores: number[]): { min: number; max: number; mean: number } | null {
@@ -4419,7 +4642,12 @@ function TriggerAverageModal({
   triggerDetectionMode,
   triggerUseSpatialSpindleFilter,
   spatialSpindleCandidateCount,
+  spatialSpindleCandidateWindowCount,
   spatialSpindleAcceptedCount,
+  spatialSpindleAcceptedCountTotal,
+  spatialSpindleInvalidPeakCount,
+  spatialSpindleDurationRejectedCount,
+  spatialSpindleSpectralPassCount,
   triggerHp,
   triggerLp,
   triggerNotch,
@@ -4527,10 +4755,39 @@ function TriggerAverageModal({
   triggerOverlaySignal: Float32Array | null
   triggerThreshold: number
   triggerThresholdStep: number
-  triggerDetectionMode: 'event' | 'burst' | 'spindle' | 'slow'
+  triggerDetectionMode: 'event' | 'burst' | 'spindle' | 'spindle2' | 'slow'
   triggerUseSpatialSpindleFilter: boolean
   spatialSpindleCandidateCount: number
+  spatialSpindleCandidateWindowCount: number
   spatialSpindleAcceptedCount: number
+  spatialSpindleAcceptedCountTotal: number
+  spatialSpindleInvalidPeakCount: number
+  spatialSpindleDurationRejectedCount: number
+  spatialSpindleSpectralRejectedCount: number
+  spatialSpindleSpectralPassCount: number
+  spatialSpindleSpectralPassOnsetCount: number
+  spatialSpindleSpectralPassPeakCount: number
+  spatialSpindleSpectralPassBestWindowCount: number
+  spatialSpindleMorphRejectedCount: number
+  spatialSpindleMorphPassCount: number
+  spatialSpindleSeedAcceptedCount: number
+  spatialSpindleAdaptiveRescuedCount: number
+  spatialSpindleBattery: Array<{
+    label: string
+    candidateEvents: number
+    invalidPeakEvents: number
+    evaluatedEvents: number
+    spectralPassEvents: number
+    spectralPassOnsetEvents: number
+    spectralPassPeakEvents: number
+    spectralPassBestWindowEvents: number
+    morphPassEvents: number
+    seedAcceptedEvents: number
+    adaptiveRescuedEvents: number
+    acceptedEvents: number
+  }>
+  spatialSpindleDebugLines: string[]
+  spatialSpindleError: string
   triggerHp: number
   triggerLp: number
   triggerNotch: number
@@ -4578,7 +4835,7 @@ function TriggerAverageModal({
   onToggleInvertTriggerPolarity: () => void
   onToggleRandomizeTriggerMarker: () => void
   onRandomizeTriggerMarkerRangeSecChange: (value: number) => void
-  onTriggerDetectionModeChange: (value: 'event' | 'burst' | 'spindle' | 'slow') => void
+  onTriggerDetectionModeChange: (value: 'event' | 'burst' | 'spindle' | 'spindle2' | 'slow') => void
   onTriggerUseSpatialSpindleFilterChange: () => void
   onTriggerHpChange: (value: number) => void
   onTriggerLpChange: (value: number) => void
@@ -4626,6 +4883,7 @@ function TriggerAverageModal({
   const isEventMode = triggerDetectionMode === 'event'
   const isBurstMode = triggerDetectionMode === 'burst'
   const isSpindleMode = triggerDetectionMode === 'spindle'
+  const isSpindle2Mode = triggerDetectionMode === 'spindle2'
   const isSlowMode = triggerDetectionMode === 'slow'
 
   const averagedEpoch = result?.averagedEpoch ?? null
@@ -5194,12 +5452,13 @@ function TriggerAverageModal({
                 <ToolbarSelect
                   label="Modo de detección"
                   value={triggerDetectionMode}
-                  onChange={(value) => onTriggerDetectionModeChange(value as 'event' | 'burst' | 'spindle' | 'slow')}
+                  onChange={(value) => onTriggerDetectionModeChange(value as 'event' | 'burst' | 'spindle' | 'spindle2' | 'slow')}
                   width={132}
                 >
                   <option value="event">Evento</option>
                   <option value="burst">Ráfaga</option>
                   <option value="spindle">Husos</option>
+                  <option value="spindle2">Husos2</option>
                   <option value="slow">Ondas lentas</option>
                 </ToolbarSelect>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#475569', fontSize: '0.82rem', whiteSpace: 'nowrap', paddingBottom: '0.2rem' }}>
@@ -5239,56 +5498,60 @@ function TriggerAverageModal({
                   />
                 )}
               </div>
-              <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.4rem', flexWrap: 'wrap' }}>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#166534', fontSize: '0.72rem' }}>
-                  Umbral
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                    <button type="button" onClick={() => onThresholdNudge(-1)} style={{ width: 28, height: 28, background: '#ffffff', border: '1px solid #86efac', borderRadius: 4, color: '#166534', cursor: 'pointer', fontWeight: 700 }}>−</button>
-                    <div style={{ minWidth: 128, background: '#ffffff', border: '1px solid #bbf7d0', borderRadius: 4, padding: '0.34rem 0.45rem', color: '#166534', fontFamily: 'monospace', fontSize: '0.8rem' }}>
-                      {`${triggerThresholdStep + 1}/${TRIGGER_THRESHOLD_POSITIONS} · ${triggerThreshold.toFixed(2)} µV`}
+              {!isSpindle2Mode && (
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.4rem', flexWrap: 'wrap' }}>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#166534', fontSize: '0.72rem' }}>
+                    Umbral
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      <button type="button" onClick={() => onThresholdNudge(-1)} style={{ width: 28, height: 28, background: '#ffffff', border: '1px solid #86efac', borderRadius: 4, color: '#166534', cursor: 'pointer', fontWeight: 700 }}>−</button>
+                      <div style={{ minWidth: 128, background: '#ffffff', border: '1px solid #bbf7d0', borderRadius: 4, padding: '0.34rem 0.45rem', color: '#166534', fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                        {`${triggerThresholdStep + 1}/${TRIGGER_THRESHOLD_POSITIONS} · ${triggerThreshold.toFixed(2)} µV`}
+                      </div>
+                      <button type="button" onClick={() => onThresholdNudge(1)} style={{ width: 28, height: 28, background: '#ffffff', border: '1px solid #86efac', borderRadius: 4, color: '#166534', cursor: 'pointer', fontWeight: 700 }}>+</button>
+                      {triggerDetectionMode === 'spindle' && (
+                        <button
+                          type="button"
+                          onClick={onAutoThreshold}
+                          style={{
+                            marginLeft: 4,
+                            height: 28,
+                            background: '#ffffff',
+                            border: '1px solid #86efac',
+                            borderRadius: 4,
+                            color: '#166534',
+                            cursor: 'pointer',
+                            fontWeight: 700,
+                            padding: '0 0.55rem',
+                          }}
+                        >
+                          Auto
+                        </button>
+                      )}
                     </div>
-                    <button type="button" onClick={() => onThresholdNudge(1)} style={{ width: 28, height: 28, background: '#ffffff', border: '1px solid #86efac', borderRadius: 4, color: '#166534', cursor: 'pointer', fontWeight: 700 }}>+</button>
-                    {triggerDetectionMode === 'spindle' && (
-                      <button
-                        type="button"
-                        onClick={onAutoThreshold}
-                        style={{
-                          marginLeft: 4,
-                          height: 28,
-                          background: '#ffffff',
-                          border: '1px solid #86efac',
-                          borderRadius: 4,
-                          color: '#166534',
-                          cursor: 'pointer',
-                          fontWeight: 700,
-                          padding: '0 0.55rem',
-                        }}
-                      >
-                        Auto
-                      </button>
-                    )}
-                  </div>
-                </label>
-                {(isEventMode || isBurstMode) && (
-                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem', paddingBottom: '0.25rem' }}>
-                    <input type="checkbox" checked={triggerRectify} onChange={onTriggerRectifyChange} />
-                    Rectificar trigger
                   </label>
-                )}
-              </div>
+                  {(isEventMode || isBurstMode) && (
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem', paddingBottom: '0.25rem' }}>
+                      <input type="checkbox" checked={triggerRectify} onChange={onTriggerRectifyChange} />
+                      Rectificar trigger
+                    </label>
+                  )}
+                </div>
+              )}
               <div style={{ color: '#475569', fontSize: '0.71rem', lineHeight: 1.35 }}>
                 {isEventMode
                   ? 'Evento: dispara cuando la señal trigger cruza el umbral; es el modo general para picos o deflexiones breves. Aquí sí puede tener sentido rectificar trigger.'
                   : isBurstMode
                     ? 'Ráfaga: similar a Evento, pero rearma el detector para evitar múltiples disparos dentro de la misma salva. Aquí sí puede tener sentido rectificar trigger.'
                     : isSpindleMode
-                      ? 'Husos: busca episodios sigma transitorios; el umbral actúa sobre la señal de detección y luego puede refinarse con contexto N2 o patrón espacial.'
+                      ? 'Husos: detecta candidatos sigma con el trigger actual. Luego puedes excluir artefacto, exigir contexto N2 o aplicar un postfiltro espacial experimental sobre esos candidatos.'
+                      : isSpindle2Mode
+                        ? 'Husos2: detector automático de husos rápidos parietales. Usa contexto NREM, pureza espectral y filtro morfológico sobre promedio parietal; el canal trigger se conserva solo como referencia del promedio.'
                       : 'Lentas: detector tipo Massimini; banda 0.5–2 Hz, cruces por cero, duración compatible y selección en el valle negativo.'}
               </div>
               <div style={{ color: '#166534', fontSize: '0.71rem', fontWeight: 700 }}>
                 Criterios del modo
               </div>
-              {(isEventMode || isSlowMode) && (
+              {isEventMode && (
                 <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                   <NumericSuggestInput
                     label="Refractario (s)"
@@ -5319,42 +5582,54 @@ function TriggerAverageModal({
               {isSpindleMode && (
                 <>
                   <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <NumericSuggestInput
-                  label="Sigma baja (Hz)"
-                  value={spindleSigmaLow}
-                  onCommit={(value) => onSpindleSigmaLowChange(Math.max(0.5, Math.min(value, spindleSigmaHigh - 0.5)))}
-                  suggestions={[10, 11, 12]}
-                  width={106}
-                  step={0.5}
-                  min={0.5}
-                />
-                <NumericSuggestInput
-                  label="Sigma alta (Hz)"
-                  value={spindleSigmaHigh}
-                  onCommit={(value) => onSpindleSigmaHighChange(Math.max(spindleSigmaLow + 0.5, Math.min(value, 40)))}
-                  suggestions={[14, 15, 16]}
-                  width={106}
-                  step={0.5}
-                  min={1}
-                />
-                <NumericSuggestInput
-                  label="Broad baja (Hz)"
-                  value={spindleBroadLow}
-                  onCommit={(value) => onSpindleBroadLowChange(Math.max(0.5, Math.min(value, spindleBroadHigh - 0.5)))}
-                  suggestions={[0.5, 1, 2]}
-                  width={106}
-                  step={0.5}
-                  min={0.5}
-                />
-                <NumericSuggestInput
-                  label="Broad alta (Hz)"
-                  value={spindleBroadHigh}
-                  onCommit={(value) => onSpindleBroadHighChange(Math.max(spindleBroadLow + 0.5, Math.min(value, 80)))}
-                  suggestions={[20, 30, 40]}
-                  width={106}
+                    <NumericSuggestInput
+                      label="Sigma baja (Hz)"
+                      value={spindleSigmaLow}
+                      onCommit={(value) => onSpindleSigmaLowChange(Math.max(0.5, Math.min(value, spindleSigmaHigh - 0.5)))}
+                      suggestions={[10, 11, 12]}
+                      width={106}
+                      step={0.5}
+                      min={0.5}
+                    />
+                    <NumericSuggestInput
+                      label="Sigma alta (Hz)"
+                      value={spindleSigmaHigh}
+                      onCommit={(value) => onSpindleSigmaHighChange(Math.max(spindleSigmaLow + 0.5, Math.min(value, 40)))}
+                      suggestions={[14, 15, 16]}
+                      width={106}
                       step={0.5}
                       min={1}
                     />
+                    <NumericSuggestInput
+                      label="Broad baja (Hz)"
+                      value={spindleBroadLow}
+                      onCommit={(value) => onSpindleBroadLowChange(Math.max(0.5, Math.min(value, spindleBroadHigh - 0.5)))}
+                      suggestions={[0.5, 1, 2]}
+                      width={106}
+                      step={0.5}
+                      min={0.5}
+                    />
+                    <NumericSuggestInput
+                      label="Broad alta (Hz)"
+                      value={spindleBroadHigh}
+                      onCommit={(value) => onSpindleBroadHighChange(Math.max(spindleBroadLow + 0.5, Math.min(value, 80)))}
+                      suggestions={[20, 30, 40]}
+                      width={106}
+                      step={0.5}
+                      min={1}
+                    />
+                    <NumericSuggestInput
+                      label="Suavizado (muestras)"
+                      value={triggerSmoothPoints}
+                      onCommit={(value) => onTriggerSmoothPointsChange(Math.max(1, Math.round(value)))}
+                      suggestions={[1, 3, 5, 7, 9, 11, 21]}
+                      width={118}
+                      step={1}
+                      min={1}
+                    />
+                    <ToolbarSelect label="Notch trigger" value={triggerNotch} onChange={(value) => onTriggerNotchChange(parseFloat(value) || 0)} width={110}>
+                      {NOTCH_OPTIONS.map((option) => <option key={option.value} value={option.value}>{`N ${option.label}`}</option>)}
+                    </ToolbarSelect>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                     <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: artifactEventsAvailable ? '#166534' : '#94a3b8', fontSize: '0.75rem' }}>
@@ -5367,68 +5642,135 @@ function TriggerAverageModal({
                     </label>
                     <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem' }}>
                       <input type="checkbox" checked={triggerUseSpatialSpindleFilter} onChange={onTriggerUseSpatialSpindleFilterChange} />
-                      Filtrar husos por patrón espacial
+                      Aplicar postfiltro espacial (experimental)
                     </label>
                     <div style={{ color: '#475569', fontSize: '0.7rem', lineHeight: 1.3 }}>
-                      candidatos sigma+: {spatialSpindleCandidateCount} · aceptados espaciales: {spatialSpindleAcceptedCount} · usados ahora: {eventCount} · filtro espacial {triggerUseSpatialSpindleFilter ? 'activo' : 'apagado'}
+                      candidatos sigma+: {spatialSpindleCandidateCount} · aceptados por postfiltro: {spatialSpindleAcceptedCount} · usados ahora: {eventCount} · postfiltro {triggerUseSpatialSpindleFilter ? 'activo' : 'apagado'}
+                    </div>
+                    <div style={{ color: '#64748b', fontSize: '0.68rem', lineHeight: 1.25 }}>
+                      Este postfiltro no detecta husos desde cero: recorta la lista de candidatos sigma ya hallados. Queda reservado para el raster sigma/binario multicanal.
                     </div>
                   </div>
                 </>
               )}
+              {isSpindle2Mode && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <ToolbarSelect label="Notch trigger" value={triggerNotch} onChange={(value) => onTriggerNotchChange(parseFloat(value) || 0)} width={110}>
+                      {NOTCH_OPTIONS.map((option) => <option key={option.value} value={option.value}>{`N ${option.label}`}</option>)}
+                    </ToolbarSelect>
+                  </div>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem' }}>
+                    <input type="checkbox" checked={excludeArtifactEvents} onChange={onExcludeArtifactEventsChange} disabled={!artifactEventsAvailable} />
+                    Excluir eventos en artefacto
+                  </label>
+                  <div style={{ color: '#475569', fontSize: '0.7rem', lineHeight: 1.3 }}>
+                    ventanas candidatas: {spatialSpindleCandidateWindowCount}
+                    {' · '}
+                    eventos candidatos fusionados: {spatialSpindleCandidateCount}
+                    {' · '}
+                    pico inválido: {spatialSpindleInvalidPeakCount}
+                    {' · '}
+                    evaluados FFT: {Math.max(0, spatialSpindleCandidateCount - spatialSpindleInvalidPeakCount - spatialSpindleDurationRejectedCount)}
+                    {' · '}
+                    tras Iσ: {spatialSpindleSpectralPassCount}
+                    {' · '}
+                    aceptados finales (registro): {spatialSpindleAcceptedCountTotal}
+                    {' · '}
+                    aceptados en página: {spatialSpindleAcceptedCount}
+                    {' · '}
+                    usados en promedio: {eventCount}
+                  </div>
+                  <div style={{ color: '#64748b', fontSize: '0.68rem', lineHeight: 1.25 }}>
+                    Banda rápida fija 12.5–16 Hz sobre promedio parietal. El motor aplica contexto NREM, filtro espectral tipo Barios y filtro morfológico tipo A7.
+                  </div>
+                  <div style={{ color: '#64748b', fontSize: '0.66rem', lineHeight: 1.25 }}>
+                    `registro` resume todo el EDF; `página` solo la ventana visible. Si promedias el registro entero, `usados en promedio` debe leerse contra los contadores de registro.
+                  </div>
+                </div>
+              )}
+              {isSlowMode && (
+                <>
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <NumericSuggestInput
+                      label="Refractario (s)"
+                      value={triggerRefractorySec}
+                      onCommit={(value) => onTriggerRefractorySecChange(Math.max(0, Math.min(30, value)))}
+                      suggestions={[0.05, 0.1, 0.25, 0.5, 1, 2]}
+                      width={98}
+                      step={0.05}
+                      min={0}
+                      max={30}
+                    />
+                    <NumericSuggestInput
+                      label="Suavizado (muestras)"
+                      value={triggerSmoothPoints}
+                      onCommit={(value) => onTriggerSmoothPointsChange(Math.max(1, Math.round(value)))}
+                      suggestions={[1, 3, 5, 7, 9, 11, 21]}
+                      width={118}
+                      step={1}
+                      min={1}
+                    />
+                    <ToolbarSelect label="Notch trigger" value={triggerNotch} onChange={(value) => onTriggerNotchChange(parseFloat(value) || 0)} width={110}>
+                      {NOTCH_OPTIONS.map((option) => <option key={option.value} value={option.value}>{`N ${option.label}`}</option>)}
+                    </ToolbarSelect>
+                  </div>
+                  <div style={{ color: '#64748b', fontSize: '0.68rem', lineHeight: 1.25 }}>
+                    En ondas lentas, el detector usa su banda fija 0.5–2 Hz. Aquí solo ajustas refractario, suavizado y notch del preview/detección lenta.
+                  </div>
+                </>
+              )}
             </div>
-            <div style={{
+            {(isEventMode || isBurstMode) && (
+              <div style={{
               paddingTop: '0.08rem',
               borderTop: '1px dashed #bbf7d0',
               display: 'flex',
               flexDirection: 'column',
               gap: '0.35rem',
-            }}>
-              <div style={{ color: '#166534', fontSize: '0.73rem', fontWeight: 700 }}>
-                Preprocesado del trigger
-              </div>
-              <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
-                <NumericSuggestInput
-                  label="HP trigger (Hz)"
-                  value={triggerHp}
-                  onCommit={onTriggerHpChange}
-                  suggestions={HP_OPTIONS.map((option) => option.value)}
-                />
-                <NumericSuggestInput
-                  label="LP trigger (Hz)"
-                  value={triggerLp}
-                  onCommit={onTriggerLpChange}
-                  suggestions={[0, ...LP_OPTIONS.map((option) => option.value)]}
-                />
-                <NumericSuggestInput
-                  label="Suavizado (muestras)"
-                  value={triggerSmoothPoints}
-                  onCommit={(value) => onTriggerSmoothPointsChange(Math.max(1, Math.round(value)))}
-                  suggestions={[1, 3, 5, 7, 9, 11, 21]}
-                  width={118}
-                  step={1}
-                  min={1}
-                />
-                <ToolbarSelect label="Notch trigger" value={triggerNotch} onChange={(value) => onTriggerNotchChange(parseFloat(value) || 0)} width={110}>
-                  {NOTCH_OPTIONS.map((option) => <option key={option.value} value={option.value}>{`N ${option.label}`}</option>)}
-                </ToolbarSelect>
-              </div>
-              {(isEventMode || isBurstMode) && (
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem' }}>
-                  <input type="checkbox" checked={triggerDerivativeAfterSmooth} onChange={onTriggerDerivativeAfterSmoothChange} />
-                  Usar derivada tras suavizado
-                </label>
-              )}
-              {artifactMaskLoading && (
-                <div style={{ color: '#92400e', fontSize: '0.73rem' }}>
-                  Preparando máscara de artefactos…
+              }}>
+                <div style={{ color: '#166534', fontSize: '0.73rem', fontWeight: 700 }}>
+                  Preprocesado del trigger
                 </div>
-              )}
-              {n2ContextLoading && (isSpindleMode || isSlowMode) && useN2ContextGate && (
-                <div style={{ color: '#1d4ed8', fontSize: '0.73rem' }}>
-                  Calculando contexto N2…
+                <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                  <NumericSuggestInput
+                    label="HP trigger (Hz)"
+                    value={triggerHp}
+                    onCommit={onTriggerHpChange}
+                    suggestions={HP_OPTIONS.map((option) => option.value)}
+                  />
+                  <NumericSuggestInput
+                    label="LP trigger (Hz)"
+                    value={triggerLp}
+                    onCommit={onTriggerLpChange}
+                    suggestions={[0, ...LP_OPTIONS.map((option) => option.value)]}
+                  />
+                  <NumericSuggestInput
+                    label="Suavizado (muestras)"
+                    value={triggerSmoothPoints}
+                    onCommit={(value) => onTriggerSmoothPointsChange(Math.max(1, Math.round(value)))}
+                    suggestions={[1, 3, 5, 7, 9, 11, 21]}
+                    width={118}
+                    step={1}
+                    min={1}
+                  />
+                  <ToolbarSelect label="Notch trigger" value={triggerNotch} onChange={(value) => onTriggerNotchChange(parseFloat(value) || 0)} width={110}>
+                    {NOTCH_OPTIONS.map((option) => <option key={option.value} value={option.value}>{`N ${option.label}`}</option>)}
+                  </ToolbarSelect>
                 </div>
-              )}
-            </div>
+                {(isEventMode || isBurstMode) && (
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem' }}>
+                    <input type="checkbox" checked={triggerDerivativeAfterSmooth} onChange={onTriggerDerivativeAfterSmoothChange} />
+                    Usar derivada tras suavizado
+                  </label>
+                )}
+                {artifactMaskLoading && (
+                  <div style={{ color: '#92400e', fontSize: '0.73rem' }}>
+                    Preparando máscara de artefactos…
+                  </div>
+                )}
+              </div>
+            )}
             <div style={{
               paddingTop: '0.08rem',
               borderTop: '1px dashed #bbf7d0',
@@ -5439,14 +5781,20 @@ function TriggerAverageModal({
               <div style={{ color: '#166534', fontSize: '0.73rem', fontWeight: 700 }}>
                 Selección de eventos
               </div>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem' }}>
-                <input
-                  type="checkbox"
-                  checked={averageScope === 'record'}
-                  onChange={(e) => onAverageScopeChange(e.target.checked ? 'record' : 'page')}
-                />
-                Promediar registro entero
-              </label>
+              {isSpindle2Mode ? (
+                <div style={{ color: '#166534', fontSize: '0.75rem' }}>
+                  Promediando registro entero en `Husos2`
+                </div>
+              ) : (
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#166534', fontSize: '0.75rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={averageScope === 'record'}
+                    onChange={(e) => onAverageScopeChange(e.target.checked ? 'record' : 'page')}
+                  />
+                  Promediar registro entero
+                </label>
+              )}
               <div style={{ color: '#475569', fontSize: '0.7rem', lineHeight: 1.3 }}>
                 detectados: {rawEventCount} · excluidos por contexto: {excludedContextCount} · excluidos por artefacto: {excludedArtifactCount} · usados: {eventCount}
               </div>
@@ -5877,6 +6225,9 @@ export default function EEGViewer() {
   const [stateSpectralPanelsLoading, setStateSpectralPanelsLoading] = useState(false)
   const [stateSpectralSpindleSnippets, setStateSpectralSpindleSnippets] = useState<StateSpectralSpindleSnippetData | null>(null)
   const [stateSpectralSpindleSnippetsLoading, setStateSpectralSpindleSnippetsLoading] = useState(false)
+  const [spindleRasterData, setSpindleRasterData] = useState<SpindleRasterData | null>(null)
+  const [spindleRasterLoading, setSpindleRasterLoading] = useState(false)
+  const [spindleRasterError, setSpindleRasterError] = useState('')
   const [stateSpectralEpochSelectionMode, setStateSpectralEpochSelectionMode] = useState<StateSpectralEpochSelectionMode>('all-clean')
   const [stateSpectralArtifactMode, setStateSpectralArtifactMode] = useState<StateSpectralArtifactMode>('clean-only')
   const [stateSpectralSigmaLowHz, setStateSpectralSigmaLowHz] = useState(11)
@@ -5901,7 +6252,7 @@ export default function EEGViewer() {
   const [invertTriggerPolarity, setInvertTriggerPolarity] = useState(false)
   const [randomizeTriggerMarker, setRandomizeTriggerMarker] = useState(false)
   const [randomizeTriggerMarkerRangeSec, setRandomizeTriggerMarkerRangeSec] = useState(1)
-  const [triggerDetectionMode, setTriggerDetectionMode] = useState<'event' | 'burst' | 'spindle' | 'slow'>('event')
+  const [triggerDetectionMode, setTriggerDetectionMode] = useState<'event' | 'burst' | 'spindle' | 'spindle2' | 'slow'>('event')
   const [triggerUseSpatialSpindleFilter, setTriggerUseSpatialSpindleFilter] = useState(false)
   const [triggerHp, setTriggerHp] = useState(0)
   const [triggerLp, setTriggerLp] = useState(45)
@@ -5961,26 +6312,27 @@ export default function EEGViewer() {
   const stateSpectralTimelineNeeded = phase === 'viewing' && sleepAnalyzerOpen
   const stateSpectralPanelsNeeded = phase === 'viewing' && (sleepAnalyzerOpen || stateSpectraOpen)
   const triggerUsesSpatialSpindles = triggerDetectionMode === 'spindle' && triggerUseSpatialSpindleFilter
-  const stateSpectralSpindleSnippetArtifactMode = triggerUsesSpatialSpindles && triggerAvgOpen
-    ? (excludeArtifactEvents ? 'clean-only' : 'clean-plus-artifact')
-    : stateSpectralArtifactMode
-  const stateSpectralSpindleSnippetSigmaLowHz = triggerUsesSpatialSpindles && triggerAvgOpen
-    ? spindleSigmaLow
-    : stateSpectralSigmaLowHz
-  const stateSpectralSpindleSnippetSigmaHighHz = triggerUsesSpatialSpindles && triggerAvgOpen
-    ? spindleSigmaHigh
-    : stateSpectralSigmaHighHz
+  const triggerUsesHusos2 = triggerDetectionMode === 'spindle2'
+  useEffect(() => {
+    if (triggerUsesHusos2 && triggerAverageScope !== 'record') {
+      setTriggerAverageScope('record')
+    }
+  }, [triggerUsesHusos2, triggerAverageScope])
+  const stateSpectralSpindleSnippetArtifactMode = stateSpectralArtifactMode
+  const stateSpectralSpindleSnippetSigmaLowHz = stateSpectralSigmaLowHz
+  const stateSpectralSpindleSnippetSigmaHighHz = stateSpectralSigmaHighHz
   const stateSpectralSpindleSnippetsNeeded = phase === 'viewing' && (
-    (stateSpectraOpen && stateSpectralEpochSelectionMode === 'with-spindles')
-    || (triggerAvgOpen && triggerUsesSpatialSpindles)
+    stateSpectraOpen && stateSpectralEpochSelectionMode === 'with-spindles'
   )
+  const spindleRasterNeeded = phase === 'viewing' && triggerAvgOpen && (triggerUsesSpatialSpindles || triggerUsesHusos2)
   const sleepAnalyzerBusy =
     artifactMaskLoading ||
     sleepSketchLoading ||
     qeegGlobalTimeseriesLoading ||
     stateSpectralLoading ||
     stateSpectralPanelsLoading ||
-    stateSpectralSpindleSnippetsLoading
+    stateSpectralSpindleSnippetsLoading ||
+    spindleRasterLoading
   const stateSpectraBusy = stateSpectralPanelsLoading || stateSpectralSpindleSnippetsLoading
   const [fullRecordTriggerAverageError, setFullRecordTriggerAverageError] = useState('')
   const [n2ContextData, setN2ContextData] = useState<N2ContextData | null>(null)
@@ -5998,6 +6350,7 @@ export default function EEGViewer() {
     stateSpectralLoading ||
     stateSpectralPanelsLoading ||
     stateSpectralSpindleSnippetsLoading ||
+    spindleRasterLoading ||
     n2ContextLoading ||
     fullRecordTriggerAverageLoading
 
@@ -6020,6 +6373,7 @@ export default function EEGViewer() {
   const stateSpectralCacheRef = useRef<Map<string, StateSpectralTimelineData>>(new Map())
   const stateSpectralPanelsCacheRef = useRef<Map<string, StateSpectralPanelData>>(new Map())
   const stateSpectralSpindleSnippetsCacheRef = useRef<Map<string, StateSpectralSpindleSnippetData>>(new Map())
+  const spindleRasterCacheRef = useRef<Map<string, SpindleRasterData>>(new Map())
   const n2ContextCacheRef = useRef<Map<string, N2ContextData>>(new Map())
   const avgRefButtonRef = useRef<HTMLButtonElement>(null)
   const avgRefMenuRef = useRef<HTMLDivElement>(null)
@@ -6588,7 +6942,10 @@ export default function EEGViewer() {
     if (!triggerAvgOpen || !processedEpoch || !triggerChannelName) return null
     const triggerIndex = processedEpoch.channelNames.findIndex((name) => name === triggerChannelName)
     if (triggerIndex < 0) return null
-    return computeTriggerPreviewSignal(processedEpoch.data[triggerIndex], processedEpoch.sfreq, {
+    const previewSignalSource = triggerDetectionMode === 'spindle2'
+      ? buildRegionalAverageSignal(processedEpoch, getParietalSpindleChannelIndices(processedEpoch.channelNames))
+      : null
+    return computeTriggerPreviewSignal((previewSignalSource ?? processedEpoch.data[triggerIndex]), processedEpoch.sfreq, {
       detectionMode: triggerDetectionMode,
       invertTriggerPolarity,
       hp: triggerHp,
@@ -6611,6 +6968,7 @@ export default function EEGViewer() {
 
   const triggerOverlaySignalPreview = useMemo(() => {
     if (!triggerAvgOpen || !processedEpoch || !triggerOverlayChannelName) return null
+    if (triggerDetectionMode === 'spindle2') return null
     const overlayIndex = processedEpoch.channelNames.findIndex((name) => name === triggerOverlayChannelName)
     if (overlayIndex < 0) return null
     return computeTriggerPreviewSignal(processedEpoch.data[overlayIndex], processedEpoch.sfreq, {
@@ -6729,11 +7087,14 @@ export default function EEGViewer() {
     && (triggerDetectionMode === 'spindle' || triggerDetectionMode === 'slow')
   const triggerAverageWaitingForArtifacts = triggerAvgOpen && excludeArtifactEvents && artifactMaskLoading
   const triggerAverageWaitingForN2Context = triggerAvgOpen && triggerN2ContextEligible && n2ContextLoading
-  const triggerAverageWaitingForSpatialSpindles = triggerAvgOpen && triggerUsesSpatialSpindles && stateSpectralSpindleSnippetsNeeded && stateSpectralSpindleSnippetsLoading
+  const triggerAverageWaitingForSpindleRaster = triggerAvgOpen
+    && (triggerUsesSpatialSpindles || triggerUsesHusos2)
+    && spindleRasterNeeded
+    && spindleRasterLoading
   const triggerAverageWaitingForPrerequisites =
     triggerAverageWaitingForArtifacts
     || triggerAverageWaitingForN2Context
-    || triggerAverageWaitingForSpatialSpindles
+    || triggerAverageWaitingForSpindleRaster
   const effectiveN2ContextGate = triggerN2ContextEligible
     && !!n2ContextData?.statuses.length
     && !!n2ContextData?.contextEpochSec
@@ -6811,29 +7172,65 @@ export default function EEGViewer() {
     n2ContextData,
   ])
 
+  const computeRegionalSpindleBaseResult = useCallback((sourceEpoch: EpochData, recordStartSecValue: number) => {
+    if (!triggerChannelName) return null
+    const regionChannelIndices = getCentralParietalSpindleChannelIndices(sourceEpoch.channelNames)
+    const regionalAverageSignal = buildRegionalAverageSignal(sourceEpoch, regionChannelIndices)
+    if (!regionalAverageSignal) return computeTriggeredAverage(sourceEpoch, buildTriggerAverageOptions(recordStartSecValue))
+    const triggerIndex = sourceEpoch.channelNames.findIndex((name) => name === triggerChannelName)
+    if (triggerIndex < 0) return null
+    const syntheticEpoch: EpochData = {
+      ...sourceEpoch,
+      data: sourceEpoch.data.map((signal, index) => (index === triggerIndex ? regionalAverageSignal : signal)),
+    }
+    return computeTriggeredAverage(syntheticEpoch, buildTriggerAverageOptions(recordStartSecValue))
+  }, [buildTriggerAverageOptions, triggerChannelName])
+
+  const buildHusos2TriggeredAverage = useCallback((sourceEpoch: EpochData, recordStartSecValue: number) => {
+    if (!spindleRasterData || !triggerChannelName) return null
+    const acceptedOnsets = Array.from(spindleRasterData.acceptedOnsetSec ?? [])
+    const durationSec = sourceEpoch.nSamples > 0 && sourceEpoch.sfreq > 0
+      ? sourceEpoch.nSamples / sourceEpoch.sfreq
+      : 0
+    const events = acceptedOnsets
+      .map((absoluteOnsetSec) => Number(absoluteOnsetSec))
+      .filter((absoluteOnsetSec) => absoluteOnsetSec >= recordStartSecValue && absoluteOnsetSec <= recordStartSecValue + durationSec)
+      .map((absoluteOnsetSec) => {
+        const onsetSec = absoluteOnsetSec - recordStartSecValue
+        return {
+          onsetSec,
+          sampleIndex: Math.max(0, Math.min(sourceEpoch.nSamples - 1, Math.round(onsetSec * sourceEpoch.sfreq))),
+        }
+      })
+    return buildTriggeredAverageFromEvents(sourceEpoch, buildTriggerAverageOptions(recordStartSecValue), events)
+  }, [buildTriggerAverageOptions, spindleRasterData, triggerChannelName])
+
   const buildSpatialSpindleTriggeredAverage = useCallback((sourceEpoch: EpochData, recordStartSecValue: number) => {
-    if (!stateSpectralSpindleSnippets || !triggerChannelName) return null
-    const acceptedOnsets = Array.from(stateSpectralSpindleSnippets.acceptedOnsetSec ?? [])
+    if (!spindleRasterData || !triggerChannelName) return null
+    const baseResult = computeRegionalSpindleBaseResult(sourceEpoch, recordStartSecValue)
+    if (!baseResult) return null
+
+    const acceptedOnsets = Array.from(spindleRasterData.acceptedOnsetSec ?? [])
     if (acceptedOnsets.length === 0) {
       return buildTriggeredAverageFromEvents(sourceEpoch, buildTriggerAverageOptions(recordStartSecValue), [])
     }
-    const explicitEvents = acceptedOnsets
-      .map((absoluteOnsetSec) => {
-        const relativeOnsetSec = Number(absoluteOnsetSec) - recordStartSecValue
-        const sampleIndex = Math.round(relativeOnsetSec * sourceEpoch.sfreq)
-        return {
-          sampleIndex,
-          onsetSec: relativeOnsetSec,
-        }
-      })
-      .filter((event) => event.sampleIndex >= 0 && event.sampleIndex < sourceEpoch.nSamples)
-      .sort((a, b) => a.sampleIndex - b.sampleIndex)
-    return buildTriggeredAverageFromEvents(sourceEpoch, buildTriggerAverageOptions(recordStartSecValue), explicitEvents)
-  }, [buildTriggerAverageOptions, stateSpectralSpindleSnippets, triggerChannelName])
+
+    const onsetToleranceSec = Math.max(0.5, Math.min(1.5, Math.max(spindleMinSec, triggerRefractorySec, 0.5)))
+    const filteredCandidateEvents = baseResult.rawEvents.filter((event) => {
+      const absoluteOnsetSec = recordStartSecValue + event.onsetSec
+      return acceptedOnsets.some((acceptedOnsetSec) =>
+        Math.abs(Number(acceptedOnsetSec) - absoluteOnsetSec) <= onsetToleranceSec,
+      )
+    })
+
+    return buildTriggeredAverageFromEvents(sourceEpoch, buildTriggerAverageOptions(recordStartSecValue), filteredCandidateEvents)
+  }, [buildTriggerAverageOptions, computeRegionalSpindleBaseResult, spindleRasterData, triggerChannelName, spindleMinSec, triggerRefractorySec])
 
   const triggerAverageResult = useMemo(() => {
     if (!triggerAvgOpen || !processedEpoch || !triggerChannelName || triggerAverageWaitingForPrerequisites) return null
-    return triggerUsesSpatialSpindles
+    return triggerUsesHusos2
+      ? buildHusos2TriggeredAverage(processedEpoch, recordOffset)
+      : triggerUsesSpatialSpindles
       ? buildSpatialSpindleTriggeredAverage(processedEpoch, recordOffset)
       : computeTriggeredAverage(processedEpoch, buildTriggerAverageOptions(recordOffset))
   }, [
@@ -6842,14 +7239,56 @@ export default function EEGViewer() {
     triggerChannelName,
     recordOffset,
     triggerAverageWaitingForPrerequisites,
+    triggerUsesHusos2,
     triggerUsesSpatialSpindles,
+    buildHusos2TriggeredAverage,
     buildSpatialSpindleTriggeredAverage,
     buildTriggerAverageOptions,
   ])
 
+  const spatialSpindlePreviewCounts = useMemo(() => {
+    if (!triggerAvgOpen || !processedEpoch || !triggerChannelName || (!triggerUsesSpatialSpindles && !triggerUsesHusos2) || !spindleRasterData) {
+      return { candidateCount: spindleRasterData?.candidateEvents ?? 0, acceptedCount: spindleRasterData?.acceptedEvents ?? 0 }
+    }
+    if (triggerUsesHusos2) {
+      const durationSec = processedEpoch.nSamples > 0 && processedEpoch.sfreq > 0 ? processedEpoch.nSamples / processedEpoch.sfreq : 0
+      const acceptedCount = Array.from(spindleRasterData.acceptedOnsetSec ?? []).filter((absoluteOnsetSec) => {
+        const onset = Number(absoluteOnsetSec)
+        return onset >= recordOffset && onset <= recordOffset + durationSec
+      }).length
+      return { candidateCount: spindleRasterData.candidateEvents, acceptedCount }
+    }
+    const baseResult = computeRegionalSpindleBaseResult(processedEpoch, recordOffset)
+    if (!baseResult) {
+      return { candidateCount: spindleRasterData.candidateEvents, acceptedCount: spindleRasterData.acceptedEvents }
+    }
+    const acceptedOnsets = Array.from(spindleRasterData.acceptedOnsetSec ?? [])
+    const onsetToleranceSec = Math.max(0.5, Math.min(1.5, Math.max(spindleMinSec, triggerRefractorySec, 0.5)))
+    const acceptedCount = baseResult.rawEvents.filter((event) => {
+      const absoluteOnsetSec = recordOffset + event.onsetSec
+      return acceptedOnsets.some((acceptedOnsetSec) =>
+        Math.abs(Number(acceptedOnsetSec) - absoluteOnsetSec) <= onsetToleranceSec,
+      )
+    }).length
+    return { candidateCount: baseResult.rawEventCount, acceptedCount }
+  }, [
+    triggerAvgOpen,
+    processedEpoch,
+    triggerChannelName,
+    triggerUsesHusos2,
+    triggerUsesSpatialSpindles,
+    spindleRasterData,
+    computeRegionalSpindleBaseResult,
+    recordOffset,
+    spindleMinSec,
+    triggerRefractorySec,
+  ])
+
   const scopeAlignedPageTriggerAverageResult = useMemo(() => {
     if (!triggerAvgOpen || !processedEpoch || !triggerChannelName || triggerAverageWaitingForPrerequisites) return null
-    return triggerUsesSpatialSpindles
+    return triggerUsesHusos2
+      ? buildHusos2TriggeredAverage(processedEpoch, recordOffset)
+      : triggerUsesSpatialSpindles
       ? buildSpatialSpindleTriggeredAverage(processedEpoch, recordOffset)
       : computeTriggeredAverage(processedEpoch, buildTriggerAverageOptions(recordOffset))
   }, [
@@ -6858,7 +7297,9 @@ export default function EEGViewer() {
     triggerChannelName,
     recordOffset,
     triggerAverageWaitingForPrerequisites,
+    triggerUsesHusos2,
     triggerUsesSpatialSpindles,
+    buildHusos2TriggeredAverage,
     buildSpatialSpindleTriggeredAverage,
     buildTriggerAverageOptions,
   ])
@@ -6883,9 +7324,9 @@ export default function EEGViewer() {
       setFullRecordTriggerAverageResult(null)
       return
     }
-    if (triggerAverageWaitingForSpatialSpindles) {
+    if (triggerAverageWaitingForSpindleRaster) {
       setFullRecordTriggerAverageLoading(true)
-      setFullRecordTriggerAverageError('Calculando husos espaciales…')
+      setFullRecordTriggerAverageError(triggerUsesHusos2 ? 'Calculando Husos2…' : 'Calculando husos espaciales…')
       setFullRecordTriggerAverageResult(null)
       return
     }
@@ -6916,7 +7357,9 @@ export default function EEGViewer() {
         if (!rawFullEpoch) throw new Error('No se pudo leer el registro completo.')
 
         const processedFullEpoch = processEpochForViewer(rawFullEpoch)
-        const nextResult = triggerUsesSpatialSpindles
+        const nextResult = triggerUsesHusos2
+          ? buildHusos2TriggeredAverage(processedFullEpoch, 0)
+          : triggerUsesSpatialSpindles
           ? buildSpatialSpindleTriggeredAverage(processedFullEpoch, 0)
           : computeTriggeredAverage(processedFullEpoch, buildTriggerAverageOptions(0))
 
@@ -6973,8 +7416,10 @@ export default function EEGViewer() {
     n2ContextData,
     triggerAverageWaitingForArtifacts,
     triggerAverageWaitingForN2Context,
-    triggerAverageWaitingForSpatialSpindles,
+    triggerAverageWaitingForSpindleRaster,
+    triggerUsesHusos2,
     triggerUsesSpatialSpindles,
+    buildHusos2TriggeredAverage,
     buildSpatialSpindleTriggeredAverage,
     buildTriggerAverageOptions,
   ])
@@ -6990,7 +7435,7 @@ export default function EEGViewer() {
   const createViewerAnnotationsFromTrigger = useCallback(() => {
     if (!activeTriggerAverageResult || !triggerChannelName) return
     const baseEvents = activeTriggerAverageResult.events
-    const annotationPrefix = triggerUsesSpatialSpindles ? 'Huso esp.' : triggerChannelName
+    const annotationPrefix = triggerUsesHusos2 ? 'Husos2' : triggerUsesSpatialSpindles ? 'Huso esp.' : triggerChannelName
     const nextAnnotations = baseEvents.map((event, index) => {
       const absoluteOnsetSec = triggerAverageScope === 'record'
         ? event.onsetSec
@@ -7006,7 +7451,7 @@ export default function EEGViewer() {
     })
     setViewerAnnotations(nextAnnotations)
     setSelectedViewerAnnotationId(nextAnnotations[0]?.id ?? null)
-  }, [activeTriggerAverageResult, recordOffset, sourceId, sourceKind, triggerAverageScope, triggerChannelName, triggerUsesSpatialSpindles])
+  }, [activeTriggerAverageResult, recordOffset, sourceId, sourceKind, triggerAverageScope, triggerChannelName, triggerUsesHusos2, triggerUsesSpatialSpindles])
 
   const triggerOverlay = useMemo<TriggerOverlayData | null>(() => {
     if (!triggerAvgOpen || !processedEpoch || !triggerChannelName) return null
@@ -7670,6 +8115,7 @@ export default function EEGViewer() {
       stateSpectralCacheRef.current.clear()
       stateSpectralPanelsCacheRef.current.clear()
       stateSpectralSpindleSnippetsCacheRef.current.clear()
+      spindleRasterCacheRef.current.clear()
       n2ContextCacheRef.current.clear()
       setDsaChannel('off')
       setArtifactReject(false)
@@ -8150,6 +8596,7 @@ export default function EEGViewer() {
     stateSpectralCacheRef.current.clear()
     stateSpectralPanelsCacheRef.current.clear()
     stateSpectralSpindleSnippetsCacheRef.current.clear()
+    spindleRasterCacheRef.current.clear()
   }, [recordDurationSec, totalSeconds])
 
   useEffect(() => {
@@ -8425,6 +8872,61 @@ export default function EEGViewer() {
     }
   }, [stateSpectralSpindleSnippetsNeeded, stateSpectralAssumeSleepPresent, stateSpectralSpindleSnippetArtifactMode, stateSpectralSpindleSnippetSigmaLowHz, stateSpectralSpindleSnippetSigmaHighHz])
 
+  useEffect(() => {
+    if (!spindleRasterNeeded) {
+      setSpindleRasterData(null)
+      setSpindleRasterLoading(false)
+      setSpindleRasterError('')
+      return
+    }
+
+    const rasterSigmaLow = triggerUsesHusos2 ? 12.5 : spindleSigmaLow
+    const rasterSigmaHigh = triggerUsesHusos2 ? 16.0 : spindleSigmaHigh
+    const cacheKey = [
+      triggerUsesHusos2 ? 'spindle-raster-husos2-v3' : 'spindle-raster-v2',
+      triggerUsesHusos2 ? 'husos2-fast-debug-v3' : 'spindle',
+      `${rasterSigmaLow}-${rasterSigmaHigh}`,
+    ].join(':')
+    const cached = spindleRasterCacheRef.current.get(cacheKey)
+    if (cached) {
+      setSpindleRasterData(cached)
+      setSpindleRasterLoading(false)
+      setSpindleRasterError('')
+      return
+    }
+
+    let cancelled = false
+    setSpindleRasterData(null)
+    setSpindleRasterLoading(true)
+    setSpindleRasterError('')
+
+    const timer = window.setTimeout(() => {
+      try {
+        const result = triggerUsesHusos2
+          ? kappaRef.current?.computeHusos2Fast()
+          : kappaRef.current?.computeSpindleRaster(
+              rasterSigmaLow,
+              rasterSigmaHigh,
+            )
+        if (cancelled) return
+        if (!result) throw new Error(triggerUsesHusos2 ? 'No se pudo calcular Husos2' : 'No se pudo calcular el raster de husos')
+        spindleRasterCacheRef.current.set(cacheKey, result)
+        setSpindleRasterData(result)
+        setSpindleRasterLoading(false)
+      } catch (error) {
+        if (cancelled) return
+        setSpindleRasterData(null)
+        setSpindleRasterLoading(false)
+        setSpindleRasterError(error instanceof Error ? error.message : 'Fallo desconocido al calcular Husos2/raster')
+      }
+    }, 0)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [spindleRasterNeeded, spindleSigmaLow, spindleSigmaHigh, triggerUsesHusos2])
+
   const triggerSourceChannelIndex = useMemo(
     () => resolveTriggerSourceChannelIndex(triggerChannelName, meta?.channelLabels ?? []),
     [meta?.channelLabels, triggerChannelName],
@@ -8622,12 +9124,12 @@ export default function EEGViewer() {
         setArtifactReviewOverlay((current) => !current)
         return
       }
-      if (triggerAvgOpen && triggerChannelName && e.key === 'ArrowUp' && !e.shiftKey) {
+      if (triggerAvgModalOpen && triggerChannelName && e.key === 'ArrowUp' && !e.shiftKey) {
         e.preventDefault()
         nudgeTriggerThreshold(1)
         return
       }
-      if (triggerAvgOpen && triggerChannelName && e.key === 'ArrowDown' && !e.shiftKey) {
+      if (triggerAvgModalOpen && triggerChannelName && e.key === 'ArrowDown' && !e.shiftKey) {
         e.preventDefault()
         nudgeTriggerThreshold(-1)
         return
@@ -8687,7 +9189,7 @@ export default function EEGViewer() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [phase, currentPage, maxPage, goToPage, shiftBySeconds, selectedChannelName, channelGainOverrides, gainMult, autoScale, fixedSensitivityUvPerMm, triggerAvgOpen, triggerChannelName, nudgeTriggerThreshold])
+  }, [phase, currentPage, maxPage, goToPage, shiftBySeconds, selectedChannelName, channelGainOverrides, gainMult, autoScale, fixedSensitivityUvPerMm, triggerAvgModalOpen, triggerChannelName, nudgeTriggerThreshold])
 
   // ── Cleanup ───────────────────────────────────────────────────────────────────
 
@@ -10440,8 +10942,24 @@ export default function EEGViewer() {
           triggerThresholdStep={triggerThresholdStep}
           triggerDetectionMode={triggerDetectionMode}
           triggerUseSpatialSpindleFilter={triggerUseSpatialSpindleFilter}
-          spatialSpindleCandidateCount={stateSpectralSpindleSnippets?.spindlePositiveCandidates ?? 0}
-          spatialSpindleAcceptedCount={stateSpectralSpindleSnippets?.acceptedEvents ?? 0}
+          spatialSpindleCandidateCount={triggerUsesHusos2 ? (spindleRasterData?.candidateEvents ?? 0) : spatialSpindlePreviewCounts.candidateCount}
+          spatialSpindleCandidateWindowCount={triggerUsesHusos2 ? (spindleRasterData?.candidateWindows ?? 0) : 0}
+          spatialSpindleAcceptedCount={spatialSpindlePreviewCounts.acceptedCount}
+          spatialSpindleAcceptedCountTotal={triggerUsesHusos2 ? (spindleRasterData?.acceptedEvents ?? 0) : spatialSpindlePreviewCounts.acceptedCount}
+          spatialSpindleInvalidPeakCount={triggerUsesHusos2 ? (spindleRasterData?.invalidPeakEvents ?? 0) : 0}
+          spatialSpindleDurationRejectedCount={triggerUsesHusos2 ? (spindleRasterData?.durationRejectedEvents ?? 0) : 0}
+          spatialSpindleSpectralRejectedCount={triggerUsesHusos2 ? (spindleRasterData?.spectralRejectedEvents ?? 0) : 0}
+          spatialSpindleSpectralPassCount={triggerUsesHusos2 ? (spindleRasterData?.spectralPassEvents ?? 0) : 0}
+          spatialSpindleSpectralPassOnsetCount={triggerUsesHusos2 ? (spindleRasterData?.spectralPassOnsetEvents ?? 0) : 0}
+          spatialSpindleSpectralPassPeakCount={triggerUsesHusos2 ? (spindleRasterData?.spectralPassPeakEvents ?? 0) : 0}
+          spatialSpindleSpectralPassBestWindowCount={triggerUsesHusos2 ? (spindleRasterData?.spectralPassBestWindowEvents ?? 0) : 0}
+          spatialSpindleMorphRejectedCount={triggerUsesHusos2 ? (spindleRasterData?.morphRejectedEvents ?? 0) : 0}
+          spatialSpindleMorphPassCount={triggerUsesHusos2 ? (spindleRasterData?.morphPassEvents ?? 0) : 0}
+          spatialSpindleSeedAcceptedCount={triggerUsesHusos2 ? (spindleRasterData?.seedAcceptedEvents ?? 0) : 0}
+          spatialSpindleAdaptiveRescuedCount={triggerUsesHusos2 ? (spindleRasterData?.adaptiveRescuedEvents ?? 0) : 0}
+          spatialSpindleBattery={triggerUsesHusos2 ? (spindleRasterData?.battery ?? []) : []}
+          spatialSpindleDebugLines={spindleRasterData?.debugLines ?? []}
+          spatialSpindleError={spindleRasterError}
           triggerHp={triggerHp}
           triggerLp={triggerLp}
           triggerNotch={triggerNotch}

@@ -81,7 +81,7 @@ export interface TriggerAverageOptions {
   threshold: number
   preSec: number
   postSec: number
-  detectionMode: 'event' | 'burst' | 'spindle' | 'spindle-spatial' | 'slow'
+  detectionMode: 'event' | 'burst' | 'spindle' | 'spindle2' | 'spindle-spatial' | 'slow'
   hp: number
   lp: number
   notch: number
@@ -810,7 +810,7 @@ export function computeTriggerPreviewSignal(
     | 'spindleBroadHigh'
   >,
 ): Float32Array {
-  if (options.detectionMode === 'spindle' || options.detectionMode === 'spindle-spatial') {
+  if (options.detectionMode === 'spindle' || options.detectionMode === 'spindle2' || options.detectionMode === 'spindle-spatial') {
     return computeSpindleSignals(maybeInvertSignal(signal, options.invertTriggerPolarity), sampleRate, options).rmsSignal
   }
   if (options.detectionMode === 'slow') {

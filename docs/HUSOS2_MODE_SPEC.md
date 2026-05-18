@@ -31,6 +31,13 @@ La visión original no era hacer un detector puramente umbralado sobre una sola 
 - forma del evento tipo A7 / Lacourse
 - distinción topográfica entre husos lentos y rápidos
 
+En su forma actual, `Husos2` puede entenderse ya como un **algoritmo propio de síntesis**, porque no reproduce de manera literal un detector previo único, sino que combina:
+
+- pureza espectral tipo Barios
+- contexto y barrido continuo tipo A7 / Lacourse
+- redefinición temporal por envelope sigma
+- adaptación iterativa al propio registro
+
 ### 2.2 Base metodológica
 
 La idea de `Husos2` mezcla dos familias de criterios:
@@ -127,11 +134,17 @@ para que el promedio regional sea procesable.
 
 ### 5.1 Bandas y contexto
 
-- sigma rápida: `12.5–16.0 Hz`
+- sigma rápida base de semilla: `12.5–16.0 Hz`
 - banda ancha de referencia: `4.5–30.0 Hz`
 - banda lenta NREM: `0.5–8.0 Hz`
 - banda rápida NREM: `16.0–30.0 Hz`
 - umbral de contexto NREM: `ratio > 0.9`
+
+En la implementación actual:
+
+- la **primera pasada** usa la banda rápida fija `12.5–16.0 Hz`
+- la **segunda/tercera pasada** recalibra la banda alrededor del pico sigma parietal aprendido del propio registro
+- por ahora **no** se mezcla todavía con pico frontal ni con husos lentos
 
 ### 5.2 Barrido temporal
 
@@ -157,6 +170,12 @@ para que el promedio regional sea procesable.
 ---
 
 ## 6. Flujo real del algoritmo
+
+La versión actual de `Husos2` está organizada de hecho como un detector en **tres pasadas lógicas**:
+
+1. `pass 1`: detección semilla conservadora con banda rápida fija parietal
+2. `pass 2`: estimación del pico sigma parietal del registro a partir de los `seed`
+3. `pass 3`: rescate adaptativo sobre una banda recalibrada a ese pico
 
 ### Fase 1. Promedio regional parietal
 
@@ -242,25 +261,52 @@ Los eventos que pasan ambos filtros forman el conjunto:
 
 - `seed`
 
-Ese conjunto actúa como referencia de alta confianza para el propio registro.
+Ese conjunto actúa como referencia de alta confianza para el propio registro. Esta es la salida de la `pass 1`.
 
 ---
 
-## 7. Segunda pasada adaptativa (`pass 2`)
+## 7. Recalibración frecuencial y rescate adaptativo
 
-### 7.1 Objetivo
+### 7.1 `Pass 2`: estimación de pico sigma parietal
 
-La segunda pasada no detecta desde cero. Reevalúa candidatos ya existentes para rescatar eventos parecidos a los `seed`, pero algo más débiles o incompletos.
+La segunda pasada ya no es solo un relajamiento de umbrales. Ahora hace primero una recalibración de frecuencia.
 
-### 7.2 Activación
+A partir de los `seed` de la pasada conservadora:
+
+- se toma la `best-window` de cada evento semilla
+- se estima su `peakFrequencyHz` dominante en sigma
+- se obtiene un centro robusto del registro usando la mediana de esos picos
+- ese centro se recorta a un rango fisiológico razonable
+
+Estado actual:
+
+- `adaptiveSigmaCenterHz = median(seedPeakHz)`
+- recorte del centro: `11.5–15.5 Hz`
+- nueva banda sigma: `fSigma ± 1.5 Hz`
+- límites finales de banda: `11.0–16.5 Hz`
+
+Con esto, `Husos2` sigue siendo un detector de huso rápido **parietal**, pero deja de depender por completo de una banda fija universal.
+
+### 7.2 `Pass 3`: rescate adaptativo
+
+Una vez recalibrada la banda sigma parietal, el motor recompone:
+
+- señal sigma
+- envelope sigma
+- métricas deslizantes
+- candidatos fusionados
+
+Después reevalúa candidatos no aceptados aún para rescatar eventos parecidos a los `seed`, pero algo más débiles o incompletos.
+
+### 7.3 Activación
 
 Solo se activa si hay suficientes semilla:
 
 - mínimo actual: `5 seed`
 
-### 7.3 Umbrales adaptativos derivados del registro
+### 7.4 Umbrales adaptativos derivados del registro
 
-El `pass 2` aprende de los propios husos semilla del registro.
+El rescate adaptativo aprende de los propios husos semilla del registro.
 
 Se derivan, con suelos y techos de seguridad:
 
@@ -276,7 +322,7 @@ Estado actual:
 - `corr_min = max(0.55, min(0.63, p10(seed corr) - 0.02))`
 - `zCov_min` y `zAbs_min` también se obtienen desde percentiles con límites
 
-### 7.4 Score adaptativo combinado
+### 7.5 Score adaptativo combinado
 
 Además de umbrales suaves, la implementación actual usa un score combinado de similitud al prototipo de los `seed`.
 
@@ -292,7 +338,7 @@ Pesos actuales:
 - `corr`: `0.30`
 - `zCov`: `0.20`
 
-### 7.5 Red de seguridad
+### 7.6 Red de seguridad
 
 El rescate adaptativo exige una malla mínima de seguridad:
 
@@ -301,7 +347,7 @@ El rescate adaptativo exige una malla mínima de seguridad:
 - `zCov_floor = 0.25`
 - `score_min = 1.05`
 
-La aceptación final del `pass 2` exige:
+La aceptación final del `pass 3` exige:
 
 1. pasar la red mínima de seguridad
 2. y además:
@@ -312,14 +358,16 @@ Los aceptados por esta vía quedan marcados internamente como:
 
 - `adaptive_ok`
 
+En esta versión, además, el rescate evita duplicar los `seed` ya aceptados, usando solapamiento temporal y proximidad del pico como exclusión.
+
 ---
 
 ## 8. Semántica actual de contadores
 
 Aunque la UI productiva ya no muestra todo el debug interno, el motor sigue usando esta semántica:
 
-- `seed`: eventos aceptados por la pasada conservadora
-- `rescued`: eventos añadidos por la pasada adaptativa
+- `seed`: eventos aceptados por la pasada conservadora fija
+- `rescued`: eventos añadidos tras recalibración frecuencial y rescate adaptativo
 - `aceptados`: `seed + rescued`
 - `usados en promedio`: eventos finalmente usados tras exclusión opcional por artefacto
 
@@ -352,10 +400,10 @@ Por tanto, hoy conviene entender `Husos2` como:
 
 La estrategia que mejor está funcionando a día de hoy es:
 
-- pasada conservadora por `best-window`
+- `pass 1` conservador con banda rápida fija parietal
 - refino temporal por `z-envelope`
-- `pass 2` adaptativo basado en `seed`
-- rescate final por score combinado
+- `pass 2` para aprender el pico sigma parietal del propio registro
+- `pass 3` de rescate final por umbrales suaves y score combinado
 
 Si se continúa el trabajo más adelante, el siguiente paso lógico sería:
 
